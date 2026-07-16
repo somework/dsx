@@ -15,7 +15,7 @@ pulled 103, unchanged 0, binary 6 (660.1 KB)
 ## Install
 
 ```bash
-go build -o ~/.local/bin/dsx ./tools/dsx
+go build -o ~/.local/bin/dsx .
 ```
 
 Requires Go 1.26+ and a signed-in Claude Code on **macOS** (the token is read from the
@@ -89,7 +89,7 @@ dsx auth   # scopes and expiry, never the token
 ## Development
 
 ```bash
-go test -race ./tools/dsx/
+go test -race ./...
 ```
 
 - [CLAUDE.md](CLAUDE.md) — orientation, invariants, testing discipline. Read before changing

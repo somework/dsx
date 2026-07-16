@@ -71,8 +71,8 @@ reading why it exists.
 ## Testing
 
 ```bash
-go test -race ./tools/dsx/     # 84 tests
-go vet ./tools/dsx/ && gofmt -l tools/dsx/
+go test -race ./...     # 84 tests
+go vet ./... && gofmt -l .
 ```
 
 **Unit tests cover `plan.go`, `envelope.go`, `state.go`, `mcp.go`'s parsing** — the pure
