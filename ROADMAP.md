@@ -40,7 +40,6 @@ one. But it is the user's account and reputation, so it is the user's call.
 |---|---|
 | `module dsx` | not an importable path; must become e.g. `github.com/<user>/dsx` before anyone can `go install` |
 | macOS-only auth | `auth.go` shells out to `security(1)`. The claude binary contains the literal `.credentials.json`, so a file-based fallback exists — but **its path and payload shape are inferred, not measured**; verify on an actual Linux install before writing the `auth_darwin.go` / `auth_unix.go` split. Windows unknown |
-| no LICENSE | nobody can legally use it |
 | no CI | `go test -race`, `go vet`, `gofmt -l` on push. Trivial; absence is just neglect |
 | no releases | `goreleaser` for darwin/linux × arm64/amd64, or leave `go install` as the only path |
 
@@ -103,5 +102,4 @@ This is the part that matters most and is furthest along — worth protecting.
 
 - Dependencies. Stdlib-only is a hard constraint for a binary that reads a credential.
 - Refreshing the OAuth token. See invariant 8 in CLAUDE.md.
-- Reimplementing `/design-sync` (the Storybook→Design pipeline baked into the claude binary).
   Different problem entirely.
