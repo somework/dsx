@@ -50,10 +50,46 @@ Established by probing the live endpoint; none of this is documented publicly.
 | `resources` capability | **absent** (`resources not supported`) |
 | `read_file` body | XML-wrapped, HTML-entity-escaped — **exactly `&amp; &lt; &gt;`** |
 | Read cap | 256 KiB; over that the reply carries `lines="A-B" total_lines="N"` and must be windowed via `offset` |
-| Binary files | **cannot be read back at all** — `read_file` is text-only, and there is no `encoding` parameter. `write_files` accepts them via base64. The asymmetry is the service's |
 | `write_files` reply | `{"etags":{path:etag},"written":N,"url":...}` — a **map**, not a list |
 | `needs_project_grant` | HTTP **403 with a JSON body**, not a tool error |
 | `plan_token` | optional for `write_files`; **required** for `delete_files`, which refuses a project-scoped token |
+
+### Two independent gates, not one
+
+Easy to conflate; they answer different questions and disagree in both directions.
+
+**Write — by extension → MIME, against an allowlist.** Measured:
+
+```
+✓ png jpg jpeg gif webp ico woff2 pdf zip mp4   ✓ css js json md html txt yaml toml
+✗ bin exe → unsupported content type "application/octet-stream"
+~ svg     → accepted but sanitised; an invalid SVG is rejected outright
+```
+
+**Read — by content, ignoring the extension entirely.** A file whose bytes are not
+valid UTF-8 is stored base64, and `read_file` serves only the text lane. Nothing in the
+API reads the other lane: no `resources` capability, no `encoding` parameter.
+
+Measured, and the results kill the obvious theories:
+
+| bytes | name | read back? |
+|---|---|---|
+| real PNG | `.png` | **refused** |
+| `\x00\x01\x02` inside | `.txt` | **served**, byte-exact — NUL is valid UTF-8 |
+| plain ASCII | `.png` | **served** — the extension buys nothing |
+| `\xff\xfe` | `.txt` | **refused** |
+
+So the six unreadable files in this project (`og.png`, screenshots, `.thumbnail`s) are
+not a category of "binary files" — they are files whose content is not valid UTF-8.
+They uploaded fine and are on the server.
+
+They are reachable without `read_file`: `copy_files` moves them project→project
+server-side without reading, and a local copy can replace them via `write_files`. Only
+the server→disk direction is closed; the browser is the way out.
+
+Note the one claim this repo cannot make: a binary **push** is verified by size only
+(67 bytes in, 67 on the server). Confirming it byte-for-byte would require reading it
+back, which is the very thing that does not work.
 
 ### Entity decoding
 
@@ -79,9 +115,13 @@ Three-way, like any sane sync. `if_match` on every write turns a blind overwrite
 checked one — the server refuses if the file moved. Conflicts are reported, never resolved
 silently; `--force` is the only way past.
 
-Binaries are recorded with `binary: true` and no bytes, so later syncs stop re-asking. That
-makes them tracked-but-absent, which `--prune` must never read as "deleted locally" — see
-`TestPlanPush/prune_must_never_delete_a_binary...`.
+Files the server will not serve back are recorded with `binary: true` and no bytes, so later
+syncs stop re-asking. That makes them tracked-but-absent, which `--prune` must never read as
+"deleted locally" — see `TestPlanPush/prune_must_never_delete_a_binary...`.
+
+Conflicts key off whether the bytes on disk still match the ones last agreed with the server,
+never off the etag: an etag test only sees the server, so it cannot see the both-sides-changed
+case at all. That mistake shipped once — see `TestPlanPullBothSidesChangedIsAConflict`.
 
 ## Tests
 
