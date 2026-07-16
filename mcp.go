@@ -82,7 +82,21 @@ func (e *grantError) Error() string {
 	return "needs_project_grant for project " + e.ProjectID
 }
 
-func (c *client) rpc(ctx context.Context, method string, params any) (json.RawMessage, error) {
+// readOnlyTools never change server state, so a transport fault can be retried
+// freely. Everything else may already have been applied by the time the fault
+// surfaced -- a retried delete_files or write_files would re-execute it.
+var readOnlyTools = map[string]bool{
+	"list_projects":            true,
+	"list_files":               true,
+	"list_design_systems":      true,
+	"list_members":             true,
+	"get_project":              true,
+	"get_conversation":         true,
+	"get_claude_design_prompt": true,
+	"read_file":                true,
+}
+
+func (c *client) rpc(ctx context.Context, method string, params any, idempotent bool) (json.RawMessage, error) {
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      c.seq.Add(1),
@@ -106,7 +120,7 @@ func (c *client) rpc(ctx context.Context, method string, params any) (json.RawMe
 			}
 		}
 
-		raw, retryable, err := c.attempt(ctx, body)
+		raw, retryable, err := c.attempt(ctx, body, idempotent)
 		if err == nil {
 			return raw, nil
 		}
@@ -118,7 +132,7 @@ func (c *client) rpc(ctx context.Context, method string, params any) (json.RawMe
 	return nil, fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func (c *client) attempt(ctx context.Context, body []byte) (raw json.RawMessage, retryable bool, err error) {
+func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw json.RawMessage, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, false, err
@@ -130,13 +144,14 @@ func (c *client) attempt(ctx context.Context, body []byte) (raw json.RawMessage,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, true, err
+		// The request may already have reached the server and been applied.
+		return nil, idempotent, err
 	}
 	defer resp.Body.Close()
 
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, true, err
+		return nil, idempotent, err
 	}
 
 	switch {
@@ -148,8 +163,11 @@ func (c *client) attempt(ctx context.Context, body []byte) (raw json.RawMessage,
 		}
 		_ = json.Unmarshal(payload, &g)
 		return nil, false, &grantError{ProjectID: g.ProjectID}
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+	case resp.StatusCode == http.StatusTooManyRequests:
+		// Rejected before it ran; safe to retry whatever the method.
 		return nil, true, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))
+	case resp.StatusCode >= 500:
+		return nil, idempotent, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))
 	case resp.StatusCode != http.StatusOK:
 		return nil, false, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 400))
 	}
@@ -166,23 +184,60 @@ func (c *client) attempt(ctx context.Context, body []byte) (raw json.RawMessage,
 
 // normalizeSSE unwraps a text/event-stream framing if the server chose one.
 // Plain JSON passes through untouched.
+//
+// Frames must not simply be concatenated: a stream may carry notifications
+// ahead of the response, and gluing two JSON documents together yields neither.
+// Only the frame bearing result or error answers our call.
 func normalizeSSE(b []byte) []byte {
-	if !bytes.HasPrefix(bytes.TrimSpace(b), []byte("event:")) &&
-		!bytes.HasPrefix(bytes.TrimSpace(b), []byte("data:")) {
+	trimmed := bytes.TrimSpace(b)
+	if !bytes.HasPrefix(trimmed, []byte("event:")) && !bytes.HasPrefix(trimmed, []byte("data:")) {
 		return b
 	}
-	var buf bytes.Buffer
-	for _, line := range strings.Split(string(b), "\n") {
-		if after, ok := strings.CutPrefix(line, "data: "); ok {
-			buf.WriteString(after)
+
+	var (
+		frames [][]byte
+		lines  []string
+	)
+	flush := func() {
+		if len(lines) > 0 {
+			// Per the SSE grammar, several data: lines in one event join on \n.
+			frames = append(frames, []byte(strings.Join(lines, "\n")))
+			lines = nil
 		}
 	}
-	return buf.Bytes()
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if line == "" {
+			flush()
+			continue
+		}
+		if after, ok := strings.CutPrefix(line, "data:"); ok {
+			lines = append(lines, strings.TrimPrefix(after, " "))
+		}
+	}
+	flush()
+
+	for _, f := range frames {
+		var probe struct {
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal(f, &probe) != nil {
+			continue
+		}
+		if len(probe.Result) > 0 || len(probe.Error) > 0 {
+			return f
+		}
+	}
+	if len(frames) > 0 {
+		return frames[len(frames)-1]
+	}
+	return b
 }
 
 // callTool invokes an MCP tool and returns its concatenated text content.
 func (c *client) callTool(ctx context.Context, name string, args map[string]any) (string, error) {
-	raw, err := c.rpc(ctx, "tools/call", map[string]any{"name": name, "arguments": args})
+	raw, err := c.rpc(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, readOnlyTools[name])
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", name, err)
 	}

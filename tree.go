@@ -48,6 +48,9 @@ func (c *client) walkTree(ctx context.Context, projectID string, concurrency int
 		sem   = make(chan struct{}, concurrency)
 	)
 
+	// Keep the caller's context: the derived one is also cancelled by our own
+	// error path, so it cannot tell "the user interrupted us" from "we gave up".
+	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -89,6 +92,11 @@ func (c *client) walkTree(ctx context.Context, projectID string, concurrency int
 
 	if len(errs) > 0 {
 		return nil, errs[0]
+	}
+	// An interrupted walk returns a short listing. Reporting that as success
+	// would let --prune read "not enumerated" as "deleted on the server".
+	if err := parent.Err(); err != nil {
+		return nil, fmt.Errorf("listing interrupted before the tree was complete: %w", err)
 	}
 	return files, nil
 }

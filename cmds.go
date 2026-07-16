@@ -445,7 +445,7 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
-	raw, err := c.rpc(ctx, "tools/list", map[string]any{})
+	raw, err := c.rpc(ctx, "tools/list", map[string]any{}, true)
 	if err != nil {
 		return err
 	}

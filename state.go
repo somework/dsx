@@ -147,6 +147,22 @@ func isIgnoredDir(name string) bool {
 	return false
 }
 
+// checkRemotePath refuses remote paths that must never be written locally even
+// though they stay inside the target directory, so safeJoin cannot catch them:
+// VCS metadata, dependency trees, and dsx's own ledger. A project we do not
+// control decides these names.
+func checkRemotePath(rel string) error {
+	if rel == stateFileName {
+		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
+	}
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if isIgnoredDir(part) {
+			return fmt.Errorf("refusing remote path %q: %q is local-only", rel, part)
+		}
+	}
+	return nil
+}
+
 // safeJoin resolves a project-relative path under root, refusing anything that
 // would escape it. Remote paths are untrusted input.
 func safeJoin(root, rel string) (string, error) {
@@ -172,6 +188,36 @@ func safeJoin(root, rel string) (string, error) {
 	}
 	if absFull != absRoot && !strings.HasPrefix(absFull, absRoot+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes target directory: %q", rel)
+	}
+
+	// The checks above are lexical, and a symlink is not visible to them: a
+	// link planted inside the target directory keeps every path string within
+	// the root while sending the actual write anywhere on the filesystem.
+	// Resolving the deepest existing ancestor is what closes that.
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolving target directory %q: %w", root, err)
+	}
+	if fi, err := os.Lstat(absFull); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to write through the symlink %q", rel)
+	}
+	ancestor := absFull
+	for {
+		if _, err := os.Lstat(ancestor); err == nil {
+			break
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return "", fmt.Errorf("no existing ancestor for %q", rel)
+		}
+		ancestor = parent
+	}
+	realAncestor, err := filepath.EvalSymlinks(ancestor)
+	if err != nil {
+		return "", fmt.Errorf("resolving %q: %w", rel, err)
+	}
+	if realAncestor != realRoot && !strings.HasPrefix(realAncestor, realRoot+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes target directory via a symlink: %q", rel)
 	}
 	return full, nil
 }

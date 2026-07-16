@@ -123,12 +123,22 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		return rep, nil
 	}
 
+	// Refuse hostile remote paths before any of them reaches the disk.
+	for _, path := range append(append([]string{}, d.Fetch...), d.Delete...) {
+		if err := checkRemotePath(path); err != nil {
+			return rep, err
+		}
+	}
+
 	var (
 		mu   sync.Mutex
 		wg   sync.WaitGroup
 		sem  = make(chan struct{}, o.concurrency)
 		errs []error
 	)
+	// The caller's context stays separate: the derived one is cancelled by our
+	// own error path too, so only the parent can report an interruption.
+	parent := ctx
 	fetchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -203,8 +213,19 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	}
 	wg.Wait()
 
+	// Files already written are on disk whether or not the run finished. Save
+	// the ledger for them, or the next sync sees bytes it has no record of and
+	// calls its own work a conflict.
+	st.ProjectID = o.projectID
+	st.Endpoint = c.endpoint
+
 	if len(errs) > 0 {
+		_ = st.save(o.dir)
 		return rep, errs[0]
+	}
+	if err := parent.Err(); err != nil {
+		_ = st.save(o.dir)
+		return rep, fmt.Errorf("pull interrupted: %w", err)
 	}
 
 	for _, path := range rep.Deleted {
@@ -218,8 +239,6 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		delete(st.Files, path)
 	}
 
-	st.ProjectID = o.projectID
-	st.Endpoint = c.endpoint
 	if err := st.save(o.dir); err != nil {
 		return rep, err
 	}

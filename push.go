@@ -93,6 +93,13 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 		return rep, nil
 	}
 
+	// Pin the directory before the first write. An error path that saves the
+	// ledger without this leaves project_id empty, and an empty pin is no pin:
+	// the guards above short-circuit on it and the next sync could target a
+	// different project against this project's etags.
+	st.ProjectID = o.projectID
+	st.Endpoint = c.endpoint
+
 	for _, batch := range batches(specs) {
 		if err := c.writeBatch(ctx, o.projectID, batch, &st, &rep); err != nil {
 			_ = st.save(o.dir) // keep whatever succeeded
@@ -110,8 +117,6 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 		}
 	}
 
-	st.ProjectID = o.projectID
-	st.Endpoint = c.endpoint
 	if err := st.save(o.dir); err != nil {
 		return rep, err
 	}

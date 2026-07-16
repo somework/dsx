@@ -21,17 +21,20 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 		prev, tracked := st.Files[path]
 		onDisk, present := local[path]
 
+		// Dirty means the bytes on disk are not the bytes we last agreed on --
+		// either we edited them, or they were never ours to begin with. Keying
+		// the conflict off this rather than off the etag is what makes the
+		// both-sides-changed case safe: an etag test only sees the server.
+		localDirty := present && (!tracked || onDisk.SHA != prev.SHA)
+
 		switch {
 		case tracked && prev.Etag == r.Etag && prev.Binary:
 			// Known-unreadable and unchanged since we learned that.
 			d.Binary = append(d.Binary, path)
-		case tracked && prev.Etag == r.Etag && present && onDisk.SHA == prev.SHA:
+		case tracked && prev.Etag == r.Etag && present && !localDirty:
 			d.Unchanged++
-		case tracked && prev.Etag == r.Etag && present && onDisk.SHA != prev.SHA && !force:
-			// Server unchanged, local edited: overwriting would destroy the edit.
-			d.Conflicts = append(d.Conflicts, path)
-		case !tracked && present && !force:
-			// No common ancestor, so we cannot tell which side is newer.
+		case localDirty && !force:
+			// Overwriting would destroy work that exists nowhere else.
 			d.Conflicts = append(d.Conflicts, path)
 		default:
 			d.Fetch = append(d.Fetch, path)
@@ -43,8 +46,15 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 			if _, stillRemote := remote[path]; stillRemote {
 				continue
 			}
-			if _, tracked := st.Files[path]; !tracked {
+			prev, tracked := st.Files[path]
+			if !tracked {
 				continue // never ours; leave it alone
+			}
+			if !force && local[path].SHA != prev.SHA {
+				// Gone from the server, edited here: the local copy is the
+				// only one left. Deleting it would be unrecoverable.
+				d.Conflicts = append(d.Conflicts, path)
+				continue
 			}
 			d.Delete = append(d.Delete, path)
 		}
