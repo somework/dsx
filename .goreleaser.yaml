@@ -1,0 +1,65 @@
+version: 2
+
+# Release machinery, wired but never fired: `goreleaser release` is the owner's
+# call, not the build's. See ROADMAP.md — dsx speaks an undocumented private API
+# and reads Claude Code's OAuth token, and publishing that under someone's name
+# is their decision. `goreleaser build --snapshot --clean` exercises all of this
+# without producing anything public.
+
+project_name: dsx
+
+before:
+  hooks:
+    - go mod tidy
+    - go test -race ./...
+
+builds:
+  - id: dsx
+    main: .
+    binary: dsx
+    # No cgo: the point of this binary is that it is one trustworthy artifact
+    # that reads a credential. A dynamic link is one more thing to trust.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      # -X main.version is the only stamp; version.go falls back to the
+      # toolchain's build info when it is absent, so `go install` still reports
+      # something truthful.
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - PROTOCOL.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+release:
+  # Belt and braces: even an accidental `goreleaser release` stops at a draft
+  # rather than publishing.
+  draft: true
+  prerelease: auto

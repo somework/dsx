@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
+	"time"
 )
 
-const usage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token from the macOS Keychain.
+const usage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
 
 SYNC (etag-aware; unchanged files cost no request at all)
-  dsx pull  <project> <dir> [--prune] [--force] [-n] [-j N]
-  dsx push  <project> <dir> [--prune] [--force] [-n] [-j N]
-  dsx status <project> <dir>            what a sync would do; transfers nothing
+  dsx pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
+  dsx push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
+  dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
+  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
+  .dsxignore excludes paths from the sync, in both directions.
 
 PROJECTS
   dsx projects                          list projects
@@ -48,21 +52,36 @@ MEMBERS / SHARING
   dsx sharing <project> [--scope s] [--link-permission p]
 
 ESCAPE HATCH
+  dsx prompt [--project id] [--ds id]    the server's own Claude Design prompt
   dsx tools                             tool names and schemas from the server
   dsx raw <tool> '<json-args>'          call any tool verbatim
+
+DIAGNOSTICS
+  dsx help
   dsx auth                              token scopes and expiry (never the token)
+  dsx doctor                            token, endpoint, clock skew
+  dsx version                           version, revision, platform
+  dsx completion <bash|zsh|fish>
 
 GLOBAL
   --json      machine-readable output      -q  suppress the summary line
   -j N        concurrency (default 8)      -n  dry run
 
-Env: DSX_TOKEN overrides the Keychain. DSX_ENDPOINT overrides the MCP URL.`
+EXIT CODES
+  0 ok   1 failed   2 usage   3 conflict (needs a human)
+  4 transport (retry may help)   5 auth (run any ` + "`claude`" + ` command)
+
+Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP URL.`
 
 func main() {
-	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "dsx: "+err.Error())
-		os.Exit(1)
+	err := run()
+	if err == nil {
+		return
 	}
+	// The renderer runs here, outside every FlagSet, so that a failure raised
+	// before flags were parsed still honours --json.
+	fmt.Fprintln(os.Stderr, renderError(err, jsonRequested(os.Args[1:])))
+	os.Exit(exitCodeFor(err))
 }
 
 func run() error {
@@ -76,13 +95,18 @@ func run() error {
 	case "-h", "--help", "help":
 		fmt.Println(usage)
 		return nil
+	case "-v", "--version", "version":
+		fmt.Println(versionString())
+		return nil
+	case "completion":
+		return cmdCompletion(args)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if cmd == "auth" {
-		return cmdAuth()
+		return cmdAuth(args)
 	}
 
 	token, err := loadToken()
@@ -91,20 +115,29 @@ func run() error {
 	}
 	c := newClient(token)
 
+	if cmd == "doctor" {
+		return cmdDoctor(ctx, c, args)
+	}
+
 	switch cmd {
 	case "pull", "push", "status":
 		return cmdSync(ctx, c, cmd, args)
 	case "projects":
-		return emit(ctx, c, "list_projects", map[string]any{})
+		return emitFlagged(ctx, c, "projects", args, func([]string) (string, map[string]any, error) {
+			return "list_projects", map[string]any{}, nil
+		})
 	case "project":
-		id, rest, err := need1(args, "project <id>")
-		if err != nil {
-			return err
-		}
-		_ = rest
-		return emit(ctx, c, "get_project", map[string]any{"project_id": id})
+		return emitFlagged(ctx, c, "project", args, func(pos []string) (string, map[string]any, error) {
+			id, _, err := need1(pos, "project <id>")
+			if err != nil {
+				return "", nil, err
+			}
+			return "get_project", map[string]any{"project_id": id}, nil
+		})
 	case "systems":
-		return emit(ctx, c, "list_design_systems", map[string]any{})
+		return emitFlagged(ctx, c, "systems", args, func([]string) (string, map[string]any, error) {
+			return "list_design_systems", map[string]any{}, nil
+		})
 	case "new":
 		return cmdNew(ctx, c, args)
 	case "ls":
@@ -130,11 +163,13 @@ func run() error {
 	case "conv-put":
 		return cmdConvPut(ctx, c, args)
 	case "members":
-		id, _, err := need1(args, "members <project>")
-		if err != nil {
-			return err
-		}
-		return emit(ctx, c, "list_members", map[string]any{"project_id": id})
+		return emitFlagged(ctx, c, "members", args, func(pos []string) (string, map[string]any, error) {
+			id, _, err := need1(pos, "members <project>")
+			if err != nil {
+				return "", nil, err
+			}
+			return "list_members", map[string]any{"project_id": id}, nil
+		})
 	case "member-add":
 		return cmdMemberAdd(ctx, c, args)
 	case "member-rm":
@@ -150,41 +185,147 @@ func run() error {
 	case "raw":
 		return cmdRaw(ctx, c, args)
 	default:
-		return fmt.Errorf("unknown command %q — run `dsx help`", cmd)
+		return &dsxError{Kind: kindUsage, Msg: "unknown command " + strconv.Quote(cmd) + " — run `dsx help`"}
 	}
 }
 
 func need1(args []string, form string) (string, []string, error) {
 	if len(args) < 1 {
-		return "", nil, fmt.Errorf("usage: dsx %s", form)
+		return "", nil, usageError(form)
 	}
 	return args[0], args[1:], nil
 }
 
 func need2(args []string, form string) (string, string, []string, error) {
 	if len(args) < 2 {
-		return "", "", nil, fmt.Errorf("usage: dsx %s", form)
+		return "", "", nil, usageError(form)
 	}
 	return args[0], args[1], args[2:], nil
 }
 
-// emit calls a tool and prints its text result verbatim.
-func emit(ctx context.Context, c *client, tool string, args map[string]any) error {
+// emit calls a tool and prints its text result.
+//
+// Under --json, stdout is guaranteed to be one JSON document. Most tools
+// already answer in JSON and are passed through untouched; the few that answer
+// in prose are wrapped rather than handed to a caller that is about to run a
+// parser over them. A guarantee with exceptions is not one an agent can use.
+func emit(ctx context.Context, c *client, tool string, args map[string]any, asJSON bool) error {
 	text, err := c.callTool(ctx, tool, args)
 	if err != nil {
 		return err
 	}
-	fmt.Println(text)
+	fmt.Println(jsonSafe(text, asJSON))
 	return nil
 }
 
-func cmdAuth() error {
+func jsonSafe(text string, asJSON bool) string {
+	if !asJSON {
+		return text
+	}
+	if json.Valid([]byte(text)) {
+		return text
+	}
+	b, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return text
+	}
+	return string(b)
+}
+
+// emitFlagged parses the standard --json flag, then calls the tool. It is the
+// shape every passthrough command takes: an agent should not have to learn
+// which subcommands happen to accept --json.
+func emitFlagged(ctx context.Context, c *client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
+	flags := newFlagSet(name)
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	tool, toolArgs, err := build(pos)
+	if err != nil {
+		return err
+	}
+	return emit(ctx, c, tool, toolArgs, *asJSON)
+}
+
+// cmdAuth reports the credential's metadata. It must never render the token:
+// this is the command most likely to be run with a terminal being recorded.
+func cmdAuth(args []string) error {
+	flags := newFlagSet("auth")
+	asJSON := flags.Bool("json", false, "JSON output")
+	if _, err := parseArgs(flags, args); err != nil {
+		return err
+	}
 	scopes, exp, err := tokenInfo()
 	if err != nil {
 		return err
 	}
-	fmt.Printf("scopes:  %v\nexpires: %s\n", scopes, exp.Format("2006-01-02T15:04:05Z07:00"))
+	if *asJSON {
+		b, err := json.Marshal(map[string]any{
+			"scopes":  scopes,
+			"expires": exp.Format(time.RFC3339),
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	fmt.Printf("scopes:  %v\nexpires: %s\n", scopes, exp.Format(time.RFC3339))
 	return nil
+}
+
+// boundProject reports the project a directory is already pinned to, or "" if
+// the directory carries no ledger yet.
+func boundProject(dir string) (string, error) {
+	st, err := loadState(dir)
+	if err != nil {
+		return "", err
+	}
+	return st.ProjectID, nil
+}
+
+// resolveSyncTarget works out which project and directory a sync command means.
+//
+// The ledger already records the project id, so retyping a UUID on every sync
+// is pure friction. Two positional arguments keep their old meaning exactly;
+// fewer fall back to the ledger, which is the only place the binding is known.
+func resolveSyncTarget(mode string, pos []string, bound func(string) (string, error)) (project, dir string, err error) {
+	switch len(pos) {
+	case 0:
+		dir = "."
+	case 1:
+		dir = pos[0]
+	case 2:
+		return pos[0], pos[1], nil
+	default:
+		return "", "", usageError(mode + " [<project>] [<dir>]")
+	}
+
+	p, err := bound(dir)
+	if err != nil {
+		return "", "", err
+	}
+	if p == "" {
+		return "", "", &dsxError{Kind: kindUsage, Msg: fmt.Sprintf(
+			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
+			dir, mode, dir)}
+	}
+	return p, dir, nil
+}
+
+// conflictOutcome turns reported conflicts into the exit status.
+//
+// A dry run was asked to move nothing, so refusing to move something is the
+// answer it wanted, not a failure. A real run that refused did not do what it
+// was told, and a caller that reads exit 0 there would carry on over the top of
+// work that exists nowhere else.
+func conflictOutcome(conflicts []string, dryRun bool, hint string) error {
+	if dryRun || len(conflicts) == 0 {
+		return nil
+	}
+	return conflictError(conflicts, hint)
 }
 
 func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
@@ -201,7 +342,7 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, dir, _, err := need2(pos, mode+" <project> <dir>")
+	project, dir, err := resolveSyncTarget(mode, pos, boundProject)
 	if err != nil {
 		return err
 	}
@@ -227,7 +368,8 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 		if !*quiet {
 			fmt.Println(rep.render(*asJSON))
 		}
-		return nil
+		return conflictOutcome(rep.Conflicts, dryRun,
+			"server moved ahead; `dsx pull` first, or --force")
 	}
 
 	pullRep, err := runPull(ctx, c, pullOpts{
@@ -242,7 +384,8 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 		if !*quiet {
 			fmt.Println(pullRep.render(*asJSON))
 		}
-		return nil
+		return conflictOutcome(pullRep.Conflicts, dryRun,
+			"local differs from the server; --force to overwrite")
 	}
 
 	// `status` is the only mode that reports both directions. Neither side

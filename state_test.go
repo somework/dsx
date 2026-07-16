@@ -111,7 +111,11 @@ func TestScanLocalSkipsLedgerAndVCS(t *testing.T) {
 	write(".git/config", "[core]")
 	write("node_modules/pkg/index.js", "x")
 
-	got, err := scanLocal(dir)
+	ig, err := loadIgnore(dir)
+	if err != nil {
+		t.Fatalf("loadIgnore: %v", err)
+	}
+	got, err := scanLocal(dir, ig)
 	if err != nil {
 		t.Fatalf("scanLocal: %v", err)
 	}

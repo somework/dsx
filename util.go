@@ -4,11 +4,25 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
 
 func sortStrings(s []string) { sort.Strings(s) }
+
+// jsonFlag adds the standard --json. Every command takes it, so that an agent
+// never has to know which ones happen to.
+func jsonFlag(fs *flag.FlagSet) *bool { return fs.Bool("json", false, "machine-readable output") }
+
+// newFlagSet builds a FlagSet that reports usage errors through dsx's own
+// classification instead of printing to stderr and returning an unlabelled
+// error. flag's default output would bypass --json entirely.
+func newFlagSet(name string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return fs
+}
 
 // parseArgs parses flags that may appear before, between, or after positional
 // arguments. Go's flag package stops at the first non-flag token, which would
@@ -17,7 +31,9 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for {
 		if err := fs.Parse(args); err != nil {
-			return nil, err
+			// A bad flag is a bad invocation: retrying it verbatim cannot help,
+			// and the caller deserves that in the exit code.
+			return nil, &dsxError{Kind: kindUsage, Msg: "dsx " + fs.Name(), Err: err}
 		}
 		rest := fs.Args()
 		if len(rest) == 0 {

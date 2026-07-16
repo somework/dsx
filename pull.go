@@ -100,11 +100,19 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 			filepath.Join(o.dir, stateFileName), st.ProjectID, o.projectID)
 	}
 
+	ig, err := loadIgnore(o.dir)
+	if err != nil {
+		return rep, err
+	}
 	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
-	local, err := scanLocal(o.dir)
+	// Both sides are filtered, never just one. An ignored path that stayed in
+	// the listing but vanished from the scan is indistinguishable from a local
+	// delete, and --prune acts on that difference.
+	remote = filterRemote(remote, ig)
+	local, err := scanLocal(o.dir, ig)
 	if err != nil {
 		return rep, err
 	}

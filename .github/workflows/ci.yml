@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # dsx has one platform-specific file per OS (auth_darwin.go reads the
+    # Keychain, auth_other.go does not). Building on only one of them would
+    # leave the other's compile errors to be found by a user.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: test
+        # The live suite is excluded by its build tag: it needs a real login and
+        # writes to a real project. CI has neither and must not acquire either.
+        run: go test -race -coverprofile=cover.out ./...
+
+      - name: coverage floor
+        # The floor is a ratchet against silent erosion, not a target to game.
+        # plan.go and envelope.go are held higher because that is where a bug
+        # costs data rather than convenience.
+        run: |
+          go tool cover -func=cover.out | tail -1
+          total=$(go tool cover -func=cover.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')
+          awk -v t="$total" 'BEGIN { if (t+0 < 80) { printf "::error::total coverage %.1f%% is under the 80%% floor\n", t; exit 1 } }'
+          for f in plan.go envelope.go; do
+            pct=$(go tool cover -func=cover.out | awk -v f="$f" '$1 ~ f {c++; s+=substr($NF,1,length($NF)-1)} END {if (c) print s/c; else print 0}')
+            awk -v p="$pct" -v f="$f" 'BEGIN { if (p+0 < 95) { printf "::error::%s coverage %.1f%% is under its 95%% floor\n", f, p; exit 1 } }'
+          done
+
+  staticcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      # staticcheck is a CI tool, not a dependency: it never enters go.mod, so
+      # the shipped binary stays stdlib-only. That is the whole constraint.
+      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+
+  build:
+    # Proof that every release target compiles, without releasing anything.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [darwin, linux]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: go build -o /dev/null .

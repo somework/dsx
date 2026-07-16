@@ -4,16 +4,22 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 )
 
+// One thin function per MCP tool. They exist to spell the arguments out, not to
+// add behaviour: `dsx raw` is the escape hatch for anything not wrapped here,
+// and a wrapper that started interpreting replies would make the two disagree.
+//
+// Every one takes --json. Under it, stdout is one JSON document -- see emit.
+
 func cmdNew(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("new", flag.ContinueOnError)
-	ds := fs.String("ds", "", "design system id to attach")
-	pos, err := parseArgs(fs, args)
+	flags := newFlagSet("new")
+	ds := flags.String("ds", "", "design system id to attach")
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -25,34 +31,39 @@ func cmdNew(ctx context.Context, c *client, args []string) error {
 	if *ds != "" {
 		a["design_system_id"] = *ds
 	}
-	return emit(ctx, c, "create_project", a)
+	return emit(ctx, c, "create_project", a, *asJSON)
 }
 
 func cmdLs(ctx context.Context, c *client, args []string) error {
-	project, rest, err := need1(args, "ls <project> [path]")
-	if err != nil {
-		return err
-	}
-	a := map[string]any{"project_id": project}
-	if len(rest) > 0 {
-		a["path"] = rest[0]
-	}
-	return emit(ctx, c, "list_files", a)
+	return emitFlagged(ctx, c, "ls", args, func(pos []string) (string, map[string]any, error) {
+		project, rest, err := need1(pos, "ls <project> [path]")
+		if err != nil {
+			return "", nil, err
+		}
+		a := map[string]any{"project_id": project}
+		if len(rest) > 0 {
+			a["path"] = rest[0]
+		}
+		return "list_files", a, nil
+	})
 }
 
 func cmdTree(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("tree", flag.ContinueOnError)
+	flags := newFlagSet("tree")
 	var (
-		jobs   = fs.Int("j", 8, "concurrency")
-		asJSON = fs.Bool("json", false, "JSON output")
+		jobs   = flags.Int("j", 8, "concurrency")
+		asJSON = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
 	project, _, err := need1(pos, "tree <project>")
 	if err != nil {
 		return err
+	}
+	if *jobs < 1 {
+		*jobs = 1
 	}
 	files, err := c.walkTree(ctx, project, *jobs)
 	if err != nil {
@@ -81,9 +92,12 @@ func cmdTree(ctx context.Context, c *client, args []string) error {
 }
 
 func cmdCat(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("cat", flag.ContinueOnError)
-	out := fs.String("out", "", "write to this file instead of stdout")
-	pos, err := parseArgs(fs, args)
+	flags := newFlagSet("cat")
+	var (
+		out    = flags.String("out", "", "write to this file instead of stdout")
+		asJSON = jsonFlag(flags)
+	)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -91,24 +105,45 @@ func cmdCat(ctx context.Context, c *client, args []string) error {
 	if err != nil {
 		return err
 	}
-	body, _, err := c.readFull(ctx, project, path)
+	body, etag, err := c.readFull(ctx, project, path)
 	if err != nil {
 		return err
 	}
 	if *out != "" {
-		return os.WriteFile(*out, []byte(body), 0o644)
+		if err := os.WriteFile(*out, []byte(body), 0o644); err != nil {
+			return err
+		}
+		if *asJSON {
+			b, err := json.Marshal(map[string]any{"path": path, "etag": etag, "bytes": len(body), "out": *out})
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+		}
+		return nil
+	}
+	if *asJSON {
+		// The body goes in a JSON string rather than raw on stdout: a caller
+		// that asked for JSON is running a parser, and a CSS file is not one.
+		b, err := json.Marshal(map[string]any{"path": path, "etag": etag, "content": body})
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(b))
+		return nil
 	}
 	_, err = io.WriteString(os.Stdout, body)
 	return err
 }
 
 func cmdPut(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("put", flag.ContinueOnError)
+	flags := newFlagSet("put")
 	var (
-		ifMatch = fs.String("if-match", "", `etag guard; "0" asserts the path is new`)
-		plan    = fs.String("plan", "", "plan_token from `dsx plan`")
+		ifMatch = flags.String("if-match", "", `etag guard; "0" asserts the path is new`)
+		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
+		asJSON  = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -139,47 +174,46 @@ func cmdPut(ctx context.Context, c *client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return emit(ctx, c, "write_files", a)
+	return emit(ctx, c, "write_files", a, *asJSON)
 }
 
 func cmdRm(ctx context.Context, c *client, args []string) error {
-	project, rest, err := need1(args, "rm <project> <path...>")
+	flags := newFlagSet("rm")
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	project, rest, err := need1(pos, "rm <project> <path...>")
 	if err != nil {
 		return err
 	}
 	if len(rest) == 0 {
-		return fmt.Errorf("usage: dsx rm <project> <path...>")
+		return usageError("rm <project> <path...>")
 	}
 
-	// Deletes always need a path-scoped plan_token naming every path.
-	text, err := c.callTool(ctx, "finalize_plan", map[string]any{
-		"project_id": project,
-		"deletes":    rest,
-	})
+	// Deletes always need a path-scoped plan_token naming every path; a
+	// project-scoped one is refused.
+	token, err := planToken(ctx, c, map[string]any{"project_id": project, "deletes": rest})
 	if err != nil {
-		return fmt.Errorf("finalize_plan: %w", err)
-	}
-	var plan struct {
-		PlanToken string `json:"plan_token"`
-	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return fmt.Errorf("finalize_plan returned no plan_token: %s", truncate(text, 200))
+		return err
 	}
 	return emit(ctx, c, "delete_files", map[string]any{
 		"project_id": project,
-		"plan_token": plan.PlanToken,
+		"plan_token": token,
 		"paths":      rest,
-	})
+	}, *asJSON)
 }
 
 func cmdCp(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("cp", flag.ContinueOnError)
+	flags := newFlagSet("cp")
 	var (
-		from    = fs.String("from", "", "source project (omit for same-project copy)")
-		ifMatch = fs.String("if-match", "", "etag guard on a single-file dest")
-		plan    = fs.String("plan", "", "plan_token from `dsx plan`")
+		from    = flags.String("from", "", "source project (omit for same-project copy)")
+		ifMatch = flags.String("if-match", "", "etag guard on a single-file dest")
+		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
+		asJSON  = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -188,7 +222,7 @@ func cmdCp(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return fmt.Errorf("usage: dsx cp <project> <src> <dst> [--from <project>]")
+		return usageError("cp <project> <src> <dst> [--from <project>]")
 	}
 
 	file := map[string]any{"src": src, "dest": rest[0]}
@@ -202,17 +236,18 @@ func cmdCp(ctx context.Context, c *client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return emit(ctx, c, "copy_files", a)
+	return emit(ctx, c, "copy_files", a, *asJSON)
 }
 
 func cmdPlan(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
+	flags := newFlagSet("plan")
 	var (
-		writes  = fs.String("writes", "", "comma-separated paths to authorise for writing")
-		deletes = fs.String("deletes", "", "comma-separated paths to authorise for deletion")
-		scope   = fs.String("scope", "", `"paths" (default) or "project"`)
+		writes  = flags.String("writes", "", "comma-separated paths to authorise for writing")
+		deletes = flags.String("deletes", "", "comma-separated paths to authorise for deletion")
+		scope   = flags.String("scope", "", `"paths" (default) or "project"`)
+		asJSON  = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -230,16 +265,17 @@ func cmdPlan(ctx context.Context, c *client, args []string) error {
 	if *scope != "" {
 		a["scope"] = *scope
 	}
-	return emit(ctx, c, "finalize_plan", a)
+	return emit(ctx, c, "finalize_plan", a, *asJSON)
 }
 
 func cmdPreview(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("preview", flag.ContinueOnError)
+	flags := newFlagSet("preview")
 	var (
-		render     = fs.Bool("render", false, "render the preview")
-		validators = fs.String("validators", "", "comma-separated validators")
+		render     = flags.Bool("render", false, "render the preview")
+		validators = flags.String("validators", "", "comma-separated validators")
+		asJSON     = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -254,17 +290,18 @@ func cmdPreview(ctx context.Context, c *client, args []string) error {
 	if v := splitList(*validators); len(v) > 0 {
 		a["validators"] = v
 	}
-	return emit(ctx, c, "render_preview", a)
+	return emit(ctx, c, "render_preview", a, *asJSON)
 }
 
 func cmdSupportJS(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("support-js", flag.ContinueOnError)
+	flags := newFlagSet("support-js")
 	var (
-		path    = fs.String("path", "", "destination path")
-		ifMatch = fs.String("if-match", "", "etag guard")
-		plan    = fs.String("plan", "", "plan_token")
+		path    = flags.String("path", "", "destination path")
+		ifMatch = flags.String("if-match", "", "etag guard")
+		plan    = flags.String("plan", "", "plan_token")
+		asJSON  = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -278,13 +315,14 @@ func cmdSupportJS(ctx context.Context, c *client, args []string) error {
 			a[k] = v
 		}
 	}
-	return emit(ctx, c, "create_support_js", a)
+	return emit(ctx, c, "create_support_js", a, *asJSON)
 }
 
 func cmdConv(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("conv", flag.ContinueOnError)
-	chat := fs.String("chat", "", "chat id")
-	pos, err := parseArgs(fs, args)
+	flags := newFlagSet("conv")
+	chat := flags.String("chat", "", "chat id")
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -296,19 +334,20 @@ func cmdConv(ctx context.Context, c *client, args []string) error {
 	if *chat != "" {
 		a["chat_id"] = *chat
 	}
-	return emit(ctx, c, "get_conversation", a)
+	return emit(ctx, c, "get_conversation", a, *asJSON)
 }
 
 func cmdConvPut(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("conv-put", flag.ContinueOnError)
+	flags := newFlagSet("conv-put")
 	var (
-		msgFile = fs.String("messages", "", "JSON file holding the messages array (required)")
-		chat    = fs.String("chat", "", "chat id")
-		title   = fs.String("title", "", "conversation title")
-		appnd   = fs.Bool("append", false, "append instead of replacing")
-		through = fs.Int("synced-through-idx", -1, "synced_through_idx")
+		msgFile = flags.String("messages", "", "JSON file holding the messages array (required)")
+		chat    = flags.String("chat", "", "chat id")
+		title   = flags.String("title", "", "conversation title")
+		appnd   = flags.Bool("append", false, "append instead of replacing")
+		through = flags.Int("synced-through-idx", -1, "synced_through_idx")
+		asJSON  = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -317,7 +356,7 @@ func cmdConvPut(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if *msgFile == "" {
-		return fmt.Errorf("--messages <file.json> is required")
+		return usageError("conv-put <project> --messages <file.json>")
 	}
 	b, err := os.ReadFile(*msgFile)
 	if err != nil {
@@ -341,17 +380,18 @@ func cmdConvPut(ctx context.Context, c *client, args []string) error {
 	if *through >= 0 {
 		a["synced_through_idx"] = *through
 	}
-	return emit(ctx, c, "put_conversation", a)
+	return emit(ctx, c, "put_conversation", a, *asJSON)
 }
 
 func cmdMemberAdd(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("member-add", flag.ContinueOnError)
+	flags := newFlagSet("member-add")
 	var (
-		role  = fs.String("role", "", "role (required)")
-		email = fs.String("email", "", "invitee email")
-		uuid  = fs.String("uuid", "", "invitee account uuid")
+		role   = flags.String("role", "", "role (required)")
+		email  = flags.String("email", "", "invitee email")
+		uuid   = flags.String("uuid", "", "invitee account uuid")
+		asJSON = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -360,10 +400,10 @@ func cmdMemberAdd(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if *role == "" {
-		return fmt.Errorf("--role is required")
+		return usageError("member-add <project> --role <r> [--email e] [--uuid u]")
 	}
 	if *email == "" && *uuid == "" {
-		return fmt.Errorf("give --email or --uuid")
+		return &dsxError{Kind: kindUsage, Msg: "give --email or --uuid"}
 	}
 	a := map[string]any{"project_id": project, "role": *role}
 	if *email != "" {
@@ -372,37 +412,42 @@ func cmdMemberAdd(ctx context.Context, c *client, args []string) error {
 	if *uuid != "" {
 		a["account_uuid"] = *uuid
 	}
-	return emit(ctx, c, "add_member", a)
+	return emit(ctx, c, "add_member", a, *asJSON)
 }
 
 func cmdMemberRm(ctx context.Context, c *client, args []string) error {
-	project, uuid, _, err := need2(args, "member-rm <project> <uuid>")
-	if err != nil {
-		return err
-	}
-	return emit(ctx, c, "remove_member", map[string]any{"project_id": project, "account_uuid": uuid})
+	return emitFlagged(ctx, c, "member-rm", args, func(pos []string) (string, map[string]any, error) {
+		project, uuid, _, err := need2(pos, "member-rm <project> <uuid>")
+		if err != nil {
+			return "", nil, err
+		}
+		return "remove_member", map[string]any{"project_id": project, "account_uuid": uuid}, nil
+	})
 }
 
 func cmdMemberRole(ctx context.Context, c *client, args []string) error {
-	project, uuid, rest, err := need2(args, "member-role <project> <uuid> <role>")
-	if err != nil {
-		return err
-	}
-	if len(rest) == 0 {
-		return fmt.Errorf("usage: dsx member-role <project> <uuid> <role>")
-	}
-	return emit(ctx, c, "update_member_role", map[string]any{
-		"project_id": project, "account_uuid": uuid, "role": rest[0],
+	return emitFlagged(ctx, c, "member-role", args, func(pos []string) (string, map[string]any, error) {
+		project, uuid, rest, err := need2(pos, "member-role <project> <uuid> <role>")
+		if err != nil {
+			return "", nil, err
+		}
+		if len(rest) == 0 {
+			return "", nil, usageError("member-role <project> <uuid> <role>")
+		}
+		return "update_member_role", map[string]any{
+			"project_id": project, "account_uuid": uuid, "role": rest[0],
+		}, nil
 	})
 }
 
 func cmdSharing(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("sharing", flag.ContinueOnError)
+	flags := newFlagSet("sharing")
 	var (
-		scope = fs.String("scope", "", "sharing scope")
-		link  = fs.String("link-permission", "", "link permission")
+		scope  = flags.String("scope", "", "sharing scope")
+		link   = flags.String("link-permission", "", "link permission")
+		asJSON = jsonFlag(flags)
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := parseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -417,16 +462,17 @@ func cmdSharing(ctx context.Context, c *client, args []string) error {
 	if *link != "" {
 		a["link_permission"] = *link
 	}
-	return emit(ctx, c, "update_sharing", a)
+	return emit(ctx, c, "update_sharing", a, *asJSON)
 }
 
 func cmdPrompt(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("prompt", flag.ContinueOnError)
+	flags := newFlagSet("prompt")
 	var (
-		project = fs.String("project", "", "project id")
-		ds      = fs.String("ds", "", "design system id")
+		project = flags.String("project", "", "project id")
+		ds      = flags.String("ds", "", "design system id")
+		asJSON  = jsonFlag(flags)
 	)
-	if _, err := parseArgs(fs, args); err != nil {
+	if _, err := parseArgs(flags, args); err != nil {
 		return err
 	}
 	a := map[string]any{}
@@ -436,20 +482,23 @@ func cmdPrompt(ctx context.Context, c *client, args []string) error {
 	if *ds != "" {
 		a["design_system_id"] = *ds
 	}
-	return emit(ctx, c, "get_claude_design_prompt", a)
+	return emit(ctx, c, "get_claude_design_prompt", a, *asJSON)
 }
 
 func cmdTools(ctx context.Context, c *client, args []string) error {
-	fs := flag.NewFlagSet("tools", flag.ContinueOnError)
-	full := fs.Bool("schema", false, "print full JSON schemas")
-	if _, err := parseArgs(fs, args); err != nil {
+	flags := newFlagSet("tools")
+	var (
+		full   = flags.Bool("schema", false, "print full JSON schemas")
+		asJSON = jsonFlag(flags)
+	)
+	if _, err := parseArgs(flags, args); err != nil {
 		return err
 	}
 	raw, err := c.rpc(ctx, "tools/list", map[string]any{}, true)
 	if err != nil {
 		return err
 	}
-	if *full {
+	if *full || *asJSON {
 		fmt.Println(string(raw))
 		return nil
 	}
@@ -460,7 +509,7 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &list); err != nil {
-		return err
+		return &dsxError{Kind: kindProtocol, Msg: "tools/list was not the shape dsx expects", Err: err}
 	}
 	for _, t := range list.Tools {
 		fmt.Printf("%-26s %s\n", t.Name, truncate(firstLine(t.Description), 90))
@@ -469,17 +518,42 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 }
 
 func cmdRaw(ctx context.Context, c *client, args []string) error {
-	tool, rest, err := need1(args, `raw <tool> '<json-args>'`)
+	flags := newFlagSet("raw")
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	tool, rest, err := need1(pos, `raw <tool> '<json-args>'`)
 	if err != nil {
 		return err
 	}
 	a := map[string]any{}
 	if len(rest) > 0 && rest[0] != "" {
 		if err := json.Unmarshal([]byte(rest[0]), &a); err != nil {
-			return fmt.Errorf("arguments must be a JSON object: %w", err)
+			return &dsxError{Kind: kindUsage, Msg: "arguments must be a JSON object", Err: err}
 		}
 	}
-	return emit(ctx, c, tool, a)
+	return emit(ctx, c, tool, a, *asJSON)
+}
+
+// planToken mints a plan_token for exactly the writes or deletes described.
+//
+// Shared by `dsx rm` and push's delete path so the two cannot disagree about
+// what a missing token means.
+func planToken(ctx context.Context, c *client, args map[string]any) (string, error) {
+	text, err := c.callTool(ctx, "finalize_plan", args)
+	if err != nil {
+		return "", fmt.Errorf("finalize_plan: %w", err)
+	}
+	var plan struct {
+		PlanToken string `json:"plan_token"`
+	}
+	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
+		return "", &dsxError{Kind: kindProtocol,
+			Msg: "finalize_plan returned no plan_token: " + truncate(text, 200)}
+	}
+	return plan.PlanToken, nil
 }
 
 func firstLine(s string) string {

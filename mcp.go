@@ -25,6 +25,15 @@ type client struct {
 	token    string
 	http     *http.Client
 	seq      atomic.Int64
+
+	// lastServerDate holds the Date header of the most recent reply, in unix
+	// nanoseconds, or 0 when no reply has carried one.
+	//
+	// Only `dsx doctor` reads it. dsx decides a token is expired by comparing
+	// expiresAt against the local clock, so a machine whose clock is far enough
+	// off calls a live token dead -- a failure that otherwise looks exactly
+	// like a real expiry, and sends the user to re-run `claude` forever.
+	lastServerDate atomic.Int64
 }
 
 func newClient(token string) *client {
@@ -145,18 +154,23 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// The request may already have reached the server and been applied.
-		return nil, idempotent, err
+		return nil, idempotent, &dsxError{Kind: kindTransport, Msg: "request failed", Err: err}
 	}
 	defer resp.Body.Close()
 
+	if d, parseErr := http.ParseTime(resp.Header.Get("Date")); parseErr == nil {
+		c.lastServerDate.Store(d.UnixNano())
+	}
+
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, idempotent, err
+		return nil, idempotent, &dsxError{Kind: kindTransport, Msg: "reading the reply failed", Err: err}
 	}
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, false, fmt.Errorf("401 unauthorized — token rejected; run any `claude` command to refresh, then retry")
+		return nil, false, &dsxError{Kind: kindAuth,
+			Msg: "401 unauthorized — token rejected; run any `claude` command to refresh, then retry"}
 	case resp.StatusCode == http.StatusForbidden && bytes.Contains(payload, []byte("needs_project_grant")):
 		var g struct {
 			ProjectID string `json:"project_id"`
@@ -165,19 +179,23 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 		return nil, false, &grantError{ProjectID: g.ProjectID}
 	case resp.StatusCode == http.StatusTooManyRequests:
 		// Rejected before it ran; safe to retry whatever the method.
-		return nil, true, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))
+		return nil, true, &dsxError{Kind: kindTransport,
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
 	case resp.StatusCode >= 500:
-		return nil, idempotent, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))
+		return nil, idempotent, &dsxError{Kind: kindTransport,
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
 	case resp.StatusCode != http.StatusOK:
-		return nil, false, fmt.Errorf("http %d: %s", resp.StatusCode, truncate(string(payload), 400))
+		return nil, false, &dsxError{Kind: kindProtocol,
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 400))}
 	}
 
 	var out rpcResponse
 	if err := json.Unmarshal(normalizeSSE(payload), &out); err != nil {
-		return nil, false, fmt.Errorf("malformed response: %w", err)
+		return nil, false, &dsxError{Kind: kindProtocol, Msg: "malformed response", Err: err}
 	}
 	if out.Error != nil {
-		return nil, false, fmt.Errorf("rpc %d: %s", out.Error.Code, out.Error.Message)
+		return nil, false, &dsxError{Kind: kindProtocol,
+			Msg: fmt.Sprintf("rpc %d: %s", out.Error.Code, out.Error.Message)}
 	}
 	return out.Result, false, nil
 }

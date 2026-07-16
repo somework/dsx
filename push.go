@@ -53,11 +53,18 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 			stateFileName, st.ProjectID, o.projectID)
 	}
 
+	ig, err := loadIgnore(o.dir)
+	if err != nil {
+		return rep, err
+	}
 	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
-	local, err := scanLocal(o.dir)
+	// Filtering the listing too is what stops --prune from reading "ignored
+	// here" as "deleted here" and removing the file from the server.
+	remote = filterRemote(remote, ig)
+	local, err := scanLocal(o.dir, ig)
 	if err != nil {
 		return rep, err
 	}
@@ -153,20 +160,7 @@ type writeResult struct {
 
 // planFor obtains a path-scoped plan_token authorising exactly these writes.
 func (c *client) planFor(ctx context.Context, projectID string, paths []string) (string, error) {
-	text, err := c.callTool(ctx, "finalize_plan", map[string]any{
-		"project_id": projectID,
-		"writes":     paths,
-	})
-	if err != nil {
-		return "", fmt.Errorf("finalize_plan: %w", err)
-	}
-	var plan struct {
-		PlanToken string `json:"plan_token"`
-	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return "", fmt.Errorf("finalize_plan returned no plan_token: %s", truncate(text, 200))
-	}
-	return plan.PlanToken, nil
+	return planToken(ctx, c, map[string]any{"project_id": projectID, "writes": paths})
 }
 
 func (c *client) writeBatch(ctx context.Context, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
@@ -231,18 +225,9 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 // deletePaths removes remote files. Deletes always require a path-scoped
 // plan_token; a project-scoped one is refused by the server.
 func (c *client) deletePaths(ctx context.Context, projectID string, paths []string, st syncState) error {
-	text, err := c.callTool(ctx, "finalize_plan", map[string]any{
-		"project_id": projectID,
-		"deletes":    paths,
-	})
+	token, err := planToken(ctx, c, map[string]any{"project_id": projectID, "deletes": paths})
 	if err != nil {
-		return fmt.Errorf("finalize_plan for delete: %w", err)
-	}
-	var plan struct {
-		PlanToken string `json:"plan_token"`
-	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return fmt.Errorf("finalize_plan returned no plan_token: %s", truncate(text, 200))
+		return err
 	}
 
 	files := make([]map[string]any, 0, len(paths))
@@ -255,7 +240,7 @@ func (c *client) deletePaths(ctx context.Context, projectID string, paths []stri
 	}
 	_, err = c.callTool(ctx, "delete_files", map[string]any{
 		"project_id": projectID,
-		"plan_token": plan.PlanToken,
+		"plan_token": token,
 		"files":      files,
 	})
 	return err

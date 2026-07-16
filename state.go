@@ -98,27 +98,33 @@ type localFile struct {
 	SHA  string
 }
 
-// scanLocal walks dir and returns every file keyed by project-relative path.
-// The state ledger and any VCS metadata are not part of the project.
-func scanLocal(dir string) (map[string]localFile, error) {
+// scanLocal walks dir and returns every file keyed by project-relative path,
+// minus whatever the ignore set excludes.
+func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 	out := map[string]localFile{}
 
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			if isIgnoredDir(d.Name()) && p != dir {
-				return fs.SkipDir
-			}
-			return nil
-		}
 		rel, err := filepath.Rel(dir, p)
 		if err != nil {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == stateFileName {
+		if rel == "." {
+			return nil
+		}
+		if d.IsDir() {
+			// Pruning the walk at an excluded directory matters beyond speed:
+			// node_modules can hold hundreds of thousands of files, and
+			// scanLocal reads every file it does not skip.
+			if ig.matchDir(rel) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if ig.match(rel) {
 			return nil
 		}
 		// Symlinks are reported by WalkDir without following; refuse to
@@ -139,14 +145,6 @@ func scanLocal(dir string) (map[string]localFile, error) {
 	return out, nil
 }
 
-func isIgnoredDir(name string) bool {
-	switch name {
-	case ".git", ".svn", ".hg", "node_modules", ".DS_Store":
-		return true
-	}
-	return false
-}
-
 // checkRemotePath refuses remote paths that must never be written locally even
 // though they stay inside the target directory, so safeJoin cannot catch them:
 // VCS metadata, dependency trees, and dsx's own ledger. A project we do not
@@ -156,11 +154,23 @@ func checkRemotePath(rel string) error {
 		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
-		if isIgnoredDir(part) {
+		if isBuiltinIgnoredName(part) {
 			return fmt.Errorf("refusing remote path %q: %q is local-only", rel, part)
 		}
 	}
 	return nil
+}
+
+// isBuiltinIgnoredName reports a path segment that is never the project's, no
+// matter what the server calls it. Reading the list the ignore rules are built
+// from is what keeps this guard and those rules from drifting apart.
+func isBuiltinIgnoredName(name string) bool {
+	for _, b := range builtinIgnores {
+		if b == name {
+			return true
+		}
+	}
+	return false
 }
 
 // safeJoin resolves a project-relative path under root, refusing anything that
