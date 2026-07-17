@@ -250,3 +250,63 @@ func safeJoin(root, rel string) (string, error) {
 	}
 	return full, nil
 }
+
+// caseInsensitiveDir reports whether dir's filesystem folds case.
+//
+// It is probed, not assumed. macOS ships case-insensitive APFS by default but
+// case-sensitive volumes exist; Linux is usually sensitive but need not be. A
+// wrong guess either lets a collision destroy a file or refuses a listing that
+// is perfectly fine, so dsx asks the filesystem instead.
+func caseInsensitiveDir(dir string) bool {
+	f, err := os.CreateTemp(dir, ".dsx-case-probe-a*")
+	if err != nil {
+		return false // cannot tell; assume the safer-to-allow answer
+	}
+	name := f.Name()
+	f.Close()
+	defer os.Remove(name)
+
+	base := filepath.Base(name)
+	folded := filepath.Join(dir, strings.ToUpper(base))
+	if folded == name {
+		return false
+	}
+	_, err = os.Stat(folded)
+	return err == nil
+}
+
+// checkPathCollisions refuses a listing holding paths this filesystem cannot
+// keep apart.
+//
+// The server is case-sensitive; APFS is not. A project holding both Button.css
+// and button.css therefore lands in ONE inode: dsx reports "fetched 2", the
+// disk holds one file, and one file's bytes are gone. Invariant 1's per-file
+// size check passes on each write individually, so it never fires -- and the
+// next `push --prune` then deletes one of them from the server and overwrites
+// the other with the wrong bytes.
+//
+// Nobody can merge that automatically: which file survives is the user's call.
+func checkPathCollisions(remote map[string]remoteEntry, dir string) error {
+	if len(remote) < 2 || !caseInsensitiveDir(dir) {
+		return nil
+	}
+	byFold := map[string][]string{}
+	for path := range remote {
+		k := strings.ToLower(path)
+		byFold[k] = append(byFold[k], path)
+	}
+	var collided []string
+	for _, paths := range byFold {
+		if len(paths) > 1 {
+			collided = append(collided, paths...)
+		}
+	}
+	if len(collided) == 0 {
+		return nil
+	}
+	sortStrings(collided)
+	return conflictError(collided, fmt.Sprintf(
+		"%s cannot hold these paths apart — its filesystem ignores case, and the server does not. "+
+			"Pulling them would land several files in one, destroying all but the last. "+
+			"Rename them in the project, or sync to a case-sensitive volume", dir))
+}

@@ -117,6 +117,12 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	// the listing but vanished from the scan is indistinguishable from a local
 	// delete, and --prune acts on that difference.
 	remote = filterRemote(remote, ig)
+	// Before anything is fetched: two paths the server keeps apart may be one
+	// file here, and writing both would destroy all but the last -- silently,
+	// because each write's size assertion passes on its own.
+	if err := checkPathCollisions(remote, o.dir); err != nil {
+		return rep, err
+	}
 	local, err := scanLocal(o.dir, ig)
 	if err != nil {
 		return rep, err
@@ -263,11 +269,15 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		delete(st.Files, path)
 	}
 
-	if err := st.save(o.dir); err != nil {
-		return rep, err
-	}
+	// The prune failure is the news; a save error after it is a second-order
+	// symptom, usually of the same unwritable directory. Returning the save
+	// error first hid the prune failure entirely.
+	saveErr := st.save(o.dir)
 	if pruneErr != nil {
 		return rep, pruneErr
+	}
+	if saveErr != nil {
+		return rep, saveErr
 	}
 
 	sortStrings(rep.Fetched)

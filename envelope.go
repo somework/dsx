@@ -102,6 +102,18 @@ func parseEnvelope(raw string) (envelope, error) {
 					"refusing to reassemble it rather than splice server prose into the file",
 				e.Path, e.Lines[0], e.Lines[1], e.TotalLines)
 		}
+		// The server's own words: "the body ends at a complete line". readFull
+		// joins windows with no separator on the strength of that, so check it
+		// rather than trust it. Without this, a server that kept the notice but
+		// dropped the blank line before it would have the cut eat the content's
+		// own final newline -- welding two windows mid-line, one byte short per
+		// boundary, in silence.
+		if !strings.HasSuffix(body, "\n") {
+			return e, fmt.Errorf(
+				"%s: a windowed read (lines %d-%d of %d) does not end at a complete line, which is what "+
+					"lets dsx join windows without a separator; refusing to reassemble it",
+				e.Path, e.Lines[0], e.Lines[1], e.TotalLines)
+		}
 		e.Body = body
 	}
 	return e, nil

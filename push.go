@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -37,7 +38,10 @@ type pushReport struct {
 	Written   []string `json:"written"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
+	// Conflicts names EVERY path a human must look at, binary ones included.
 	Conflicts []string `json:"conflicts"`
+	// BinaryConflicts is the subset only --force resolves, unrecoverably.
+	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
 	// Irregular are paths that are not regular files here, so there were no
 	// bytes to send. Reported, never conflicts -- see pullReport.Irregular.
 	Irregular []string `json:"irregular,omitempty"`
@@ -74,7 +78,9 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 
 	d := planPush(remote, local, st, o.force, o.prune)
 	rep.Unchanged = d.Unchanged
-	rep.Conflicts = d.Conflicts
+	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
+	sortStrings(rep.Conflicts)
+	rep.BinaryConflicts = d.BinaryConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
 
@@ -305,6 +311,14 @@ func (r pushReport) render(asJSON bool) string {
 	}
 	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
 	for _, p := range r.Conflicts {
+		if slices.Contains(r.BinaryConflicts, p) {
+			// Not "server moved ahead": for these it usually has not. And not
+			// "`dsx pull` first": pull cannot fetch what read_file will not
+			// serve, so that advice is an infinite loop.
+			fmt.Fprintf(&sb, "\n  ! %s — dsx cannot read the server's copy, so it cannot merge; "+
+				"--force overwrites it and the only copy is gone", p)
+			continue
+		}
 		fmt.Fprintf(&sb, "\n  ! %s — server moved ahead; `dsx pull` first, or --force", p)
 	}
 	for _, p := range r.Irregular {

@@ -128,6 +128,14 @@ type pushDecision struct {
 	// Irregular are paths that exist locally but hold no bytes dsx can send.
 	// See pullDecision.Irregular: reported, never a conflict.
 	Irregular []string
+
+	// BinaryConflicts are conflicts on paths read_file will not serve. They are
+	// conflicts -- a human must choose -- but the ordinary advice is false for
+	// them: the server has not moved, and `dsx pull` provably cannot resolve
+	// them (planPull classifies the path Binary and fetches nothing), so push
+	// conflicts identically forever. Only --force resolves it, and here --force
+	// is unrecoverable. Saying so is the whole point of the separate class.
+	BinaryConflicts []string
 }
 
 // planPush decides, without touching the network, what a push would do.
@@ -172,8 +180,8 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 			// from an accident. Worse, the server's copy is the only copy --
 			// there is no `resources` capability and no encoding parameter, so
 			// an overwrite here is unrecoverable. That makes it the one write
-			// most worth refusing.
-			d.Conflicts = append(d.Conflicts, path)
+			// most worth refusing, and the one whose advice must be true.
+			d.BinaryConflicts = append(d.BinaryConflicts, path)
 			continue
 		}
 

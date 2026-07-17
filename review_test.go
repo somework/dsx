@@ -135,9 +135,11 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 			t.Fatal("push would overwrite an unreadable server file with no if_match and no conflict")
 		}
 	}
-	if len(d.Conflicts) != 1 || d.Conflicts[0] != "assets/hero.png" {
-		t.Fatalf("conflicts = %v, want the binary path: dsx never held those bytes, so it "+
-			"cannot tell a replacement from an accident", d.Conflicts)
+	// Its own class since round three: the ordinary "server moved ahead; `dsx
+	// pull` first" advice is false here and `dsx pull` cannot resolve it.
+	if len(d.BinaryConflicts) != 1 || d.BinaryConflicts[0] != "assets/hero.png" {
+		t.Fatalf("binaryConflicts = %v, want the binary path: dsx never held those bytes, so it "+
+			"cannot tell a replacement from an accident", d.BinaryConflicts)
 	}
 
 	// --force still means force: the user said so explicitly.
@@ -145,8 +147,8 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 	if len(forced.Write) != 1 {
 		t.Errorf("--force must still write: %+v", forced)
 	}
-	if len(forced.Conflicts) != 0 {
-		t.Errorf("--force must not report conflicts: %v", forced.Conflicts)
+	if len(forced.Conflicts) != 0 || len(forced.BinaryConflicts) != 0 {
+		t.Errorf("--force must not report conflicts: %v %v", forced.Conflicts, forced.BinaryConflicts)
 	}
 }
 
