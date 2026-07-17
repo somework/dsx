@@ -3,7 +3,7 @@
 Single Go binary, stdlib only. Moves files between a [Claude Design](https://claude.ai/design)
 project and a local directory **without the contents passing through any model's context**.
 
-The same pull done by agents reading files cost ~665k tokens. dsx costs one line:
+The same pull, done by agents reading each file, costs ~665k tokens. dsx costs one line:
 
 ```
 pulled 103, unchanged 0, binary 6 (660.1 KB)
@@ -39,7 +39,7 @@ directory defaults to `.`:
 cd design && dsx pull
 ```
 
-Every one of the 20 MCP tools is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
+Every MCP tool is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
 `plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json>'` covers
 anything the named commands do not wrap.
 
@@ -64,18 +64,18 @@ project id, so a directory cannot be pushed to the wrong project.
 - Conflicts are reported, never resolved silently — including the case where **both** sides
   changed, which an etag comparison alone cannot see.
 - Every pulled file's decoded length is checked against the size `list_files` reported; a
-  mismatch refuses the write rather than landing a corrupt file. This is not theoretical —
-  it is what proved an earlier agent-driven pull had silently damaged 2 of 100 files, and it
-  is what stopped a second corruption bug from ever reaching disk.
+  mismatch refuses the write rather than landing a corrupt file. Not theoretical: it caught
+  an earlier agent-driven pull that had silently damaged 2 of 100 files, and stopped a
+  second corruption bug from reaching disk.
 - `--prune` deletes only what the ledger proves was ours and unmodified.
 
 ## For agents
 
 dsx's primary caller is a program, so the interface is built for one.
 
-**Exit codes** name the three responses that differ:
+**Exit codes** name the responses that differ:
 
-| | |
+| code | meaning |
 |---|---|
 | `0` | it did what it was asked |
 | `1` | it failed |
@@ -157,8 +157,8 @@ certain exists.
 ## Development
 
 ```bash
-go test -race ./...              # 627 tests
-go test -tags=live -run TestLive ./...   # 20 more, against the real endpoint
+go test -race ./...
+go test -tags=live -run TestLive ./...   # against the real endpoint
 go vet ./... && gofmt -l .
 ```
 

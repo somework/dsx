@@ -1,9 +1,8 @@
 # The Claude Design MCP contract
 
-Everything here was established by probing the live endpoint. **None of it is publicly
-documented, and none of it is promised to stay true.** It can change with any server
-deploy. When something breaks, re-probe before re-reasoning — several facts below
-contradict the obvious guess, and I got each of them wrong first.
+Everything here was established by probing the live endpoint. None of it is publicly
+documented or promised to stay true; any server deploy can change it. Several facts below
+contradict the obvious guess, so when something breaks, re-probe before re-reasoning.
 
 `reference/mcp-tools.json` is the server's own `tools/list` reply, verbatim. It is the
 authority on argument shapes; this file covers what the schema does not say.
@@ -18,21 +17,20 @@ Accept: application/json, text/event-stream
 MCP-Protocol-Version: 2025-06-18
 ```
 
-Plain JSON-RPC 2.0. **Stateless** — no `Mcp-Session-Id`, no `initialize` handshake needed
-before `tools/call`. Replies observed so far are `application/json`; the SSE path is handled
-defensively but has not been seen.
+Plain JSON-RPC 2.0. **Stateless** — no `Mcp-Session-Id`, no `initialize` handshake before
+`tools/call`. Replies observed are `application/json`; the SSE path is handled defensively
+but has not been seen.
 
 Server capabilities: `{"prompts":{},"tools":{"listChanged":true}}`. **No `resources`** —
-`resources/list` answers `resources not supported`. This matters: it is why unreadable files
-have no second retrieval path.
+`resources/list` answers `resources not supported`, which is why unreadable files have no
+second retrieval path.
 
-## Auth — the surprising part
+## Auth
 
-The Claude Code OAuth token works directly. No dynamic client registration, no `client_id`,
-no separate OAuth flow. This is what unblocked the whole tool after a long detour through
-RFC 8414 discovery.
+The Claude Code OAuth token works directly: no dynamic client registration, no `client_id`,
+no separate OAuth flow.
 
-The detour is worth recording so nobody repeats it:
+The RFC 8414 discovery path is a dead end, recorded here so it is not retried:
 
 - `401` carries `www-authenticate: Bearer resource_metadata="…/v1/design/.well-known/oauth-protected-resource", scope="user:design:read user:design:write"`
 - that metadata document resolves and names the AS as `https://claude.ai/v1/design/mcp`
@@ -42,14 +40,14 @@ The detour is worth recording so nobody repeats it:
 - `api.anthropic.com/.well-known/oauth-authorization-server` returns gdrive's document,
   with **no `registration_endpoint`** → no self-service `client_id`
 
-All of which is moot: **the advertised scope is not the enforced scope.** The Claude Code
+All of it is moot: **the advertised scope is not the enforced scope.** The Claude Code
 token carries `user:file_upload user:inference user:mcp_servers user:profile
 user:sessions:claude_code` — neither `user:design:read` nor `user:design:write` — and the
 server accepts it. `user:mcp_servers` is what is actually checked.
 
 ### Where the credential lives
 
-Read out of the shipped `claude` binary (v2.1.211), not guessed. Its storage layer is
+Read from the shipped `claude` binary (v2.1.211). Its storage layer is
 
 ```js
 qc() = Kac(Bwi, MBn)      // "keychain-with-plaintext-fallback"
@@ -65,7 +63,7 @@ dsx walks the same chain, in the same order:
 | Where | Shape |
 |---|---|
 | `DSX_TOKEN` env | raw token; overrides everything, including `dsx auth` |
-| Keychain (darwin only), service **computed** — matched on the service alone, [deliberately not on the account](auth_darwin.go) | JSON, field `claudeAiOauth.accessToken` |
+| Keychain (darwin only), service **computed**, matched on the service alone, [deliberately not on the account](internal/auth/auth_darwin.go) | JSON, field `claudeAiOauth.accessToken` |
 | `<config-dir>/.credentials.json`, mode `0600` | the same JSON |
 
 **The service name is not a constant.** Claude Code builds it as
@@ -77,20 +75,20 @@ dsx walks the same chain, in the same order:
 where `OAUTH_FILE_SUFFIX` is `""` for the production build (`-local-oauth` and
 `-custom-oauth` exist for Anthropic's internal ones), and `dirSuffix` is empty for the
 default config dir and `-<sha256(configDir)[:8]>` otherwise — so several logins can share
-one keychain. dsx hardcoded the plain name until 2026-07-17, which read the wrong item, or
-none, for anyone who sets `CLAUDE_CONFIG_DIR`.
+one keychain. A build that hardcodes the plain name reads the wrong item, or none, for
+anyone who sets `CLAUDE_CONFIG_DIR`.
 
 The config dir resolves as, in order: `CLAUDE_SECURESTORAGE_CONFIG_DIR` if *defined* (empty
 means the default), else `CLAUDE_CONFIG_DIR`, else `~/.claude`. Three independent places in
 the binary agree on `CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")`.
 
 **Measured** on a real install: the keychain item is service `Claude Code-credentials`,
-account `$USER`, with neither env var set — i.e. the default branch of the formula, confirmed.
+account `$USER`, with neither env var set — the default branch of the formula, confirmed.
 
 **Not measured:** the file lane. No Linux machine was available, so dsx has never read a
-`.credentials.json` that Claude Code actually wrote. The path, the mode and the payload are
-read out of Claude Code's own code rather than guessed at from a bare string, but that is a
-derivation, and it is the one thing in this document that has not met the real thing.
+`.credentials.json` that Claude Code actually wrote. The path, mode, and payload are read
+from Claude Code's own code, but that is a derivation — the one thing in this document that
+has not met the real thing.
 
 Token is `sk-ant-oat01…`, ~108 chars, with `expiresAt` (ms) and a `refreshToken`
 (`sk-ant-ort01…`). dsx **must not refresh**: rotating the refresh token would break Claude
@@ -109,7 +107,7 @@ Code's own login. Report expiry instead.
 
 Framing: exactly one `\n` after the open tag and one before the close tag; **neither belongs
 to the file**. A file that itself ends in a newline therefore shows a blank line before the
-close tag. Getting this wrong is a silent one-byte error, which is why the size assertion
+close tag. Getting this wrong is a silent one-byte error — the reason the size assertion
 exists.
 
 - **Escaping covers exactly `&amp; &lt; &gt;`** — nothing else. Decode in a single
@@ -117,7 +115,7 @@ exists.
   another entity, or a file literally containing `&lt;` (escaped to `&amp;lt;`) decodes to
   `<` instead of `&lt;`.
 - Because `<` and `>` cannot occur raw in a body, the closing tag is an unambiguous
-  terminator. That is the reason the escaping exists.
+  terminator. That is why the escaping exists.
 - A **complete** read carries no `lines` attribute. A **windowed** read carries
   `lines="A-B" total_lines="N"`; continue from `B+1`.
 - **256 KiB cap.** A single line alone over the cap comes back partial with
@@ -125,9 +123,7 @@ exists.
 - `if_none_match` returns `{"unchanged":true,"etag":…,"path":…}`. A file over the cap never
   takes this short-circuit.
 
-### Windowed reads carry the server's prose inside the body
-
-The nastiest thing in this file, and it silently corrupted files until 2026-07-17.
+### Windowed reads embed server prose in the body
 
 A window that stops short of the end ends with a line **the server wrote**, inside the body,
 after the content:
@@ -139,7 +135,7 @@ line 003854 — …\n
 </untrusted-project-content>
 ```
 
-Measured on a 316,540-byte file (4,655 lines), which came back as `lines="1-3855"` then
+Measured on a 316,540-byte file (4,655 lines), returned as `lines="1-3855"` then
 `lines="3856-4655"`:
 
 - The notice is on **every window that stops short of `total_lines`**, and **absent from the
@@ -147,23 +143,25 @@ Measured on a 316,540-byte file (4,655 lines), which came back as `lines="1-3855
 - It sits after the content's own trailing newline, separated by one more newline, and the
   framing newline before the close tag is stripped as usual — so it lands squarely inside
   `Body`.
-- "the body ends at a complete line" is true, and it answers a question this document used to
-  leave open: **windows need no separator between them.** Concatenating the bodies is correct
+- "the body ends at a complete line" is true, and it settles a question the framing leaves
+  open: **windows need no separator between them.** Concatenating the bodies is correct
   *once the notice is removed*.
 
-Concatenating window bodies verbatim therefore splices that sentence into the middle of the
-user's file. `dsx pull` was saved by the size assertion — the decoded length disagreed with
-`list_files` and the write was refused, so large files simply would not pull — but `dsx cat`
-wrote it out without a word.
+Concatenating window bodies verbatim splices that sentence into the middle of the user's
+file. `dsx pull` is saved by the size assertion — the decoded length disagrees with
+`list_files` and the write is refused, so large files simply will not pull — but `dsx cat`
+has no such assertion, and wrote the notice into its output until dsx learned to strip it.
 
-dsx now strips it, and **refuses** any windowed body whose trailer it cannot account for. If
-the server rewords the notice, dsx breaks loudly on files over 256 KiB. That is the trade:
-loud is recoverable, quiet is not.
+dsx strips it and **refuses** any windowed body whose trailer it cannot account for. If the
+server rewords the notice, dsx breaks loudly on files over 256 KiB. That is the trade: loud
+is recoverable, quiet is not.
 
-`list_files` is **not recursive**, returns project-relative paths (not basenames), and gives
-`path/type/size/etag` per entry. Directories appear as `{"path":…,"type":"directory"}` with
-no etag. The per-file etag is the basis of cheap sync: one listing per directory prices the
-whole tree, so an unchanged file costs no request at all.
+### list_files
+
+**Not recursive.** Returns project-relative paths (not basenames), with `path/type/size/etag`
+per entry. Directories appear as `{"path":…,"type":"directory"}` with no etag. The per-file
+etag is the basis of cheap sync: one listing per directory prices the whole tree, so an
+unchanged file costs no request at all.
 
 Etags look like microsecond timestamps (`1784221582411848`) but are opaque. `"0"` is the
 sentinel asserting a path does not exist.
@@ -181,8 +179,8 @@ after that, writes need no token. `local_path` exists in the schema but is
 `"Not yet implemented for server-side callers"` — useless here; send `data` + `encoding:
 "base64"` instead.
 
-A **stale `if_match`** comes back as a *tool error* whose text is JSON — not prose, unlike
-every other tool error. Measured 2026-07-17:
+A **stale `if_match`** returns a *tool error* whose text is JSON — not prose, unlike every
+other tool error:
 
 ```json
 {"conflicts":[{"path":"a.css","etag":"1784268009093847",
@@ -192,9 +190,9 @@ every other tool error. Measured 2026-07-17:
 
 Three things matter here:
 
-- **"Nothing was written."** The refusal is atomic across the batch, so dsx can report it as a
-  plain conflict rather than as a partial write.
-- `conflicts[].path` and `.etag` are structured, so dsx can name the files and exit 3 instead
+- **"Nothing was written."** The refusal is atomic across the batch, so dsx reports it as a
+  plain conflict rather than a partial write.
+- `conflicts[].path` and `.etag` are structured, so dsx names the files and exits 3 instead
   of degrading the one race every `if_match` exists to catch into a generic failure.
 - `current_content` arrives wrapped exactly as `read_file` wraps a body — same escaping, same
   framing — so a rebase needs the same decoder.
@@ -223,16 +221,16 @@ the same write. dsx does this automatically.
   whose payload names the project and the scope.
 
 `delete_files` **requires** a path-scoped token naming every path; a project-scoped token is
-refused. `"0"` is invalid as `if_match` here (a delete needs the row to exist).
+refused. `"0"` is invalid as `if_match` here — a delete needs the row to exist.
 
 `copy_files` is **server-side**, project→project via `src_project_id`, not subject to the
 256 KiB cap, and never touches local disk. It is the only way to move unreadable files
 between projects.
 
-## Two gates, not one
+## Binary: two gates that disagree
 
-The most misleading part of the API, and the thing I described wrongly at first. Write and
-read decide "is this binary?" by **different criteria that disagree in both directions**.
+Read and write decide whether a file is binary by **different criteria, and the two disagree
+in both directions.**
 
 **Write — by extension → MIME, allowlist.** Measured:
 
@@ -250,7 +248,7 @@ stored base64, and `read_file` serves only the text lane:
 read_file: "assets/og.png" is a binary file (stored base64); read_file only returns text content
 ```
 
-Measured, and each row kills a plausible theory:
+Each row kills a plausible theory:
 
 | bytes | name | read back? |
 |---|---|---|
@@ -283,16 +281,19 @@ direction is closed. The browser is the only way out.
 | HTTP 401 | token rejected; user runs any `claude` command to refresh |
 | `read file: file not found` | missing path — note the wording differs from `read_file:` prefixed errors |
 
-Beware when testing: `2>&1 >/dev/null` sends stderr to the *old* stdout. That mistake once
-made a failed write look like a read refusal and nearly invented a false protocol fact.
+Beware when testing: `2>&1 >/dev/null` sends stderr to the *old* stdout — a failed write then
+looks like a read refusal, which can invent a false protocol fact.
 
-## Re-probing this document
+## Verifying this document
 
-Much of this document is asserted by the live suite, and a good deal of it is not. The
-difference matters, because of what the next paragraph promises:
+Much of this document is asserted by the live suite; a good deal of it is not. A green live
+suite proves the pinned half below, not the rest — do not read it as proof of the whole
+document, and do not restore a blanket "everything here is asserted" claim over it. The
+split between pinned and unpinned is the honest description, and the expensive one to lose in
+a document reverse-engineered from an endpoint that makes no promises.
 
 ```bash
-go test -tags=live -run TestLive ./...     # 17 tests, 20 with subtests, ~90 s
+go test -tags=live -run TestLive ./...     # ~90 s against the real endpoint
 ```
 
 **Pinned live:** the envelope framing and entity decoding, the size agreement, windowed reads
@@ -302,19 +303,15 @@ delete refusing a project-scoped token, binary-by-content in both directions, `r
 unsupported, `tools/list` still naming every tool dsx wraps, and an end-to-end push/pull round
 trip through the real sync engine.
 
-**Not pinned live, and resting on a one-off probe or on the schema:** the whole **Auth**
-section (unit-tested only — and its file lane has never met a real file at all), `copy_files`,
-the **Limits** table, the accepted half of the write allowlist (only `.bin`'s refusal is probed,
-and softly), the `read file: file not found` wording, and the `prompts`/`listChanged`
-capabilities.
+**Not pinned live, resting on a one-off probe or on the schema:** the whole **Auth** section
+(unit-tested only — its file lane has never met a real file), `copy_files`, the **Limits**
+table, the accepted half of the write allowlist (only `.bin`'s refusal is probed, and softly),
+the `read file: file not found` wording, and the `prompts`/`listChanged` capabilities.
 
-The blanket claim that used to stand here — "every claim above is asserted" — was false, and
-falsely reassuring in the one document where that is most expensive: it invited a reader to
-treat a green suite as proof of the whole thing.
-
-It writes only to `.dsx-selftest*` paths in the test project, removes them, and confirms the
-project's file count is back where it started. There is no `delete_project` tool, so it never
-creates one — `TestLiveRefusesToCreateProjects` enforces that by reading its own source.
+The live suite writes only to `.dsx-selftest*` paths in the test project, removes them, and
+confirms the project's file count is back where it started. There is no `delete_project` tool,
+so it never creates one — `TestLiveRefusesToCreateProjects` enforces that by reading its own
+source.
 
 If one of those tests fails, **this document is what is wrong**, not the test. Re-probe, then
 correct both.

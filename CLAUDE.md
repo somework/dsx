@@ -54,7 +54,7 @@ named test is the guard.
 ## Testing
 
 ```bash
-go test -race ./...     # 627 tests (343 top-level)
+go test -race ./...
 go vet ./... && go vet -tags=live ./... && gofmt -l .
 go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 ```
@@ -92,6 +92,7 @@ Untested — do not present as fact.
 - Go stdlib only, no dependencies — a hard constraint that keeps the binary a single trustworthy artifact. `staticcheck`/`goreleaser` run in CI without entering `go.mod`.
 - Terse output by default; `--json` for machines; never print file contents unless asked. Output width is a token budget.
 - Errors say what to do next and carry an `errKind` an agent branches on. Reword the message, never the token.
+- **Cite no count that churns.** Test totals, tool counts, line counts move on the next commit and rot into a quiet lie — let the tool that owns the number report it (`dsx help` lists the tools, `go test ./...` runs the suite). A number that pins a *measured* fact — a file size, `2 of 100`, the 256 KiB cap, a coverage floor — is evidence, not a count; it stays.
 - Russian in commit messages, English in code and docs.
 
 ## Roadmap
