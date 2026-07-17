@@ -30,7 +30,7 @@ import (
 //   - resolveSyncTarget invented an argument form. The old two-argument form is
 //     a compatibility guarantee, and the ledger lookup it added must not fire
 //     when the caller was explicit.
-//   - conflictOutcome decides the exit code. Exit 0 on a real run that refused
+//   - ConflictOutcome decides the exit code. Exit 0 on a real run that refused
 //     to move bytes would let a caller carry on over work that exists nowhere
 //     else.
 //   - jsonSafe backs the "--json stdout is exactly one JSON document" promise. A
@@ -219,11 +219,11 @@ func TestSyncTargetPropagatesALedgerReadFailureInsteadOfCallingItUnbound(t *test
 }
 
 // ---------------------------------------------------------------------------
-// conflictOutcome — the exit code
+// ConflictOutcome — the exit code
 // ---------------------------------------------------------------------------
 
 func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
-	err := conflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
+	err := ConflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
 	if err == nil {
 		t.Fatal("a real run that refused to move bytes reported success; a caller reading exit 0 would carry on over work that exists nowhere else")
 	}
@@ -248,18 +248,18 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 // answer it wanted. `dsx status` runs through here on every invocation: exiting
 // 3 would make "there is a conflict" indistinguishable from "status failed".
 func TestConflictsOnADryRunAreNotAFailure(t *testing.T) {
-	if err := conflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
+	if err := ConflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
 		t.Fatalf("a dry run reporting a conflict failed with %v; it did exactly what it was told", err)
 	}
 }
 
 func TestNoConflictsIsSuccessInEitherMode(t *testing.T) {
 	for _, dry := range []bool{false, true} {
-		if err := conflictOutcome(nil, dry, "hint"); err != nil {
-			t.Errorf("conflictOutcome(nil, %v) = %v, want nil", dry, err)
+		if err := ConflictOutcome(nil, dry, "hint"); err != nil {
+			t.Errorf("ConflictOutcome(nil, %v) = %v, want nil", dry, err)
 		}
-		if err := conflictOutcome([]string{}, dry, "hint"); err != nil {
-			t.Errorf("conflictOutcome([], %v) = %v, want nil", dry, err)
+		if err := ConflictOutcome([]string{}, dry, "hint"); err != nil {
+			t.Errorf("ConflictOutcome([], %v) = %v, want nil", dry, err)
 		}
 	}
 }
@@ -975,7 +975,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 }
 
 // ---------------------------------------------------------------------------
-// cmdSync — conflictOutcome wired end to end
+// cmdSync — ConflictOutcome wired end to end
 // ---------------------------------------------------------------------------
 
 // maincliConflictedPull sets up a directory where a pull must refuse: the file

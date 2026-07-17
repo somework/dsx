@@ -370,19 +370,6 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 	return p, dir, nil
 }
 
-// conflictOutcome turns reported conflicts into the exit status.
-//
-// A dry run was asked to move nothing, so refusing to move something is the
-// answer it wanted, not a failure. A real run that refused did not do what it
-// was told, and a caller that reads exit 0 there would carry on over the top of
-// work that exists nowhere else.
-func conflictOutcome(conflicts []string, dryRun bool, hint string) error {
-	if dryRun || len(conflicts) == 0 {
-		return nil
-	}
-	return dsxerr.Conflict(conflicts, hint)
-}
-
 func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
 	fs := flag.NewFlagSet(mode, flag.ContinueOnError)
 	var (
@@ -420,7 +407,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(rep.Render(*asJSON))
 		}
-		return conflictOutcome(rep.Conflicts, dryRun,
+		return ConflictOutcome(rep.Conflicts, dryRun,
 			"server moved ahead; `dsx pull` first, or --force")
 	}
 
@@ -436,7 +423,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(pullRep.Render(*asJSON))
 		}
-		return conflictOutcome(pullRep.Conflicts, dryRun,
+		return ConflictOutcome(pullRep.Conflicts, dryRun,
 			"local differs from the server, or was deleted there and edited here")
 	}
 
