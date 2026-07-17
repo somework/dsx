@@ -117,21 +117,28 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	// the listing but vanished from the scan is indistinguishable from a local
 	// delete, and --prune acts on that difference.
 	remote = filterRemote(remote, ig)
-	// Before anything is fetched: two paths the server keeps apart may be one
-	// file here, and writing both would destroy all but the last -- silently,
-	// because each write's size assertion passes on its own.
-	if err := checkPathCollisions(remote, o.dir); err != nil {
-		return rep, err
-	}
 	local, err := scanLocal(o.dir, ig)
 	if err != nil {
+		return rep, err
+	}
+	// Before anything is fetched: paths the server keeps apart may be one file
+	// here -- either two listing entries, or a listing entry and a file already
+	// on disk under a folded name. Writing them destroys all but the last, and
+	// each write's size assertion passes on its own, so nothing downstream
+	// notices.
+	if err := checkPathCollisions(remote, local, o.dir); err != nil {
 		return rep, err
 	}
 
 	d := planPull(remote, local, st, o.force, o.prune)
 	rep.Unchanged = d.Unchanged
 	rep.Binary = d.Binary
+	// Sorted here, at the union site, not at the end of the function: the tail
+	// sort sits after the dry-run return, and `status` is always a dry run --
+	// so identical state rendered in two different orders depending on the mode,
+	// while every sibling field was sorted.
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
+	sortStrings(rep.Conflicts)
 	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete

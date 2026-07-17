@@ -101,7 +101,7 @@ reading why it exists.
 ## Testing
 
 ```bash
-go test -race ./...     # 575 tests
+go test -race ./...     # 581 tests
 go vet ./... && gofmt -l .
 ```
 

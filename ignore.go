@@ -213,13 +213,16 @@ func (s *ignoreSet) matchesBuiltinDir(rel string) bool {
 	if rel == "" {
 		return false
 	}
+	// Every segment is tested against every built-in. The bound is expressed as
+	// a slice rather than a guard inside the loop: as a guard, its `return`
+	// exited the whole function while testing segment 0, so once ANY user rule
+	// existed only the first segment was ever checked -- and a monorepo's
+	// packages/app/node_modules stopped being pruned, which is the one thing
+	// this function exists to guarantee.
 	segments := strings.Split(rel, "/")
 	for i := range segments {
 		prefix := strings.Join(segments[:i+1], "/")
-		for n, r := range s.rules {
-			if n >= s.builtins {
-				return false
-			}
+		for _, r := range s.rules[:s.builtins] {
 			if r.re.MatchString(prefix) {
 				return true
 			}

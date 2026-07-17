@@ -280,38 +280,91 @@ func caseInsensitiveDir(dir string) bool {
 	return err == nil
 }
 
-// checkPathCollisions refuses a listing holding paths this filesystem cannot
-// keep apart.
+// checkPathCollisions refuses a pull whose paths this filesystem cannot keep
+// apart from each other, or from what is already on disk.
 //
-// The server is case-sensitive; APFS is not. A project holding both Button.css
-// and button.css therefore lands in ONE inode: dsx reports "fetched 2", the
-// disk holds one file, and one file's bytes are gone. Invariant 1's per-file
-// size check passes on each write individually, so it never fires -- and the
-// next `push --prune` then deletes one of them from the server and overwrites
-// the other with the wrong bytes.
+// The server is case-sensitive; APFS is not, and it also folds Unicode
+// normalisation. So two paths the server keeps apart can be ONE file here:
+// writing both lands them in one inode, and all but the last is destroyed --
+// silently, because invariant 1's size assertion passes on each write on its
+// own.
 //
-// Nobody can merge that automatically: which file survives is the user's call.
-func checkPathCollisions(remote map[string]remoteEntry, dir string) error {
-	if len(remote) < 2 || !caseInsensitiveDir(dir) {
+// The equivalence question is answered by ASKING THE FILESYSTEM, not by folding
+// in Go. strings.ToLower models neither APFS's case rules nor its
+// normalisation, and a guard that folds differently from the volume it protects
+// is not a guard: it passed café.css (NFC) against café.css (NFD) while the
+// volume merged them.
+//
+// Two things are checked, and the second is the one that bites in practice:
+//
+//  1. remote x remote -- two listing entries that are one file here.
+//  2. remote x local -- a listing entry that IS a file on disk under a
+//     different name. This is the ordinary case: the server renames readme.md
+//     to README.md, planPull sees README.md as absent (so not dirty, no
+//     conflict) and fetches it over the existing inode, and --prune then reads
+//     readme.md as deleted and removes it. "pulled 1, deleted 1", exit 0, file
+//     gone -- and the next push --prune deletes it from the server too, with a
+//     matching if_match. Invariant 4's proof is about path strings; the
+//     filesystem's identity function folds them.
+//
+// Nobody can merge that automatically: which name survives is the user's call.
+func checkPathCollisions(remote map[string]remoteEntry, local map[string]localFile, dir string) error {
+	if len(remote) == 0 || !caseInsensitiveDir(dir) {
 		return nil
 	}
+
+	collided := map[string]bool{}
+
+	// remote x local. The scan holds the names the filesystem actually reports,
+	// so a remote path that resolves on disk yet is absent from the scan can
+	// only have folded onto one of them. This asks the volume rather than
+	// guessing at its rules.
+	for path := range remote {
+		if _, exact := local[path]; exact {
+			continue
+		}
+		full, err := safeJoin(dir, path)
+		if err != nil {
+			continue // refused later, and for a better reason
+		}
+		if _, err := os.Lstat(full); err != nil {
+			continue // nothing there to collide with
+		}
+		collided[path] = true
+		for other := range local {
+			if strings.EqualFold(other, path) {
+				collided[other] = true
+			}
+		}
+	}
+
+	// remote x remote. Nothing is on disk yet, so the volume cannot be asked
+	// about these without writing them; EqualFold is the best available answer
+	// and it is a subset of what APFS folds -- see the normalisation gap in
+	// ROADMAP.md. It catches the common Button.css/button.css case.
 	byFold := map[string][]string{}
 	for path := range remote {
 		k := strings.ToLower(path)
 		byFold[k] = append(byFold[k], path)
 	}
-	var collided []string
 	for _, paths := range byFold {
 		if len(paths) > 1 {
-			collided = append(collided, paths...)
+			for _, p := range paths {
+				collided[p] = true
+			}
 		}
 	}
+
 	if len(collided) == 0 {
 		return nil
 	}
-	sortStrings(collided)
-	return conflictError(collided, fmt.Sprintf(
-		"%s cannot hold these paths apart — its filesystem ignores case, and the server does not. "+
-			"Pulling them would land several files in one, destroying all but the last. "+
+	names := make([]string, 0, len(collided))
+	for p := range collided {
+		names = append(names, p)
+	}
+	sortStrings(names)
+	return conflictError(names, fmt.Sprintf(
+		"%s cannot hold these paths apart — its filesystem folds names that the server keeps "+
+			"distinct, so syncing them would land several files in one and destroy all but the last. "+
 			"Rename them in the project, or sync to a case-sensitive volume", dir))
 }

@@ -1,7 +1,7 @@
 # dsx roadmap
 
-Current state: 575 tests green under `-race`, plus 20 live tests against the real endpoint.
-Coverage 89.9% overall, 97.4% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
+Current state: 581 tests green under `-race`, plus 20 live tests against the real endpoint.
+Coverage 90.1% overall, 97.4% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
 `go install github.com/somework/dsx@latest` works. CI builds and tests on Linux and macOS.
 
 Good enough to depend on personally, and now technically ready to hand to someone else. Whether
@@ -68,10 +68,38 @@ Ordered by what would actually bite.
 4. **Result shapes unmodelled** for `render_preview`, `put_conversation`, and the
    member/sharing tools. They are wired and smoke-tested; their replies are passed through
    verbatim. Fine until someone scripts against them.
-5. **The truncation-notice strip is prose-matching.** `parseEnvelope` recognises the server's
+5. **The remote×remote collision guard folds with `strings.ToLower`, and APFS folds more.**
+   A remote path that resolves on disk is caught by asking the filesystem, which is exact and
+   covers the case that actually happens (a case-only rename, or pulling into a directory that
+   already has `README.md`). But two *new* remote paths cannot be asked about without writing
+   them, so that half uses `EqualFold` — which is a strict subset of what APFS folds. Measured:
+   `café.css` in NFC and NFD are one inode on APFS, and `strings.ToLower` keeps them apart, so
+   the guard passes a listing that will destroy a file. Reaching this needs a project holding
+   two paths differing only by Unicode normalisation, which is rare; closing it properly means
+   asking the volume (write one name, stat the other) rather than folding in Go, since
+   `golang.org/x/text/unicode/norm` is out of bounds. **Open.**
+6. **The truncation-notice strip is prose-matching.** `parseEnvelope` recognises the server's
    trailer by a narrow anchored pattern. If the server rewords it, dsx refuses every file over
    256 KiB rather than corrupting one — the right failure, but a failure. The live suite is
    what would catch the rewording.
+
+## Known, measured, unfixed
+
+Found by the adversarial review and left open deliberately: each is real, none is data loss,
+and each is written down rather than forgotten.
+
+- **A symlinked sync root defeats planPull's conflict detection.** Every path reads
+  `present == false`, so every locally-edited file is fetched and overwritten with no conflict.
+  `localCovers` cannot help: that loop keys off `present`, not coverage.
+- **A local-only symlink is not named.** `planPush`'s `if onServer` gate drops it, so `dsx push`
+  prints "pushed 0" and its `--json` carries no `irregular` key for a path it decided to skip.
+- **An in-project symlinked directory never settles.** `safeJoin` allows it, so pull writes
+  through to the target while the ledger records the link path — refetched every run, and push
+  then duplicates the file server-side under the resolved name.
+- **`push`'s binary conflict says two different things.** stdout says "--force overwrites it and
+  the only copy is gone"; the `--json` error envelope still carries the generic
+  "`dsx pull` first" hint, because `conflictOutcome`'s text is hard-coded at the call site
+  rather than derived from the report. The machine-readable surface is the wrong one.
 
 ## UX, for humans
 

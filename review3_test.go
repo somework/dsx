@@ -143,7 +143,7 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 		"button.css": {Path: "button.css", Etag: "e2", Size: 1},
 		"other.css":  {Path: "other.css", Etag: "e3", Size: 1},
 	}
-	err := checkPathCollisions(remote, dir)
+	err := checkPathCollisions(remote, map[string]localFile{}, dir)
 	if err == nil {
 		t.Fatal("two paths that are one file on this filesystem were accepted; " +
 			"one of them would be silently destroyed")
@@ -163,7 +163,7 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 	// No collision, no complaint.
 	if err := checkPathCollisions(map[string]remoteEntry{
 		"a.css": {Path: "a.css"}, "b.css": {Path: "b.css"},
-	}, dir); err != nil {
+	}, map[string]localFile{}, dir); err != nil {
 		t.Errorf("a clean listing was refused: %v", err)
 	}
 }
