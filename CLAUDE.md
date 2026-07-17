@@ -113,18 +113,32 @@ reading why it exists.
    spell out `loadIgnore` → `filterRemote` → `scanLocal` by hand — a rule two callers had to
    remember, with two chances to forget.
 
-   Note which test guards what. `TestIgnoredPathIsNeverPrunedFromTheServer` calls
-   `filterRemote` and `planPush` directly and hand-assembles the correct pairing itself, so it
-   guards **the decision, not the wiring** — it stays green when `survey` filters only one
-   side. Its comment says "end to end"; it is not. The wiring is guarded by
-   `TestSurveySidesCannotDisagree` and, against a caller bypassing `survey` altogether, only by
-   `TestSyncCallersCannotFilterOneSide`, which reads `runPull`'s and `runPush`'s own syntax.
-   The behavioural tests are blind to that bypass.
+   Note which test guards what, because three of them are named for this invariant and only
+   one drives it. `TestIgnoredPathIsNeverPrunedFromTheServer` and `...FromDisk` call
+   `filterRemote` and `planPush`/`planPull` directly and hand-assemble the correct pairing
+   themselves, so they guard **the decision, not the wiring** — they stay green when `survey`
+   filters only one side. Their comment says "end to end"; it is not.
+
+   The wiring is guarded by `prune_ignore_test.go`, which drives `runPush`/`runPull` against a
+   real `.dsxignore` and asks the only shape-blind question there is: did an ignored path reach
+   `delete_files`? Two traps live there — push's delete sends **`files`** (maps of
+   `{path, if_match}`) while `dsx rm` sends `paths`, so a probe reading `paths` passes
+   vacuously; and `--prune` is only exposed by a ledger that tracked the path **before** it was
+   ignored, since an empty ledger makes prune a correct no-op via invariant 4 and hides
+   everything.
+
+   `TestSyncCallersCannotFilterOneSide` is the structural half: nothing but `survey` may name
+   `loadIgnore`, `filterRemote` or `scanLocal`. It scans every non-test file and fails if it
+   cannot find `survey` — an earlier version parsed a hardcoded list of callers by name, and
+   moving the function to another file, renaming it, or hoisting the calls into a helper each
+   made it match nothing and pass while a live one-sided filter shipped. **Syntax cannot see
+   `_, local, err := survey(...)`**, which names nothing forbidden and still breaks the
+   invariant; only the behavioural test catches that.
 
 ## Testing
 
 ```bash
-go test -race ./...     # 600 tests
+go test -race ./...     # 604 tests
 go vet ./... && gofmt -l .
 ```
 

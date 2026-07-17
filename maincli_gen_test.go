@@ -1293,26 +1293,43 @@ func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
 }
 
 func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
-	// This comment used to record a KNOWN DEFECT: that run() called loadToken()
-	// before reaching the switch's default case, so `dsx pulll` on a machine
-	// with no login blamed the user's credentials for their typo — exit 5
-	// instead of exit 2. It was fixed and the note was left behind.
+	// run() once called loadToken() before reaching the unknown-command check, so
+	// `dsx pulll` on a machine with no login was reported as an auth failure --
+	// dsx blaming the user's credentials for their spelling, with exit 5 inviting
+	// a re-authentication that could not possibly help.
 	//
-	// Measured on a machine with no credentials reachable:
-	//   dsx: unknown command "pulll" — run `dsx help`
-	// The Setenv is kept because it costs nothing and pins the classification
-	// under both conditions; the stale note said to drop it, but a token being
-	// present must not change the answer either.
-	t.Setenv("DSX_TOKEN", "test-token")
-	_, err := maincliRun(t, "pulll")
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Fatalf("unknown command classified %q, want %q", got, kindUsage)
-	}
-	if !strings.Contains(err.Error(), "pulll") {
-		t.Errorf("the message does not name the command: %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "dsx help") {
-		t.Errorf("errors say what to do next: %q", err.Error())
+	// The no-login case is the entire point, so it is the case that must run. An
+	// earlier version of this test set DSX_TOKEN and stopped there, which made it
+	// pass against a binary with the ordering restored: with a token present,
+	// loadToken succeeds and the bug is invisible. CLAUDE_CONFIG_DIR at a temp dir
+	// is what makes "no login" hermetic -- the keychain service name is hashed
+	// over that path, so it matches nothing, and no credentials file exists there.
+	for _, tc := range []struct {
+		name  string
+		setup func(*testing.T)
+	}{
+		{"no login available", func(t *testing.T) {
+			t.Setenv("DSX_TOKEN", "")
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		}},
+		// A token being present must not change the answer either.
+		{"token present", func(t *testing.T) {
+			t.Setenv("DSX_TOKEN", "test-token")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setup(t)
+			_, err := maincliRun(t, "pulll")
+			if got := maincliKind(t, err); got != kindUsage {
+				t.Fatalf("unknown command classified %q, want %q: %v", got, kindUsage, err)
+			}
+			if !strings.Contains(err.Error(), "pulll") {
+				t.Errorf("the message does not name the command: %q", err.Error())
+			}
+			if !strings.Contains(err.Error(), "dsx help") {
+				t.Errorf("errors say what to do next: %q", err.Error())
+			}
+		})
 	}
 }
 

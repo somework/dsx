@@ -16,10 +16,12 @@ import (
 // here because `dsx rm`, `dsx put` and push's delete path all reach them, and
 // what they share is a protocol obligation, not a command.
 
-// planToken exchanges a set of intended paths for a path-scoped grant.
+// planToken mints a plan_token for exactly the writes or deletes described.
 //
-// A missing plan_token is a protocol fault, not a tool error: the server
-// answered without the one field the call exists to produce.
+// Shared by `dsx rm` and push's delete path so the two cannot disagree about
+// what a missing token means: a missing plan_token is a protocol fault, not a
+// tool error -- the server answered without the one field the call exists to
+// produce.
 func planToken(ctx context.Context, c *client, args map[string]any) (string, error) {
 	text, err := c.callTool(ctx, "finalize_plan", args)
 	if err != nil {

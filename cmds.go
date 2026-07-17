@@ -593,10 +593,6 @@ func cmdRaw(ctx context.Context, c *client, args []string) error {
 	return emit(ctx, c, tool, a, *asJSON)
 }
 
-// planToken mints a plan_token for exactly the writes or deletes described.
-//
-// Shared by `dsx rm` and push's delete path so the two cannot disagree about
-// what a missing token means.
 func firstLine(s string) string {
 	for i := range len(s) {
 		if s[i] == '\n' {

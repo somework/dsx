@@ -162,7 +162,6 @@ type writeResult struct {
 	URL     string            `json:"url"`
 }
 
-// planFor obtains a path-scoped plan_token authorising exactly these writes.
 func (c *client) writeBatch(ctx context.Context, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
 	files := make([]map[string]any, 0, len(batch))
 	paths := make([]string, 0, len(batch))

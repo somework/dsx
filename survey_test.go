@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,51 +115,82 @@ func TestSurveySidesCannotDisagree(t *testing.T) {
 	}
 }
 
-// TestSyncCallersCannotFilterOneSide is invariant 9's structural guard.
+// TestSyncCallersCannotFilterOneSide is invariant 9's structural guard: nothing
+// in the shipped binary but survey may name the three filtering primitives.
 //
-// The behavioural tests above prove survey filters both sides; they cannot prove
-// nobody bypasses it. This one reads runPull's and runPush's own syntax and
-// refuses the three calls whose hand-assembly was the original hazard. It is an
-// AST test rather than a package boundary because the whole binary is one
-// package -- see CLAUDE.md on why splitting ignore.go from state.go would break
-// the invariant it serves.
+// It scans EVERY non-test file rather than a list of known callers, and bans the
+// idents in every function except survey itself. An earlier version took the
+// obvious shape -- parse "pull.go" and "push.go", look for FuncDecls named
+// runPull and runPush -- and three ordinary refactoring moves defeated it while
+// a live one-sided filter shipped and the suite stayed green:
+//
+//	move runPush to push_run.go    the file list no longer covers it
+//	rename runPull                 the name lookup matches nothing
+//	hoist the calls into a helper  the inspect stops at the FuncDecl boundary
+//
+// Each failed open, because a guard reporting only `if len(found) > 0` cannot
+// tell "nothing forbidden here" from "I looked in the wrong place". Hence the
+// sentinel below: if the guard cannot find the one function it expects to find,
+// it has lost its bearings and says so instead of passing.
+//
+// This is a structural test rather than a package boundary because the whole
+// binary is one package -- see CLAUDE.md on why splitting ignore.go from
+// state.go would break the invariant it serves. And it is only half the guard:
+// syntax cannot see `_, local, err := survey(...)`, which names nothing
+// forbidden and still breaks the invariant. prune_ignore_test.go covers that by
+// asking what actually reached delete_files.
 func TestSyncCallersCannotFilterOneSide(t *testing.T) {
-	const forbidden = "filterRemote, scanLocal or loadIgnore"
 	banned := map[string]bool{"filterRemote": true, "scanLocal": true, "loadIgnore": true}
 
-	for _, fn := range []struct{ file, name string }{
-		{"pull.go", "runPull"},
-		{"push.go", "runPush"},
-	} {
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, fn.file, nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", fn.file, err)
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	surveyFound := false
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
 		}
 
-		var found []string
-		ast.Inspect(f, func(n ast.Node) bool {
-			decl, ok := n.(*ast.FuncDecl)
-			if !ok || decl.Name.Name != fn.name {
-				return true
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
 			}
-			ast.Inspect(decl.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if !ok {
-					return true
-				}
-				if id, ok := call.Fun.(*ast.Ident); ok && banned[id.Name] {
-					found = append(found, id.Name)
+			// survey is where the pairing is supposed to live.
+			if fn.Name.Name == "survey" {
+				surveyFound = true
+				continue
+			}
+
+			var found []string
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if id, ok := call.Fun.(*ast.Ident); ok && banned[id.Name] {
+						found = append(found, id.Name)
+					}
 				}
 				return true
 			})
-			return false
-		})
-
-		if len(found) > 0 {
-			t.Errorf("%s calls %v directly; it must go through survey. "+
-				"Hand-assembling %s is how one side gets filtered and the other does not, "+
-				"and --prune reads that difference as a deletion.", fn.name, found, forbidden)
+			if len(found) > 0 {
+				t.Errorf("%s.%s calls %v directly; only survey may. "+
+					"Hand-assembling the pairing is how one side gets filtered and the other "+
+					"does not, and --prune reads that difference as a deletion.",
+					name, fn.Name.Name, found)
+			}
 		}
+	}
+
+	if !surveyFound {
+		t.Fatal("survey was not found in any non-test file: this guard cannot tell " +
+			"'nothing forbidden' from 'I looked in the wrong place', so it refuses to pass")
 	}
 }

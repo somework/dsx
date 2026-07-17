@@ -1,6 +1,6 @@
 # dsx roadmap
 
-Current state: 600 tests green under `-race`, plus 20 live tests against the real endpoint.
+Current state: 604 tests green under `-race`, plus 20 live tests against the real endpoint.
 Coverage 90.0% overall, 97.4% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
 `go install github.com/somework/dsx@latest` works. CI builds and tests on Linux and macOS.
 
