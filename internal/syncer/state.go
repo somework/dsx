@@ -98,11 +98,29 @@ type localFile struct {
 func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 	out := map[string]localFile{}
 
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	// filepath.WalkDir does not descend a symlinked root: Lstat sees a symlink,
+	// not a directory, so the walk stops after one call and the scan comes back
+	// empty. An empty scan is a data-loss trigger — pull overwrites every real
+	// file through the link with no conflict, push --prune deletes the whole
+	// tracked tree. Resolve a symlinked root so its contents are actually walked;
+	// rel keys stay relative to the resolved root, matching what safeJoin
+	// resolves for writes. The common non-symlink path is untouched.
+	root := dir
+	if fi, err := os.Lstat(dir); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			return nil, err
+		}
+		if ri, err := os.Stat(resolved); err == nil && ri.IsDir() {
+			root = resolved
+		}
+	}
+
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(dir, p)
+		rel, err := filepath.Rel(root, p)
 		if err != nil {
 			return err
 		}
@@ -193,6 +211,22 @@ func safeJoin(root, rel string) (string, error) {
 	if fi, err := os.Lstat(absFull); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return "", fmt.Errorf("refusing to write through the symlink %q", rel)
 	}
+	// Refuse an in-tree symlinked directory component too. Writing through it
+	// lands the bytes under the resolved name while the ledger keys off this
+	// path, so scanLocal finds the same bytes under both names and reports a
+	// perpetual "changed" churn. Ask the filesystem — Lstat each existing
+	// intermediate component rather than fold names in Go.
+	parts := strings.Split(clean, string(filepath.Separator))
+	for i := 1; i < len(parts); i++ {
+		inter := filepath.Join(root, filepath.Join(parts[:i]...))
+		fi, err := os.Lstat(inter)
+		if err != nil {
+			break // this component does not exist yet, so nothing below it can
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("refusing to write through the symlinked directory %q", filepath.ToSlash(filepath.Join(parts[:i]...)))
+		}
+	}
 	ancestor := absFull
 	for {
 		if _, err := os.Lstat(ancestor); err == nil {
@@ -227,8 +261,87 @@ func caseInsensitiveDir(dir string) bool {
 	return err == nil
 }
 
+// nfcProbeName and nfdProbeName spell the same accented name two ways: é as one
+// code point, and e + a combining acute accent. A filesystem that stores names
+// normalization-insensitively (APFS) resolves both to one file.
+const (
+	nfcProbeName = "\u00e9" + caseProbeName  // \u00e9 as one code point
+	nfdProbeName = "e\u0301" + caseProbeName // e + combining acute accent
+)
+
+func normalizationInsensitiveDir(dir string) bool {
+	name := filepath.Join(dir, nfcProbeName)
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	defer os.Remove(name)
+
+	_, err = os.Stat(filepath.Join(dir, nfdProbeName))
+	return err == nil
+}
+
+// dirFolds reports whether this filesystem collapses distinct names onto one
+// file — by case or by Unicode normalization. Both destroy data on a pull, and
+// stdlib can fold neither in Go, so the guard must ask the filesystem.
+func dirFolds(dir string) bool {
+	return caseInsensitiveDir(dir) || normalizationInsensitiveDir(dir)
+}
+
+// remoteFoldCollisions asks the filesystem which remote paths would land on the
+// same file, without folding names in Go: it recreates every path in a throwaway
+// mirror on the same volume and groups by inode via os.SameFile. This catches
+// any folding the filesystem does — case, NFC/NFD, and anything else — where a
+// Go-side normaliser would need a dependency we refuse to add.
+func remoteFoldCollisions(remote map[string]RemoteEntry, dir string) (map[string]bool, error) {
+	probe, err := os.MkdirTemp(dir, caseProbeName+"-fold-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(probe)
+
+	type probed struct {
+		path string
+		fi   os.FileInfo
+	}
+	var created []probed
+	collided := map[string]bool{}
+
+	for _, path := range SortedPaths(remote) {
+		// safeJoin, not filepath.Join: a remote path is untrusted (invariant 7),
+		// so an escaping name like "../../evil" must never create a file outside
+		// the probe. An unsafe path is skipped here and refused later by
+		// checkRemotePath at write time.
+		full, err := safeJoin(probe, path)
+		if err != nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			return nil, err
+		}
+		f, err := os.OpenFile(full, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		f.Close()
+		fi, err := os.Lstat(full)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range created {
+			if os.SameFile(fi, pr.fi) {
+				collided[path] = true
+				collided[pr.path] = true
+			}
+		}
+		created = append(created, probed{path: path, fi: fi})
+	}
+	return collided, nil
+}
+
 func checkPathCollisions(remote map[string]RemoteEntry, local map[string]localFile, dir string) error {
-	if len(remote) == 0 || !caseInsensitiveDir(dir) {
+	if len(remote) == 0 || !dirFolds(dir) {
 		return nil
 	}
 
@@ -253,17 +366,15 @@ func checkPathCollisions(remote map[string]RemoteEntry, local map[string]localFi
 		}
 	}
 
-	byFold := map[string][]string{}
-	for path := range remote {
-		k := strings.ToLower(path)
-		byFold[k] = append(byFold[k], path)
+	// remote×remote folds. strings.ToLower cannot see NFC/NFD (café composed vs
+	// café decomposed are distinct byte strings that are one file on APFS), so
+	// ask the filesystem instead of folding names in Go.
+	remoteFolds, err := remoteFoldCollisions(remote, dir)
+	if err != nil {
+		return err
 	}
-	for _, paths := range byFold {
-		if len(paths) > 1 {
-			for _, p := range paths {
-				collided[p] = true
-			}
-		}
+	for p := range remoteFolds {
+		collided[p] = true
 	}
 
 	if len(collided) == 0 {

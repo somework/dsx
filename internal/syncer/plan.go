@@ -92,6 +92,8 @@ type pushDecision struct {
 	Irregular []string
 
 	BinaryConflicts []string
+
+	PruneConflicts []string
 }
 
 func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pushDecision {
@@ -107,9 +109,10 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 
 		switch {
 		case lf.Irregular:
-			if onServer {
-				d.Irregular = append(d.Irregular, path)
-			}
+			// Record it regardless of whether the server has the path: a
+			// local-only symlink dropped from every field leaves the user with
+			// "pushed 0" and no trace it was skipped. It is never pushable.
+			d.Irregular = append(d.Irregular, path)
 			continue
 		case tracked && !localChanged && onServer && !remoteMoved:
 			d.Unchanged++
@@ -151,6 +154,14 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 				continue
 			}
 			if prev.Binary {
+				continue
+			}
+			// The server moved this path ahead of the ledger since the last
+			// sync: deleting it with a stale if_match would drop a change the
+			// user never pulled. Mirror planPull's prune-conflict — a conflict,
+			// not a delete, unless --force.
+			if !force && remote[path].Etag != prev.Etag {
+				d.PruneConflicts = append(d.PruneConflicts, path)
 				continue
 			}
 			d.Delete = append(d.Delete, path)

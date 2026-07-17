@@ -44,6 +44,8 @@ type PushReport struct {
 
 	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
 
+	PruneConflicts []string `json:"prune_conflicts,omitempty"`
+
 	Irregular []string `json:"irregular,omitempty"`
 	Bytes     int64    `json:"bytes"`
 }
@@ -73,8 +75,10 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	d := planPush(remote, local, st, o.Force, o.Prune)
 	rep.Unchanged = d.Unchanged
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
+	rep.Conflicts = append(rep.Conflicts, d.PruneConflicts...)
 	slices.Sort(rep.Conflicts)
 	rep.BinaryConflicts = d.BinaryConflicts
+	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
 
@@ -232,7 +236,13 @@ func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []s
 		"plan_token": token,
 		"files":      files,
 	})
-	return err
+	if err != nil {
+		if paths, ok := mcp.ConflictFromToolError(err); ok {
+			return dsxerr.Conflict(paths, "the server moved ahead of a path dsx was pruning; nothing was deleted — `dsx pull` first, or --force")
+		}
+		return err
+	}
+	return nil
 }
 
 func (r PushReport) Render(asJSON bool) string {
@@ -253,6 +263,11 @@ func (r PushReport) Render(asJSON bool) string {
 		if slices.Contains(r.BinaryConflicts, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — dsx cannot read the server's copy, so it cannot merge; "+
 				"--force overwrites it and the only copy is gone", p)
+			continue
+		}
+		if slices.Contains(r.PruneConflicts, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — deleted here but moved ahead on the server; "+
+				"--force would DELETE the server's newer copy", p)
 			continue
 		}
 		fmt.Fprintf(&sb, "\n  ! %s — server moved ahead; `dsx pull` first, or --force", p)

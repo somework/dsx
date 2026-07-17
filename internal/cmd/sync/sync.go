@@ -104,8 +104,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(rep.Render(*asJSON))
 		}
-		return syncer.ConflictOutcome(rep.Conflicts, dryRun,
-			"server moved ahead; `dsx pull` first, or --force")
+		return rep.Outcome(dryRun)
 	}
 
 	pullRep, err := syncer.Pull(ctx, c, syncer.PullOpts{
@@ -120,8 +119,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(pullRep.Render(*asJSON))
 		}
-		return syncer.ConflictOutcome(pullRep.Conflicts, dryRun,
-			"local differs from the server, or was deleted there and edited here")
+		return pullRep.Outcome(dryRun)
 	}
 
 	pushRep, err := syncer.Push(ctx, c, syncer.PushOpts{
