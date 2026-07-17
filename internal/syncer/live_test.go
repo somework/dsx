@@ -28,7 +28,7 @@
 //   - Write only to clearly-named scratch paths, verify, then remove.
 //   - Every mutating test asserts the project's file count is back where it
 //     started before it finishes.
-package main
+package syncer
 
 import (
 	"context"

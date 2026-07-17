@@ -14,6 +14,7 @@ import (
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/syncer"
 )
 
 const usage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
@@ -334,7 +335,7 @@ func cmdHelp(args []string) error {
 // boundProject reports the project a directory is already pinned to, or "" if
 // the directory carries no ledger yet.
 func boundProject(dir string) (string, error) {
-	st, err := LoadState(dir)
+	st, err := syncer.LoadState(dir)
 	if err != nil {
 		return "", err
 	}
@@ -397,7 +398,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	}
 
 	if mode == "push" {
-		rep, err := Push(ctx, c, PushOpts{
+		rep, err := syncer.Push(ctx, c, syncer.PushOpts{
 			ProjectID: project, Dir: dir, Concurrency: *jobs,
 			Prune: *prune, Force: *force, DryRun: dryRun,
 		})
@@ -407,11 +408,11 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(rep.Render(*asJSON))
 		}
-		return ConflictOutcome(rep.Conflicts, dryRun,
+		return syncer.ConflictOutcome(rep.Conflicts, dryRun,
 			"server moved ahead; `dsx pull` first, or --force")
 	}
 
-	pullRep, err := Pull(ctx, c, PullOpts{
+	pullRep, err := syncer.Pull(ctx, c, syncer.PullOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
 		Prune: *prune, Force: *force, DryRun: dryRun,
 	})
@@ -423,13 +424,13 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		if !*quiet {
 			fmt.Println(pullRep.Render(*asJSON))
 		}
-		return ConflictOutcome(pullRep.Conflicts, dryRun,
+		return syncer.ConflictOutcome(pullRep.Conflicts, dryRun,
 			"local differs from the server, or was deleted there and edited here")
 	}
 
 	// `status` is the only mode that reports both directions. Neither side
 	// moves bytes, so the two dry runs cannot interfere.
-	pushRep, err := Push(ctx, c, PushOpts{
+	pushRep, err := syncer.Push(ctx, c, syncer.PushOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
 		Prune: *prune, Force: *force, DryRun: true,
 	})

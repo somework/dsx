@@ -1,4 +1,4 @@
-package main
+package syncer
 
 import (
 	"github.com/somework/dsx/internal/dsxerr"

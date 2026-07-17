@@ -1,4 +1,4 @@
-package main
+package syncer
 
 import (
 	"encoding/json"
@@ -235,7 +235,9 @@ func TestREADMEsIgnoreExampleIsAcceptedByTheParser(t *testing.T) {
 	// and gitignore does not either — copied verbatim, three of its four rules
 	// silently became patterns nothing matches. A README that does not run is
 	// worse than none: it is believed.
-	readme, err := os.ReadFile("README.md")
+	// The README is at the repo root, and this test is not: the path is relative
+	// to the package directory. internal/mcp's tests reach reference/ the same way.
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

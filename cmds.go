@@ -11,6 +11,7 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/fmtutil"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/syncer"
 )
 
 // One thin function per MCP tool. They exist to spell the arguments out, not to
@@ -66,13 +67,13 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	files, err := WalkTree(ctx, c, project, *jobs)
+	files, err := syncer.WalkTree(ctx, c, project, *jobs)
 	if err != nil {
 		return err
 	}
 	if *asJSON {
-		out := make([]RemoteEntry, 0, len(files))
-		for _, p := range SortedPaths(files) {
+		out := make([]syncer.RemoteEntry, 0, len(files))
+		for _, p := range syncer.SortedPaths(files) {
 			out = append(out, files[p])
 		}
 		b, err := json.Marshal(out)
@@ -83,7 +84,7 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 		return nil
 	}
 	var total int64
-	for _, p := range SortedPaths(files) {
+	for _, p := range syncer.SortedPaths(files) {
 		e := files[p]
 		total += e.Size
 		fmt.Printf("%-10s %16s  %s\n", fmtutil.Bytes(e.Size), e.Etag, p)
@@ -194,7 +195,7 @@ func emitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]
 		// on the very reply that exits 3 without --plan: emit does not classify.
 		text, err = c.CallTool(ctx, tool, args)
 	} else {
-		text, err = CallWithGrant(ctx, c, tool, args, projectID, paths)
+		text, err = syncer.CallWithGrant(ctx, c, tool, args, projectID, paths)
 	}
 	if err != nil {
 		if conflicts, ok := mcp.ConflictFromToolError(err); ok {
@@ -223,7 +224,7 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 
 	// Deletes always need a path-scoped plan_token naming every path; a
 	// project-scoped one is refused.
-	token, err := PlanToken(ctx, c, map[string]any{"project_id": project, "deletes": rest})
+	token, err := syncer.PlanToken(ctx, c, map[string]any{"project_id": project, "deletes": rest})
 	if err != nil {
 		return err
 	}

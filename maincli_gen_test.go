@@ -20,6 +20,7 @@ import (
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/syncer"
 )
 
 // Cover for main.go's dispatch/wiring and util.go's argument plumbing.
@@ -30,7 +31,7 @@ import (
 //   - resolveSyncTarget invented an argument form. The old two-argument form is
 //     a compatibility guarantee, and the ledger lookup it added must not fire
 //     when the caller was explicit.
-//   - ConflictOutcome decides the exit code. Exit 0 on a real run that refused
+//   - syncer.ConflictOutcome decides the exit code. Exit 0 on a real run that refused
 //     to move bytes would let a caller carry on over work that exists nowhere
 //     else.
 //   - jsonSafe backs the "--json stdout is exactly one JSON document" promise. A
@@ -219,11 +220,11 @@ func TestSyncTargetPropagatesALedgerReadFailureInsteadOfCallingItUnbound(t *test
 }
 
 // ---------------------------------------------------------------------------
-// ConflictOutcome — the exit code
+// syncer.ConflictOutcome — the exit code
 // ---------------------------------------------------------------------------
 
 func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
-	err := ConflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
+	err := syncer.ConflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
 	if err == nil {
 		t.Fatal("a real run that refused to move bytes reported success; a caller reading exit 0 would carry on over work that exists nowhere else")
 	}
@@ -248,18 +249,18 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 // answer it wanted. `dsx status` runs through here on every invocation: exiting
 // 3 would make "there is a conflict" indistinguishable from "status failed".
 func TestConflictsOnADryRunAreNotAFailure(t *testing.T) {
-	if err := ConflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
+	if err := syncer.ConflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
 		t.Fatalf("a dry run reporting a conflict failed with %v; it did exactly what it was told", err)
 	}
 }
 
 func TestNoConflictsIsSuccessInEitherMode(t *testing.T) {
 	for _, dry := range []bool{false, true} {
-		if err := ConflictOutcome(nil, dry, "hint"); err != nil {
-			t.Errorf("ConflictOutcome(nil, %v) = %v, want nil", dry, err)
+		if err := syncer.ConflictOutcome(nil, dry, "hint"); err != nil {
+			t.Errorf("syncer.ConflictOutcome(nil, %v) = %v, want nil", dry, err)
 		}
-		if err := ConflictOutcome([]string{}, dry, "hint"); err != nil {
-			t.Errorf("ConflictOutcome([], %v) = %v, want nil", dry, err)
+		if err := syncer.ConflictOutcome([]string{}, dry, "hint"); err != nil {
+			t.Errorf("syncer.ConflictOutcome([], %v) = %v, want nil", dry, err)
 		}
 	}
 }
@@ -952,7 +953,7 @@ func TestBoundProjectReadsTheLedgerAndIsSilentWhenThereIsNone(t *testing.T) {
 		t.Errorf("boundProject on a fresh dir = %q, want \"\"", got)
 	}
 
-	syncSeedState(t, dir, State{ProjectID: "proj-uuid"})
+	syncSeedState(t, dir, syncer.State{ProjectID: "proj-uuid"})
 	got, err = boundProject(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -966,7 +967,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 	// Reported as unbound, a corrupt ledger sends the user to re-run
 	// `dsx pull <project> <dir>` — which rewrites the evidence.
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, syncer.StateFileName), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := boundProject(dir); err == nil {
@@ -975,7 +976,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 }
 
 // ---------------------------------------------------------------------------
-// cmdSync — ConflictOutcome wired end to end
+// cmdSync — syncer.ConflictOutcome wired end to end
 // ---------------------------------------------------------------------------
 
 // maincliConflictedPull sets up a directory where a pull must refuse: the file
@@ -988,10 +989,10 @@ func maincliConflictedPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
 	const project = "proj-uuid"
 
 	maincliWriteFile(t, dir, "a.css", "LOCAL EDIT")
-	syncSeedState(t, dir, State{
+	syncSeedState(t, dir, syncer.State{
 		ProjectID: project,
-		Files: map[string]FileState{
-			"a.css": {Etag: "e1", Size: 3, SHA: SHA256Hex([]byte("old"))},
+		Files: map[string]syncer.FileState{
+			"a.css": {Etag: "e1", Size: 3, SHA: syncer.SHA256Hex([]byte("old"))},
 		},
 	})
 
@@ -1117,8 +1118,8 @@ func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
 	}
 	line := strings.TrimSuffix(out, "\n")
 	var got struct {
-		Pull *PullReport `json:"pull"`
-		Push *PushReport `json:"push"`
+		Pull *syncer.PullReport `json:"pull"`
+		Push *syncer.PushReport `json:"push"`
 	}
 	if err := json.Unmarshal([]byte(line), &got); err != nil {
 		t.Fatalf("status --json is not one JSON document: %v\n%s", err, line)

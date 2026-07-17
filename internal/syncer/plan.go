@@ -1,4 +1,4 @@
-package main
+package syncer
 
 // The sync decisions live here, apart from the transport, because this is
 // where a mistake costs data: a wrong call silently overwrites an edit or

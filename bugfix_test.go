@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/syncer"
 )
 
 // Defects the adversarial test pass turned up. Each is written red first, and
@@ -149,7 +150,7 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := Push(t.Context(), fakeClient(f), PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 2})
+	_, err := syncer.Push(t.Context(), fakeClient(f), syncer.PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 2})
 	if err == nil {
 		t.Fatal("a partial write reply was accepted silently")
 	}
@@ -161,7 +162,7 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 	}
 
 	// Whatever WAS acknowledged still has to reach the ledger: invariant 5.
-	st, loadErr := LoadState(dir)
+	st, loadErr := syncer.LoadState(dir)
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}

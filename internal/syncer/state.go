@@ -1,4 +1,4 @@
-package main
+package syncer
 
 import (
 	"crypto/sha256"
