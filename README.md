@@ -118,8 +118,9 @@ It filters **both** directions. An ignored path is not dsx's business at all: it
 pushed, not pulled, and not pruned from either side. (Filtering only the local scan would
 make `push --prune` read "ignored here" as "deleted here".)
 
-`.git`, `node_modules`, `.DS_Store`, the ledger and `.dsxignore` itself are always excluded
-and cannot be re-included.
+Always excluded and not re-includable by any `!` rule: VCS metadata (`.git`, `.svn`, `.hg`),
+`node_modules`, `.DS_Store`, and dsx's own bookkeeping (`.dsx-state.json`, `.dsxignore`,
+`.dsx-case-probe`). `builtinIgnores` in `ignore.go` is the source of truth.
 
 ## Files the server will not return
 

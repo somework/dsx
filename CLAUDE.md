@@ -24,7 +24,8 @@ counter-intuitive enough that guessing reliably produces wrong code.
 | `ignore.go` | `.dsxignore`, and the built-ins no rule may negate |
 | `plan.go` | **the sync decisions, pure functions** — where a mistake costs data |
 | `pull.go` / `push.go` | I/O around those decisions |
-| `state.go` | `.dsx-state.json` ledger, path safety |
+| `state.go` | `.dsx-state.json` ledger, path safety, filesystem fold identity |
+| `util.go` | flag parsing across positionals, error conversion, formatting |
 | `doctor.go` | `dsx doctor` — the first thing to run when something is wrong |
 | `completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
 | `version.go` | `--version`, ldflags-stamped or build-info-derived |

@@ -65,7 +65,7 @@ dsx walks the same chain, in the same order:
 | Where | Shape |
 |---|---|
 | `DSX_TOKEN` env | raw token; overrides everything, including `dsx auth` |
-| Keychain (darwin only), service **computed**, account `$USER` | JSON, field `claudeAiOauth.accessToken` |
+| Keychain (darwin only), service **computed** — matched on the service alone, [deliberately not on the account](auth_darwin.go) | JSON, field `claudeAiOauth.accessToken` |
 | `<config-dir>/.credentials.json`, mode `0600` | the same JSON |
 
 **The service name is not a constant.** Claude Code builds it as
@@ -268,11 +268,13 @@ direction is closed. The browser is the only way out.
 
 | | |
 |---|---|
-| `read_file` | 256 KiB per call |
-| `write_files` | 256 entries per call |
-| `finalize_plan` globs | 3 wildcards per pattern, 256 entries |
-| path-scoped token | ~15 min |
-| project-scoped token | ~4 h |
+| | | evidence |
+|---|---|---|
+| `read_file` | 256 KiB per call | measured; asserted live |
+| `write_files` | 256 entries per call | **uncorroborated.** The schema states no batch limit and types `files` as an unbounded array; dsx sends at most 128 (`maxBatchFiles`) and so can never discover the ceiling. The real constraint is dsx's own. |
+| `finalize_plan` globs | 3 wildcards per pattern, 256 entries | **uncorroborated, and probably wrong.** `reference/mcp-tools.json` contains no glob or wildcard anywhere; `finalize_plan` types `writes`/`deletes` as literal paths and normalises them like storage does. dsx never sends a pattern. Treat this row as a guess wearing a table's authority until it is re-probed. |
+| path-scoped token | ~15 min | probed once; not asserted live |
+| project-scoped token | ~4 h | asserted live (order of magnitude only) |
 
 ## Errors
 
@@ -288,11 +290,29 @@ made a failed write look like a read refusal and nearly invented a false protoco
 
 ## Re-probing this document
 
-Every claim above is asserted by the live suite:
+Much of this document is asserted by the live suite, and a good deal of it is not. The
+difference matters, because of what the next paragraph promises:
 
 ```bash
-go test -tags=live -run TestLive ./...     # 20 tests, ~40 s
+go test -tags=live -run TestLive ./...     # 17 tests, 20 with subtests, ~90 s
 ```
+
+**Pinned live:** the envelope framing and entity decoding, the size agreement, windowed reads
+and their truncation notice, `if_none_match`, `write_files`' map reply, `if_match` (stale, `"0"`,
+and the structured conflict), `needs_project_grant` as a 403 and its `finalize_plan` recovery,
+delete refusing a project-scoped token, binary-by-content in both directions, `resources` still
+unsupported, `tools/list` still naming every tool dsx wraps, and an end-to-end push/pull round
+trip through the real sync engine.
+
+**Not pinned live, and resting on a one-off probe or on the schema:** the whole **Auth**
+section (unit-tested only — and its file lane has never met a real file at all), `copy_files`,
+the **Limits** table, the accepted half of the write allowlist (only `.bin`'s refusal is probed,
+and softly), the `read file: file not found` wording, and the `prompts`/`listChanged`
+capabilities.
+
+The blanket claim that used to stand here — "every claim above is asserted" — was false, and
+falsely reassuring in the one document where that is most expensive: it invited a reader to
+treat a green suite as proof of the whole thing.
 
 It writes only to `.dsx-selftest*` paths in the test project, removes them, and confirms the
 project's file count is back where it started. There is no `delete_project` tool, so it never
