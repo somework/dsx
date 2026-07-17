@@ -21,7 +21,7 @@ const ignoreFileName = ".dsxignore"
 // path -- talk dsx into uploading a .git directory or clobbering its own state.
 var builtinIgnores = []string{
 	".git", ".svn", ".hg", "node_modules", ".DS_Store",
-	stateFileName, ignoreFileName, caseProbeName,
+	StateFileName, ignoreFileName, caseProbeName,
 }
 
 // ignoreRule is one line of .dsxignore, compiled.
@@ -266,8 +266,8 @@ func (s *ignoreSet) matchPath(rel string, leafIsDir bool) bool {
 // left in the listing looks exactly like a file the user deleted, so
 // `push --prune` would delete it from the server -- data loss produced by a
 // file whose entire purpose is to say "leave this alone".
-func filterRemote(remote map[string]remoteEntry, ig *ignoreSet) map[string]remoteEntry {
-	out := make(map[string]remoteEntry, len(remote))
+func filterRemote(remote map[string]RemoteEntry, ig *ignoreSet) map[string]RemoteEntry {
+	out := make(map[string]RemoteEntry, len(remote))
 	for path, e := range remote {
 		if ig.match(path) {
 			continue
@@ -281,7 +281,7 @@ func filterRemote(remote map[string]remoteEntry, ig *ignoreSet) map[string]remot
 // left: the listing the server gave us, and the files on disk.
 //
 // It exists so that filtering one side and not the other is unconstructible
-// rather than merely discouraged. runPull and runPush each used to spell this
+// rather than merely discouraged. Pull and Push each used to spell this
 // out -- loadIgnore, filterRemote, scanLocal -- which made the pairing a rule
 // two callers had to remember, with two chances to forget and no way to notice:
 // an ignored path left in the listing but gone from the scan reads exactly like
@@ -292,7 +292,7 @@ func filterRemote(remote map[string]remoteEntry, ig *ignoreSet) map[string]remot
 // hand a different set to each side. Loading it here means the caller never
 // holds one at all. The listing is passed in rather than walked here because
 // fetching it needs a client, and this stays off the network.
-func survey(dir string, remote map[string]remoteEntry) (map[string]remoteEntry, map[string]localFile, error) {
+func survey(dir string, remote map[string]RemoteEntry) (map[string]RemoteEntry, map[string]localFile, error) {
 	ig, err := loadIgnore(dir)
 	if err != nil {
 		return nil, nil, err

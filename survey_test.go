@@ -17,7 +17,7 @@ import (
 // deleted, so `push --prune` deletes it from the server: data loss produced by
 // the very file whose purpose is to say "leave this alone".
 //
-// runPull and runPush each used to spell the pairing out by hand -- loadIgnore,
+// Pull and Push each used to spell the pairing out by hand -- loadIgnore,
 // then filterRemote, then scanLocal, three calls apiece, each with its own
 // comment explaining why the second and third must agree. That is a rule two
 // callers must remember. survey makes it a property one supplier guarantees:
@@ -41,7 +41,7 @@ func TestSurveyFiltersBothSides(t *testing.T) {
 
 	// The server's listing carries the same ignored paths. If survey filtered
 	// only the disk, these would survive here and read as local deletions.
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"keep.md":     fileEntry("keep.md", "e1", 1),
 		"dist/app.js": fileEntry("dist/app.js", "e2", 1),
 		"debug.log":   fileEntry("debug.log", "e3", 1),
@@ -87,7 +87,7 @@ func TestSurveySidesCannotDisagree(t *testing.T) {
 				}
 			}
 			paths := []string{"a.md", "dist/app.js", "dist/keep.css", "x.log", "node_modules/p/i.js"}
-			remote := map[string]remoteEntry{}
+			remote := map[string]RemoteEntry{}
 			for _, p := range paths {
 				full := filepath.Join(dir, p)
 				if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -121,11 +121,11 @@ func TestSurveySidesCannotDisagree(t *testing.T) {
 // It scans EVERY non-test file rather than a list of known callers, and bans the
 // idents in every function except survey itself. An earlier version took the
 // obvious shape -- parse "pull.go" and "push.go", look for FuncDecls named
-// runPull and runPush -- and three ordinary refactoring moves defeated it while
+// Pull and Push -- and three ordinary refactoring moves defeated it while
 // a live one-sided filter shipped and the suite stayed green:
 //
-//	move runPush to push_run.go    the file list no longer covers it
-//	rename runPull                 the name lookup matches nothing
+//	move Push to push_run.go    the file list no longer covers it
+//	rename Pull                 the name lookup matches nothing
 //	hoist the calls into a helper  the inspect stops at the FuncDecl boundary
 //
 // Each failed open, because a guard reporting only `if len(found) > 0` cannot

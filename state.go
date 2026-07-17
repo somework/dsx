@@ -15,60 +15,60 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-const stateFileName = ".dsx-state.json"
+const StateFileName = ".dsx-state.json"
 
 // caseProbeName is the file caseInsensitiveDir creates to ask the filesystem
 // whether it folds case. It is in builtinIgnores so that a probe left behind by
 // a killed run is never synced.
 const caseProbeName = ".dsx-case-probe"
 
-// fileState records what we last agreed on with the server for one path:
+// FileState records what we last agreed on with the server for one path:
 // the server's etag, and the bytes we held at that etag.
 //
 // Binary marks a path the server will not serve back (read_file is text-only).
 // Such an entry has no local bytes, so SHA and Size stay zero and it must
 // never be treated as a file we hold -- see prune.
-type fileState struct {
+type FileState struct {
 	Etag   string `json:"etag"`
 	Size   int64  `json:"size"`
 	SHA    string `json:"sha256"`
 	Binary bool   `json:"binary,omitempty"`
 }
 
-type syncState struct {
+type State struct {
 	ProjectID string               `json:"project_id"`
 	Endpoint  string               `json:"endpoint,omitempty"`
-	Files     map[string]fileState `json:"files"`
+	Files     map[string]FileState `json:"files"`
 }
 
-func loadState(dir string) (syncState, error) {
-	b, err := os.ReadFile(filepath.Join(dir, stateFileName))
+func LoadState(dir string) (State, error) {
+	b, err := os.ReadFile(filepath.Join(dir, StateFileName))
 	if errors.Is(err, fs.ErrNotExist) {
-		return syncState{Files: map[string]fileState{}}, nil
+		return State{Files: map[string]FileState{}}, nil
 	}
 	if err != nil {
-		return syncState{}, err
+		return State{}, err
 	}
-	var s syncState
+	var s State
 	if err := json.Unmarshal(b, &s); err != nil {
-		return syncState{}, fmt.Errorf("%s is corrupt: %w", stateFileName, err)
+		return State{}, fmt.Errorf("%s is corrupt: %w", StateFileName, err)
 	}
 	if s.Files == nil {
-		s.Files = map[string]fileState{}
+		s.Files = map[string]FileState{}
 	}
 	return s, nil
 }
 
 // save writes the state atomically so an interrupted run cannot leave a
 // half-written ledger that would desync every later sync.
-func (s syncState) save(dir string) error {
+func (s State) save(dir string) error {
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
 	b = append(b, '\n')
 
-	tmp, err := os.CreateTemp(dir, stateFileName+".*")
+	tmp, err := os.CreateTemp(dir, StateFileName+".*")
 	if err != nil {
 		return err
 	}
@@ -81,20 +81,20 @@ func (s syncState) save(dir string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, stateFileName))
+	return os.Rename(tmp.Name(), filepath.Join(dir, StateFileName))
 }
 
 // withFile returns a copy carrying one updated entry; the receiver is untouched.
-func (s syncState) withFile(path string, fst fileState) syncState {
-	files := make(map[string]fileState, len(s.Files)+1)
+func (s State) withFile(path string, fst FileState) State {
+	files := make(map[string]FileState, len(s.Files)+1)
 	for k, v := range s.Files {
 		files[k] = v
 	}
 	files[path] = fst
-	return syncState{ProjectID: s.ProjectID, Endpoint: s.Endpoint, Files: files}
+	return State{ProjectID: s.ProjectID, Endpoint: s.Endpoint, Files: files}
 }
 
-func sha256hex(b []byte) string {
+func SHA256Hex(b []byte) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -157,7 +157,7 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 		if err != nil {
 			return err
 		}
-		out[rel] = localFile{Path: rel, Size: int64(len(b)), SHA: sha256hex(b)}
+		out[rel] = localFile{Path: rel, Size: int64(len(b)), SHA: SHA256Hex(b)}
 		return nil
 	})
 	if err != nil {
@@ -171,7 +171,7 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 // VCS metadata, dependency trees, and dsx's own ledger. A project we do not
 // control decides these names.
 func checkRemotePath(rel string) error {
-	if strings.EqualFold(rel, stateFileName) {
+	if strings.EqualFold(rel, StateFileName) {
 		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
@@ -311,7 +311,7 @@ func caseInsensitiveDir(dir string) bool {
 //     filesystem's identity function folds them.
 //
 // Nobody can merge that automatically: which name survives is the user's call.
-func checkPathCollisions(remote map[string]remoteEntry, local map[string]localFile, dir string) error {
+func checkPathCollisions(remote map[string]RemoteEntry, local map[string]localFile, dir string) error {
 	if len(remote) == 0 || !caseInsensitiveDir(dir) {
 		return nil
 	}

@@ -20,13 +20,13 @@ func TestPushSaysSomethingTrueAndActionableAboutABinaryConflict(t *testing.T) {
 	// planPull classifies the path Binary, fetches nothing and leaves the ledger
 	// untouched, so push conflicts identically forever. A measured livelock
 	// whose only exit is the one unrecoverable command, reachable by guessing.
-	// Conflicts is the union; BinaryConflicts discriminates. runPush builds it
+	// Conflicts is the union; BinaryConflicts discriminates. Push builds it
 	// that way so `conflicts` keeps meaning "everything a human must look at".
-	rep := pushReport{
+	rep := PushReport{
 		Conflicts:       []string{"assets/hero.png"},
 		BinaryConflicts: []string{"assets/hero.png"},
 	}
-	out := rep.render(false)
+	out := rep.Render(false)
 	if !strings.Contains(out, "assets/hero.png") {
 		t.Fatalf("the path is not named: %q", out)
 	}
@@ -46,9 +46,9 @@ func TestPushSaysSomethingTrueAndActionableAboutABinaryConflict(t *testing.T) {
 }
 
 func TestBinaryConflictsStillReachTheExitCode(t *testing.T) {
-	remote := map[string]remoteEntry{"a.png": {Path: "a.png", Etag: "e1"}}
+	remote := map[string]RemoteEntry{"a.png": {Path: "a.png", Etag: "e1"}}
 	local := map[string]localFile{"a.png": {Path: "a.png", SHA: "new"}}
-	st := syncState{Files: map[string]fileState{"a.png": {Etag: "e1", Binary: true}}}
+	st := State{Files: map[string]FileState{"a.png": {Etag: "e1", Binary: true}}}
 
 	d := planPush(remote, local, st, false, false)
 	if len(d.Write) != 0 {
@@ -69,9 +69,9 @@ func TestPullReportsAPruneFailureRatherThanTheLedgerSaveThatFollowedIt(t *testin
 	}
 	dir := t.TempDir()
 	mkfile(t, dir, "locked/old.css", "old")
-	syncSeedState(t, dir, syncState{
+	syncSeedState(t, dir, State{
 		ProjectID: "p1",
-		Files:     map[string]fileState{"locked/old.css": {Etag: "e0", Size: 3, SHA: sha256hex([]byte("old"))}},
+		Files:     map[string]FileState{"locked/old.css": {Etag: "e0", Size: 3, SHA: SHA256Hex([]byte("old"))}},
 	})
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name == "list_files" {
@@ -85,7 +85,7 @@ func TestPullReportsAPruneFailureRatherThanTheLedgerSaveThatFollowedIt(t *testin
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	_, err := runPull(t.Context(), fakeClient(f), pullOpts{projectID: "p1", dir: dir, concurrency: 1, prune: true})
+	_, err := Pull(t.Context(), fakeClient(f), PullOpts{ProjectID: "p1", Dir: dir, Concurrency: 1, Prune: true})
 	if err == nil {
 		t.Fatal("a failed prune delete was reported as success")
 	}
@@ -106,7 +106,7 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 	if !caseInsensitiveDir(dir) {
 		t.Skip("this filesystem is case-sensitive; the collision cannot happen here")
 	}
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"Button.css": {Path: "Button.css", Etag: "e1", Size: 1},
 		"button.css": {Path: "button.css", Etag: "e2", Size: 1},
 		"other.css":  {Path: "other.css", Etag: "e3", Size: 1},
@@ -129,7 +129,7 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 	}
 
 	// No collision, no complaint.
-	if err := checkPathCollisions(map[string]remoteEntry{
+	if err := checkPathCollisions(map[string]RemoteEntry{
 		"a.css": {Path: "a.css"}, "b.css": {Path: "b.css"},
 	}, map[string]localFile{}, dir); err != nil {
 		t.Errorf("a clean listing was refused: %v", err)

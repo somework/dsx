@@ -54,11 +54,11 @@ func TestPushDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 		t.Fatalf("the link itself was not recorded as irregular: %+v", local)
 	}
 
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"components/Button.tsx": {Path: "components/Button.tsx", Etag: "e1", Size: 1},
 	}
-	st := syncState{Files: map[string]fileState{
-		"components/Button.tsx": {Etag: "e1", Size: 1, SHA: sha256hex([]byte("x"))},
+	st := State{Files: map[string]FileState{
+		"components/Button.tsx": {Etag: "e1", Size: 1, SHA: SHA256Hex([]byte("x"))},
 	}}
 
 	d := planPush(remote, local, st, false, true)
@@ -70,10 +70,10 @@ func TestPushDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 
 func TestPullDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 	local := map[string]localFile{"components": {Path: "components", Irregular: true}}
-	st := syncState{Files: map[string]fileState{
+	st := State{Files: map[string]FileState{
 		"components/Button.tsx": {Etag: "e1", SHA: "abc"},
 	}}
-	d := planPull(map[string]remoteEntry{}, local, st, false, true)
+	d := planPull(map[string]RemoteEntry{}, local, st, false, true)
 	if len(d.Delete) != 0 || len(d.PruneConflicts) != 0 {
 		t.Fatalf("pull --prune acted on %v/%v under a symlinked directory it never looked inside",
 			d.Delete, d.PruneConflicts)
@@ -89,8 +89,8 @@ func TestIrregularPathsAreReportedAsThemselvesNotAsAFalseConflict(t *testing.T) 
 	//
 	// This is the same dishonest-advice class the previous commit fixed for
 	// PruneConflicts — fixed in one place and created in another.
-	rep := pushReport{Irregular: []string{"logo.svg"}}
-	out := rep.render(false)
+	rep := PushReport{Irregular: []string{"logo.svg"}}
+	out := rep.Render(false)
 	if !strings.Contains(out, "logo.svg") {
 		t.Fatalf("the path is not named: %q", out)
 	}
@@ -103,8 +103,8 @@ func TestIrregularPathsAreReportedAsThemselvesNotAsAFalseConflict(t *testing.T) 
 		}
 	}
 
-	pr := pullReport{Irregular: []string{"logo.svg"}}
-	pout := pr.render(false)
+	pr := PullReport{Irregular: []string{"logo.svg"}}
+	pout := pr.Render(false)
 	if !strings.Contains(pout, "logo.svg") {
 		t.Fatalf("pull does not name it: %q", pout)
 	}
@@ -138,13 +138,13 @@ func TestIrregularPathsDoNotBlockASyncForever(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"keep.css": {Path: "keep.css", Etag: "e0", Size: 1},
 		"logo.svg": {Path: "logo.svg", Etag: "e1", Size: 6},
 	}
-	st := syncState{Files: map[string]fileState{
-		"keep.css": {Etag: "e0", Size: 1, SHA: sha256hex([]byte("k"))},
-		"logo.svg": {Etag: "e1", Size: 6, SHA: sha256hex([]byte("<svg/>"))},
+	st := State{Files: map[string]FileState{
+		"keep.css": {Etag: "e0", Size: 1, SHA: SHA256Hex([]byte("k"))},
+		"logo.svg": {Etag: "e1", Size: 6, SHA: SHA256Hex([]byte("<svg/>"))},
 	}}
 
 	d := planPush(remote, local, st, false, true)
@@ -187,14 +187,14 @@ func TestNegatedPathUnderAnExcludedDirectoryIsScannedLocally(t *testing.T) {
 	}
 	if _, ok := local["dist/keep.css"]; !ok {
 		t.Fatalf("!dist/keep.css was excluded from the scan while filterRemote keeps it: "+
-			"the two sides disagree, and --prune acts on the difference. scanned: %v", sortedPaths(local))
+			"the two sides disagree, and --prune acts on the difference. scanned: %v", SortedPaths(local))
 	}
 	if _, ok := local["dist/app.js"]; ok {
 		t.Error("dist/app.js was scanned despite dist/")
 	}
 
 	// The two sides must agree, which is the whole of invariant 9.
-	remote := filterRemote(map[string]remoteEntry{
+	remote := filterRemote(map[string]RemoteEntry{
 		"dist/app.js":   {Path: "dist/app.js", Etag: "1"},
 		"dist/keep.css": {Path: "dist/keep.css", Etag: "2"},
 	}, ig)
@@ -243,7 +243,7 @@ func TestStatusJSONStillNamesEveryConflictInTheConflictsField(t *testing.T) {
 	// zero for the ONE case where --force destroys the only copy. And omitempty
 	// meant a run without prune conflicts looked byte-identical to old dsx, so
 	// nothing could discover the new field either.
-	rep := pullReport{
+	rep := PullReport{
 		Conflicts:      []string{"hero.css", "scratch.css"},
 		PruneConflicts: []string{"scratch.css"},
 	}
@@ -251,7 +251,7 @@ func TestStatusJSONStillNamesEveryConflictInTheConflictsField(t *testing.T) {
 		Conflicts      []string `json:"conflicts"`
 		PruneConflicts []string `json:"prune_conflicts"`
 	}
-	if err := json.Unmarshal([]byte(rep.render(true)), &got); err != nil {
+	if err := json.Unmarshal([]byte(rep.Render(true)), &got); err != nil {
 		t.Fatalf("--json is not JSON: %v", err)
 	}
 	for _, want := range []string{"hero.css", "scratch.css"} {
@@ -269,13 +269,13 @@ func TestStatusJSONStillNamesEveryConflictInTheConflictsField(t *testing.T) {
 }
 
 func TestProseAndJSONAgreeOnHowManyConflictsThereAre(t *testing.T) {
-	rep := pullReport{Conflicts: []string{"a.css", "b.css"}, PruneConflicts: []string{"b.css"}}
-	prose := rep.render(false)
+	rep := PullReport{Conflicts: []string{"a.css", "b.css"}, PruneConflicts: []string{"b.css"}}
+	prose := rep.Render(false)
 	if !strings.Contains(prose, "conflicts 2") {
 		t.Errorf("prose = %q, want it to count both", prose)
 	}
-	var got pullReport
-	if err := json.Unmarshal([]byte(rep.render(true)), &got); err != nil {
+	var got PullReport
+	if err := json.Unmarshal([]byte(rep.Render(true)), &got); err != nil {
 		t.Fatal(err)
 	}
 	if len(got.Conflicts) != 2 {
@@ -362,9 +362,9 @@ func TestPushAssertsAbsenceForAPathTheListingSaysIsGone(t *testing.T) {
 	// listing got if_match=<remembered etag> instead of "0". The server has no
 	// row at that etag, so the write is refused for a reason that is not true:
 	// the file is not stale, it is absent. "0" is the sentinel that says so.
-	remote := map[string]remoteEntry{} // the server no longer has it
+	remote := map[string]RemoteEntry{} // the server no longer has it
 	local := map[string]localFile{"a.css": {Path: "a.css", Size: 1, SHA: "new"}}
-	st := syncState{Files: map[string]fileState{"a.css": {Etag: "e-old", SHA: "old"}}}
+	st := State{Files: map[string]FileState{"a.css": {Etag: "e-old", SHA: "old"}}}
 
 	d := planPush(remote, local, st, false, false)
 	if len(d.Write) != 1 {

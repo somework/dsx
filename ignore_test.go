@@ -32,7 +32,7 @@ func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
 	s := mustParseIgnore(t, "")
 	for _, p := range []string{
 		".git/config", "node_modules/x/index.js", ".DS_Store",
-		"a/b/.git/HEAD", "deep/node_modules/pkg/p.js", stateFileName,
+		"a/b/.git/HEAD", "deep/node_modules/pkg/p.js", StateFileName,
 	} {
 		if !s.match(p) {
 			t.Errorf("built-in exclusion lost: %q is not ignored", p)
@@ -48,8 +48,8 @@ func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
 func TestIgnoreBuiltInsCannotBeNegated(t *testing.T) {
 	// The ledger is dsx's own bookkeeping and .git is not the project's. A
 	// project we do not control must not be able to talk dsx into either.
-	s := mustParseIgnore(t, "!.git\n!"+stateFileName+"\n!node_modules\n")
-	for _, p := range []string{".git/config", stateFileName, "node_modules/x.js"} {
+	s := mustParseIgnore(t, "!.git\n!"+StateFileName+"\n!node_modules\n")
+	for _, p := range []string{".git/config", StateFileName, "node_modules/x.js"} {
 		if !s.match(p) {
 			t.Errorf("%q was un-ignored by a user rule; built-ins are not negotiable", p)
 		}
@@ -195,7 +195,7 @@ func TestFilterRemoteDropsIgnoredPaths(t *testing.T) {
 	// scan but not from the listing, `push --prune` would read "ignored here"
 	// as "deleted here" and delete it from the server.
 	ig := mustParseIgnore(t, "dist/\n")
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"styles.css":  {Path: "styles.css", Etag: "1"},
 		"dist/app.js": {Path: "dist/app.js", Etag: "2"},
 	}
@@ -214,11 +214,11 @@ func TestFilterRemoteDropsIgnoredPaths(t *testing.T) {
 func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
 	// The whole trap, end to end and at the level where the decision is made.
 	ig := mustParseIgnore(t, "dist/\n")
-	remote := filterRemote(map[string]remoteEntry{
+	remote := filterRemote(map[string]RemoteEntry{
 		"dist/app.js": {Path: "dist/app.js", Etag: "2"},
 	}, ig)
 	local := map[string]localFile{} // ignored, so the scan never saw it
-	st := syncState{Files: map[string]fileState{
+	st := State{Files: map[string]FileState{
 		"dist/app.js": {Etag: "2", SHA: "abc", Size: 3}, // pulled before it was ignored
 	}}
 
@@ -232,9 +232,9 @@ func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
 
 func TestIgnoredPathIsNeverPrunedFromDisk(t *testing.T) {
 	ig := mustParseIgnore(t, "dist/\n")
-	remote := filterRemote(map[string]remoteEntry{}, ig)
+	remote := filterRemote(map[string]RemoteEntry{}, ig)
 	local := map[string]localFile{} // scanLocal already dropped dist/app.js
-	st := syncState{Files: map[string]fileState{"dist/app.js": {Etag: "2", SHA: "abc"}}}
+	st := State{Files: map[string]FileState{"dist/app.js": {Etag: "2", SHA: "abc"}}}
 
 	d := planPull(remote, local, st, false, true)
 	for _, p := range d.Delete {

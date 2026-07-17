@@ -15,16 +15,16 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-type pullOpts struct {
-	projectID   string
-	dir         string
-	concurrency int
-	prune       bool
-	force       bool
-	dryRun      bool
+type PullOpts struct {
+	ProjectID   string
+	Dir         string
+	Concurrency int
+	Prune       bool
+	Force       bool
+	DryRun      bool
 }
 
-type pullReport struct {
+type PullReport struct {
 	Fetched   []string `json:"fetched"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
@@ -58,26 +58,26 @@ func isBinaryRefusal(err error) bool {
 	return strings.Contains(te.Text, "is a binary file")
 }
 
-func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error) {
-	var rep pullReport
+func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
+	var rep PullReport
 
-	st, err := loadState(o.dir)
+	st, err := LoadState(o.Dir)
 	if err != nil {
 		return rep, err
 	}
-	if st.ProjectID != "" && st.ProjectID != o.projectID {
+	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
 		return rep, fmt.Errorf("%s is bound to project %s; refusing to pull %s into it",
-			filepath.Join(o.dir, stateFileName), st.ProjectID, o.projectID)
+			filepath.Join(o.Dir, StateFileName), st.ProjectID, o.ProjectID)
 	}
 
-	remote, err := walkTree(ctx, c, o.projectID, o.concurrency)
+	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
 	if err != nil {
 		return rep, err
 	}
 	// survey filters both sides or neither: an ignored path that stayed in the
 	// listing but vanished from the scan is indistinguishable from a local
 	// delete, and --prune acts on that difference.
-	remote, local, err := survey(o.dir, remote)
+	remote, local, err := survey(o.Dir, remote)
 	if err != nil {
 		return rep, err
 	}
@@ -86,11 +86,11 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	// on disk under a folded name. Writing them destroys all but the last, and
 	// each write's size assertion passes on its own, so nothing downstream
 	// notices.
-	if err := checkPathCollisions(remote, local, o.dir); err != nil {
+	if err := checkPathCollisions(remote, local, o.Dir); err != nil {
 		return rep, err
 	}
 
-	d := planPull(remote, local, st, o.force, o.prune)
+	d := planPull(remote, local, st, o.Force, o.Prune)
 	rep.Unchanged = d.Unchanged
 	rep.Binary = d.Binary
 	// Sorted here, at the union site, not at the end of the function: the tail
@@ -103,7 +103,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
 
-	if o.dryRun {
+	if o.DryRun {
 		for _, path := range d.Fetch {
 			rep.Fetched = append(rep.Fetched, path)
 			rep.Bytes += remote[path].Size
@@ -121,9 +121,9 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
-		// Clamped beside the semaphore for the same reason as walkTree's: zero
+		// Clamped beside the semaphore for the same reason as WalkTree's: zero
 		// deadlocks the fetch, negative panics make, and neither says so.
-		sem  = make(chan struct{}, max(o.concurrency, 1))
+		sem  = make(chan struct{}, max(o.Concurrency, 1))
 		errs []error
 	)
 	// The caller's context stays separate: the derived one is cancelled by our
@@ -143,14 +143,14 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 			}
 			defer func() { <-sem }()
 
-			body, etag, err := c.ReadFull(fetchCtx, o.projectID, path)
+			body, etag, err := c.ReadFull(fetchCtx, o.ProjectID, path)
 			if err != nil {
 				mu.Lock()
 				if isBinaryRefusal(err) {
 					rep.Binary = append(rep.Binary, path)
 					// Remember the refusal against this etag so later syncs
 					// stop re-asking. A new etag re-tries it.
-					st = st.withFile(path, fileState{Etag: remote[path].Etag, Binary: true})
+					st = st.withFile(path, FileState{Etag: remote[path].Etag, Binary: true})
 				} else {
 					errs = append(errs, err)
 					cancel()
@@ -171,7 +171,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 				return
 			}
 
-			full, err := safeJoin(o.dir, path)
+			full, err := safeJoin(o.Dir, path)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, err)
@@ -197,7 +197,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 			mu.Lock()
 			rep.Fetched = append(rep.Fetched, path)
 			rep.Bytes += int64(len(body))
-			st = st.withFile(path, fileState{Etag: etag, Size: int64(len(body)), SHA: sha256hex([]byte(body))})
+			st = st.withFile(path, FileState{Etag: etag, Size: int64(len(body)), SHA: SHA256Hex([]byte(body))})
 			mu.Unlock()
 		}(path)
 	}
@@ -206,15 +206,15 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	// Files already written are on disk whether or not the run finished. Save
 	// the ledger for them, or the next sync sees bytes it has no record of and
 	// calls its own work a conflict.
-	st.ProjectID = o.projectID
+	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
 	if len(errs) > 0 {
-		_ = st.save(o.dir)
+		_ = st.save(o.Dir)
 		return rep, errs[0]
 	}
 	if err := parent.Err(); err != nil {
-		_ = st.save(o.dir)
+		_ = st.save(o.Dir)
 		return rep, fmt.Errorf("pull interrupted: %w", err)
 	}
 
@@ -226,7 +226,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	// loop: one unwritable directory was enough.
 	var pruneErr error
 	for _, path := range rep.Deleted {
-		full, err := safeJoin(o.dir, path)
+		full, err := safeJoin(o.Dir, path)
 		if err != nil {
 			pruneErr = err
 			break
@@ -241,7 +241,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	// The prune failure is the news; a save error after it is a second-order
 	// symptom, usually of the same unwritable directory. Returning the save
 	// error first hid the prune failure entirely.
-	saveErr := st.save(o.dir)
+	saveErr := st.save(o.Dir)
 	if pruneErr != nil {
 		return rep, pruneErr
 	}
@@ -258,7 +258,7 @@ func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error)
 	return rep, nil
 }
 
-func (r pullReport) render(asJSON bool) string {
+func (r PullReport) Render(asJSON bool) string {
 	if asJSON {
 		b, _ := json.Marshal(r)
 		return string(b)

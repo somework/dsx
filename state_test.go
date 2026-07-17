@@ -46,10 +46,10 @@ func TestSafeJoinAcceptsProjectPaths(t *testing.T) {
 func TestStateRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
-	st := syncState{
+	st := State{
 		ProjectID: "proj-1",
 		Endpoint:  "https://example.test/mcp",
-		Files: map[string]fileState{
+		Files: map[string]FileState{
 			"a.css":  {Etag: "1", Size: 10, SHA: "abc"},
 			"og.png": {Etag: "2", Binary: true},
 		},
@@ -58,9 +58,9 @@ func TestStateRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	got, err := loadState(dir)
+	got, err := LoadState(dir)
 	if err != nil {
-		t.Fatalf("loadState: %v", err)
+		t.Fatalf("LoadState: %v", err)
 	}
 	if got.ProjectID != "proj-1" || len(got.Files) != 2 {
 		t.Fatalf("state = %+v", got)
@@ -74,9 +74,9 @@ func TestStateRoundTrip(t *testing.T) {
 }
 
 func TestLoadStateMissingIsEmptyNotError(t *testing.T) {
-	st, err := loadState(t.TempDir())
+	st, err := LoadState(t.TempDir())
 	if err != nil {
-		t.Fatalf("loadState on a fresh dir: %v", err)
+		t.Fatalf("LoadState on a fresh dir: %v", err)
 	}
 	if len(st.Files) != 0 {
 		t.Errorf("files = %v, want empty", st.Files)
@@ -85,11 +85,11 @@ func TestLoadStateMissingIsEmptyNotError(t *testing.T) {
 
 func TestLoadStateCorruptIsAnError(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadState(dir); err == nil {
-		t.Error("loadState on corrupt ledger = nil error, want failure")
+	if _, err := LoadState(dir); err == nil {
+		t.Error("LoadState on corrupt ledger = nil error, want failure")
 	}
 }
 
@@ -107,7 +107,7 @@ func TestScanLocalSkipsLedgerAndVCS(t *testing.T) {
 	}
 	write("a.css", "body{}")
 	write("tokens/colors.css", ":root{}")
-	write(stateFileName, "{}")
+	write(StateFileName, "{}")
 	write(".git/config", "[core]")
 	write("node_modules/pkg/index.js", "x")
 
@@ -120,12 +120,12 @@ func TestScanLocalSkipsLedgerAndVCS(t *testing.T) {
 		t.Fatalf("scanLocal: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("scanned %d files (%v), want a.css and tokens/colors.css", len(got), sortedPaths(got))
+		t.Fatalf("scanned %d files (%v), want a.css and tokens/colors.css", len(got), SortedPaths(got))
 	}
 	if _, ok := got["tokens/colors.css"]; !ok {
 		t.Error("nested path missing or not slash-separated")
 	}
-	if got["a.css"].SHA != sha256hex([]byte("body{}")) {
+	if got["a.css"].SHA != SHA256Hex([]byte("body{}")) {
 		t.Error("sha mismatch")
 	}
 }

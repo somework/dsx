@@ -478,7 +478,7 @@ func TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting(t *testing.
 
 // TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken.
 //
-// The guard in planToken is the only thing standing between a malformed plan
+// The guard in PlanToken is the only thing standing between a malformed plan
 // reply and a delete_files carrying plan_token "". Asserting the error alone
 // would not catch a version that reported the failure *after* calling the tool.
 func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
@@ -520,7 +520,7 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// planToken -- shared by `dsx rm` and push's delete path.
+// PlanToken -- shared by `dsx rm` and push's delete path.
 // ---------------------------------------------------------------------------
 
 // TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport.
@@ -544,10 +544,10 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeMCP(t, cmdsReplyJSON(tc.reply))
-			_, err := planToken(context.Background(), fakeClient(f),
+			_, err := PlanToken(context.Background(), fakeClient(f),
 				map[string]any{"project_id": "p1", "deletes": []string{"a.css"}})
 			if err == nil {
-				t.Fatal("planToken accepted a reply carrying no usable token")
+				t.Fatal("PlanToken accepted a reply carrying no usable token")
 			}
 			de := dsxerr.Classify(err)
 			if de.Kind != dsxerr.KindProtocol {
@@ -564,10 +564,10 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 func TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(`{"plan_token":"tok-abc","expires_in":900}`))
 
-	got, err := planToken(context.Background(), fakeClient(f),
+	got, err := PlanToken(context.Background(), fakeClient(f),
 		map[string]any{"project_id": "p1", "writes": []string{"a.css", "b.css"}})
 	if err != nil {
-		t.Fatalf("planToken: %v", err)
+		t.Fatalf("PlanToken: %v", err)
 	}
 	if got != "tok-abc" {
 		t.Errorf("token = %q, want tok-abc", got)
@@ -591,10 +591,10 @@ func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 		return fakeReply{HTTPStatus: 503, HTTPBody: "upstream unavailable"}
 	})
 
-	_, err := planToken(context.Background(), fakeClient(f),
+	_, err := PlanToken(context.Background(), fakeClient(f),
 		map[string]any{"project_id": "p1", "deletes": []string{"a.css"}})
 	if err == nil {
-		t.Fatal("planToken reported success against a 503")
+		t.Fatal("PlanToken reported success against a 503")
 	}
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindTransport {
 		t.Errorf("kind = %q, want %q -- a 503 is not a protocol violation", got, dsxerr.KindTransport)
@@ -844,11 +844,11 @@ func TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories(t *testing.T) {
 		t.Fatalf("tree failed: %v", err)
 	}
 
-	var got []remoteEntry
+	var got []RemoteEntry
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("stdout did not parse as a listing: %v (%q)", err, out)
 	}
-	want := []remoteEntry{
+	want := []RemoteEntry{
 		{Path: "src/a.css", Type: "file", Size: 1, Etag: "e-a"},
 		{Path: "src/b.css", Type: "file", Size: 2, Etag: "e-b"},
 		{Path: "z.css", Type: "file", Size: 3, Etag: "e-z"},
@@ -936,7 +936,7 @@ func TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree(t *testing.T)
 
 // TestCmdTreeClampsConcurrencyBelowOneToOne.
 //
-// Not cosmetic: walkTree sizes its semaphore from this number, and a zero-sized
+// Not cosmetic: WalkTree sizes its semaphore from this number, and a zero-sized
 // buffered channel is an unbuffered one, on which the first send blocks forever.
 // Without the clamp `-j 0` hangs until the context dies rather than listing
 // anything, so the deadline below is what makes the regression visible as a
@@ -954,7 +954,7 @@ func TestCmdTreeClampsConcurrencyBelowOneToOne(t *testing.T) {
 		t.Fatalf("tree -j 0 failed: %v", err)
 	}
 
-	var got []remoteEntry
+	var got []RemoteEntry
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("stdout did not parse: %v (%q)", err, out)
 	}

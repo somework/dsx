@@ -87,11 +87,11 @@ func liveClient(t *testing.T) (*mcp.Client, context.Context) {
 	return mcp.New(token), ctx
 }
 
-func liveTree(t *testing.T, c *mcp.Client, ctx context.Context) map[string]remoteEntry {
+func liveTree(t *testing.T, c *mcp.Client, ctx context.Context) map[string]RemoteEntry {
 	t.Helper()
-	files, err := walkTree(ctx, c, liveProjectID(), 8)
+	files, err := WalkTree(ctx, c, liveProjectID(), 8)
 	if err != nil {
-		t.Fatalf("walkTree: %v", err)
+		t.Fatalf("WalkTree: %v", err)
 	}
 	return files
 }
@@ -112,7 +112,7 @@ func liveScratch(t *testing.T, c *mcp.Client, ctx context.Context, suffix string
 				path, liveProjectID(), err)
 			return
 		}
-		files, err := walkTree(cleanupCtx, c, liveProjectID(), 8)
+		files, err := WalkTree(cleanupCtx, c, liveProjectID(), 8)
 		if err != nil {
 			t.Errorf("could not confirm %s is gone: %v", path, err)
 			return
@@ -133,7 +133,7 @@ func liveIsMissing(err error) bool {
 }
 
 func liveRemove(c *mcp.Client, ctx context.Context, paths ...string) error {
-	token, err := planToken(ctx, c, map[string]any{
+	token, err := PlanToken(ctx, c, map[string]any{
 		"project_id": liveProjectID(),
 		"deletes":    paths,
 	})
@@ -331,7 +331,7 @@ func TestLiveReadFileEnvelopeAndSizeAgree(t *testing.T) {
 	files := liveTree(t, c, ctx)
 
 	checked := 0
-	for _, path := range sortedPaths(files) {
+	for _, path := range SortedPaths(files) {
 		e := files[path]
 		if e.Size == 0 || e.Size > 200<<10 {
 			continue // stay under the 256 KiB read cap
@@ -369,7 +369,7 @@ func TestLiveIfNoneMatchShortCircuits(t *testing.T) {
 	// enough: "binary" here means invalid UTF-8, and the project holds such
 	// files under innocent names.
 	var path, etag string
-	for _, p := range sortedPaths(files) {
+	for _, p := range SortedPaths(files) {
 		e := files[p]
 		if e.Size == 0 || e.Size >= 200<<10 {
 			continue
@@ -521,7 +521,7 @@ func TestLiveBinaryIsDecidedByContentNotExtension(t *testing.T) {
 // every window boundary.
 //
 // PROTOCOL.md never recorded which side that newline falls on, and the two
-// consumers differ in what it costs: runPull is saved by invariant 1 (the
+// consumers differ in what it costs: Pull is saved by invariant 1 (the
 // decoded length would disagree with list_files' size and the write is refused),
 // but `dsx cat` has no such check and would emit a corrupted file in silence.
 //
@@ -810,7 +810,7 @@ func TestLiveResourcesAreStillUnsupported(t *testing.T) {
 
 // TestLiveEndToEndPullPushRoundTrip drives the actual sync engine, ledger and
 // all, against a scratch directory. It is the only test that exercises
-// runPull/runPush over the real protocol.
+// Pull/Push over the real protocol.
 func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
@@ -821,29 +821,29 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	mkfile(t, dir, path, body)
 
 	// Never pull into design/. A scratch temp dir, per CLAUDE.md.
-	rep, err := runPush(ctx, c, pushOpts{projectID: liveProjectID(), dir: dir, concurrency: 4})
+	rep, err := Push(ctx, c, PushOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
-		t.Fatalf("runPush: %v", err)
+		t.Fatalf("Push: %v", err)
 	}
 	if len(rep.Written) != 1 || rep.Written[0] != path {
 		t.Fatalf("pushed %v, want just %s", rep.Written, path)
 	}
 
-	st, err := loadState(dir)
+	st, err := LoadState(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if st.ProjectID != liveProjectID() {
 		t.Errorf("ledger pinned %q, want %q", st.ProjectID, liveProjectID())
 	}
-	if st.Files[path].SHA != sha256hex([]byte(body)) {
+	if st.Files[path].SHA != SHA256Hex([]byte(body)) {
 		t.Error("the ledger did not record the bytes it pushed; the next sync would call this a conflict")
 	}
 
 	// A second push must move nothing: the ledger and the etag agree.
-	rep2, err := runPush(ctx, c, pushOpts{projectID: liveProjectID(), dir: dir, concurrency: 4})
+	rep2, err := Push(ctx, c, PushOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
-		t.Fatalf("second runPush: %v", err)
+		t.Fatalf("second Push: %v", err)
 	}
 	if len(rep2.Written) != 0 {
 		t.Errorf("a warm push rewrote %v; unchanged files are supposed to cost nothing", rep2.Written)
@@ -851,9 +851,9 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 
 	// Pull the same file into a fresh directory and compare bytes.
 	dir2 := t.TempDir()
-	pullRep, err := runPull(ctx, c, pullOpts{projectID: liveProjectID(), dir: dir2, concurrency: 8})
+	pullRep, err := Pull(ctx, c, PullOpts{ProjectID: liveProjectID(), Dir: dir2, Concurrency: 8})
 	if err != nil {
-		t.Fatalf("runPull: %v", err)
+		t.Fatalf("Pull: %v", err)
 	}
 	got, err := os.ReadFile(fmt.Sprintf("%s/%s", dir2, path))
 	if err != nil {

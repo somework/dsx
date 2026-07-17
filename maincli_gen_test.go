@@ -952,7 +952,7 @@ func TestBoundProjectReadsTheLedgerAndIsSilentWhenThereIsNone(t *testing.T) {
 		t.Errorf("boundProject on a fresh dir = %q, want \"\"", got)
 	}
 
-	syncSeedState(t, dir, syncState{ProjectID: "proj-uuid"})
+	syncSeedState(t, dir, State{ProjectID: "proj-uuid"})
 	got, err = boundProject(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -966,7 +966,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 	// Reported as unbound, a corrupt ledger sends the user to re-run
 	// `dsx pull <project> <dir>` — which rewrites the evidence.
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := boundProject(dir); err == nil {
@@ -988,10 +988,10 @@ func maincliConflictedPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
 	const project = "proj-uuid"
 
 	maincliWriteFile(t, dir, "a.css", "LOCAL EDIT")
-	syncSeedState(t, dir, syncState{
+	syncSeedState(t, dir, State{
 		ProjectID: project,
-		Files: map[string]fileState{
-			"a.css": {Etag: "e1", Size: 3, SHA: sha256hex([]byte("old"))},
+		Files: map[string]FileState{
+			"a.css": {Etag: "e1", Size: 3, SHA: SHA256Hex([]byte("old"))},
 		},
 	})
 
@@ -1117,8 +1117,8 @@ func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
 	}
 	line := strings.TrimSuffix(out, "\n")
 	var got struct {
-		Pull *pullReport `json:"pull"`
-		Push *pushReport `json:"push"`
+		Pull *PullReport `json:"pull"`
+		Push *PushReport `json:"push"`
 	}
 	if err := json.Unmarshal([]byte(line), &got); err != nil {
 		t.Fatalf("status --json is not one JSON document: %v\n%s", err, line)

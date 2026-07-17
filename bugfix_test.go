@@ -149,7 +149,7 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := runPush(t.Context(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 2})
+	_, err := Push(t.Context(), fakeClient(f), PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 2})
 	if err == nil {
 		t.Fatal("a partial write reply was accepted silently")
 	}
@@ -161,7 +161,7 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 	}
 
 	// Whatever WAS acknowledged still has to reach the ledger: invariant 5.
-	st, loadErr := loadState(dir)
+	st, loadErr := LoadState(dir)
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}

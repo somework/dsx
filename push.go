@@ -28,16 +28,16 @@ type writeSpec struct {
 	IfMatch  string `json:"if_match,omitempty"`
 }
 
-type pushOpts struct {
-	projectID   string
-	dir         string
-	concurrency int
-	prune       bool
-	force       bool
-	dryRun      bool
+type PushOpts struct {
+	ProjectID   string
+	Dir         string
+	Concurrency int
+	Prune       bool
+	Force       bool
+	DryRun      bool
 }
 
-type pushReport struct {
+type PushReport struct {
 	Written   []string `json:"written"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
@@ -46,35 +46,35 @@ type pushReport struct {
 	// BinaryConflicts is the subset only --force resolves, unrecoverably.
 	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
 	// Irregular are paths that are not regular files here, so there were no
-	// bytes to send. Reported, never conflicts -- see pullReport.Irregular.
+	// bytes to send. Reported, never conflicts -- see PullReport.Irregular.
 	Irregular []string `json:"irregular,omitempty"`
 	Bytes     int64    `json:"bytes"`
 }
 
-func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error) {
-	var rep pushReport
+func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
+	var rep PushReport
 
-	st, err := loadState(o.dir)
+	st, err := LoadState(o.Dir)
 	if err != nil {
 		return rep, err
 	}
-	if st.ProjectID != "" && st.ProjectID != o.projectID {
+	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
 		return rep, fmt.Errorf("%s is bound to project %s; refusing to push it to %s",
-			stateFileName, st.ProjectID, o.projectID)
+			StateFileName, st.ProjectID, o.ProjectID)
 	}
 
-	remote, err := walkTree(ctx, c, o.projectID, o.concurrency)
+	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
 	if err != nil {
 		return rep, err
 	}
 	// survey filters the listing too, which is what stops --prune from reading
 	// "ignored here" as "deleted here" and removing the file from the server.
-	remote, local, err := survey(o.dir, remote)
+	remote, local, err := survey(o.Dir, remote)
 	if err != nil {
 		return rep, err
 	}
 
-	d := planPush(remote, local, st, o.force, o.prune)
+	d := planPush(remote, local, st, o.Force, o.Prune)
 	rep.Unchanged = d.Unchanged
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
 	slices.Sort(rep.Conflicts)
@@ -84,7 +84,7 @@ func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error)
 
 	specs := make([]writeSpec, 0, len(d.Write))
 	for _, cand := range d.Write {
-		full, err := safeJoin(o.dir, cand.Path)
+		full, err := safeJoin(o.Dir, cand.Path)
 		if err != nil {
 			return rep, err
 		}
@@ -101,7 +101,7 @@ func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error)
 		rep.Bytes += int64(len(body))
 	}
 
-	if o.dryRun {
+	if o.DryRun {
 		for _, s := range specs {
 			rep.Written = append(rep.Written, s.Path)
 		}
@@ -112,19 +112,19 @@ func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error)
 	// ledger without this leaves project_id empty, and an empty pin is no pin:
 	// the guards above short-circuit on it and the next sync could target a
 	// different project against this project's etags.
-	st.ProjectID = o.projectID
+	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
 	for _, batch := range batches(specs) {
-		if err := writeBatch(ctx, c, o.projectID, batch, &st, &rep); err != nil {
-			_ = st.save(o.dir) // keep whatever succeeded
+		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
+			_ = st.save(o.Dir) // keep whatever succeeded
 			return rep, err
 		}
 	}
 
 	if len(rep.Deleted) > 0 {
-		if err := deletePaths(ctx, c, o.projectID, rep.Deleted, st); err != nil {
-			_ = st.save(o.dir)
+		if err := deletePaths(ctx, c, o.ProjectID, rep.Deleted, st); err != nil {
+			_ = st.save(o.Dir)
 			return rep, err
 		}
 		for _, p := range rep.Deleted {
@@ -132,7 +132,7 @@ func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error)
 		}
 	}
 
-	if err := st.save(o.dir); err != nil {
+	if err := st.save(o.Dir); err != nil {
 		return rep, err
 	}
 	return rep, nil
@@ -166,7 +166,7 @@ type writeResult struct {
 	URL     string            `json:"url"`
 }
 
-func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
+func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []writeSpec, st *State, rep *PushReport) error {
 	files := make([]map[string]any, 0, len(batch))
 	paths := make([]string, 0, len(batch))
 	for _, s := range batch {
@@ -179,7 +179,7 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 	}
 
 	args := map[string]any{"project_id": projectID, "files": files}
-	text, err := callWithGrant(ctx, c, "write_files", args, projectID, paths)
+	text, err := CallWithGrant(ctx, c, "write_files", args, projectID, paths)
 	if err != nil {
 		// A stale if_match is a conflict, and the server is the only party that
 		// can see this one: it lost the race between our listing and our write.
@@ -212,7 +212,7 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 		if err != nil {
 			return err
 		}
-		*st = st.withFile(path, fileState{Etag: etag, Size: int64(len(raw)), SHA: sha256hex(raw)})
+		*st = st.withFile(path, FileState{Etag: etag, Size: int64(len(raw)), SHA: SHA256Hex(raw)})
 		rep.Written = append(rep.Written, path)
 	}
 	slices.Sort(rep.Written)
@@ -241,8 +241,8 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 
 // deletePaths removes remote files. Deletes always require a path-scoped
 // plan_token; a project-scoped one is refused by the server.
-func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []string, st syncState) error {
-	token, err := planToken(ctx, c, map[string]any{"project_id": projectID, "deletes": paths})
+func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []string, st State) error {
+	token, err := PlanToken(ctx, c, map[string]any{"project_id": projectID, "deletes": paths})
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []s
 	return err
 }
 
-func (r pushReport) render(asJSON bool) string {
+func (r PushReport) Render(asJSON bool) string {
 	if asJSON {
 		b, _ := json.Marshal(r)
 		return string(b)

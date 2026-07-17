@@ -40,10 +40,10 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	// A tracked file inside a directory we will make unwritable, so its removal
 	// fails; and a fresh file the pull will fetch.
 	mkfile(t, dir, "locked/old.css", "old")
-	syncSeedState(t, dir, syncState{
+	syncSeedState(t, dir, State{
 		ProjectID: "p1",
-		Files: map[string]fileState{
-			"locked/old.css": {Etag: "e0", Size: 3, SHA: sha256hex([]byte("old"))},
+		Files: map[string]FileState{
+			"locked/old.css": {Etag: "e0", Size: 3, SHA: SHA256Hex([]byte("old"))},
 		},
 	})
 
@@ -66,14 +66,14 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	_, err := runPull(t.Context(), fakeClient(f), pullOpts{
-		projectID: "p1", dir: dir, concurrency: 2, prune: true,
+	_, err := Pull(t.Context(), fakeClient(f), PullOpts{
+		ProjectID: "p1", Dir: dir, Concurrency: 2, Prune: true,
 	})
 	if err == nil {
 		t.Fatal("a failed prune delete was reported as success")
 	}
 
-	st, loadErr := loadState(dir)
+	st, loadErr := LoadState(dir)
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}
@@ -93,13 +93,13 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 	// The server's copy is the only copy: dsx cannot pull it back, the API has no
 	// `resources` lane, and there is no encoding parameter. Overwriting it is
 	// unrecoverable, which is the worst outcome in this codebase.
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"assets/hero.png": {Path: "assets/hero.png", Etag: "e1", Size: 2 << 20},
 	}
 	local := map[string]localFile{
-		"assets/hero.png": {Path: "assets/hero.png", Size: 12, SHA: sha256hex([]byte("placeholder!"))},
+		"assets/hero.png": {Path: "assets/hero.png", Size: 12, SHA: SHA256Hex([]byte("placeholder!"))},
 	}
-	st := syncState{Files: map[string]fileState{
+	st := State{Files: map[string]FileState{
 		"assets/hero.png": {Etag: "e1", Binary: true}, // no SHA: we never held it
 	}}
 
@@ -156,13 +156,13 @@ func TestPushDoesNotPruneAPathThatStoppedBeingARegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"keep.css": {Path: "keep.css", Etag: "e0", Size: 1},
 		"logo.svg": {Path: "logo.svg", Etag: "e1", Size: 6},
 	}
-	st := syncState{Files: map[string]fileState{
-		"keep.css": {Etag: "e0", Size: 1, SHA: sha256hex([]byte("k"))},
-		"logo.svg": {Etag: "e1", Size: 6, SHA: sha256hex([]byte("<svg/>"))},
+	st := State{Files: map[string]FileState{
+		"keep.css": {Etag: "e0", Size: 1, SHA: SHA256Hex([]byte("k"))},
+		"logo.svg": {Etag: "e1", Size: 6, SHA: SHA256Hex([]byte("<svg/>"))},
 	}}
 
 	d := planPush(remote, local, st, false, true)
@@ -205,8 +205,8 @@ func TestPullDoesNotClobberAPathThatStoppedBeingARegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{"logo.svg": {Path: "logo.svg", Etag: "e2", Size: 6}}
-	st := syncState{Files: map[string]fileState{"logo.svg": {Etag: "e1", Size: 6, SHA: "x"}}}
+	remote := map[string]RemoteEntry{"logo.svg": {Path: "logo.svg", Etag: "e2", Size: 6}}
+	st := State{Files: map[string]FileState{"logo.svg": {Etag: "e1", Size: 6, SHA: "x"}}}
 
 	d := planPull(remote, local, st, false, false)
 	for _, p := range d.Fetch {
@@ -225,14 +225,14 @@ func TestPullTellsTheTruthAboutWhatForceWillDoToAPrunedConflict(t *testing.T) {
 	// the bytes it destroys exist nowhere else. The user reaches for --force to
 	// resolve some other file and loses this one.
 	// Conflicts carries EVERY path a human must look at; PruneConflicts is the
-	// subset --force would DELETE rather than overwrite. runPull builds it that
+	// subset --force would DELETE rather than overwrite. Pull builds it that
 	// way, because narrowing `conflicts` made `status --json` report zero for
 	// exactly the destructive case.
-	rep := pullReport{
+	rep := PullReport{
 		Conflicts:      []string{"hero.css", "scratch.css"},
 		PruneConflicts: []string{"scratch.css"},
 	}
-	out := rep.render(false)
+	out := rep.Render(false)
 	if !strings.Contains(out, "scratch.css") || !strings.Contains(out, "hero.css") {
 		t.Fatalf("both conflicts must be named: %q", out)
 	}
@@ -365,12 +365,12 @@ func TestServerDetectedConflictExitsThreeLikeALocallyDetectedOne(t *testing.T) {
 
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "local edit")
-	syncSeedState(t, dir, syncState{
+	syncSeedState(t, dir, State{
 		ProjectID: "p1",
-		Files:     map[string]fileState{"a.css": {Etag: "e1", Size: 1, SHA: sha256hex([]byte("x"))}},
+		Files:     map[string]FileState{"a.css": {Etag: "e1", Size: 1, SHA: SHA256Hex([]byte("x"))}},
 	})
 
-	_, err := runPush(t.Context(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 1})
+	_, err := Push(t.Context(), fakeClient(f), PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 1})
 	if err == nil {
 		t.Fatal("the server refused the write and dsx reported success")
 	}

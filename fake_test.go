@@ -15,7 +15,7 @@ import (
 //
 //   - how to build a client (mcptest does not import mcp, so mcp's own internal
 //     tests can import mcptest without a cycle)
-//   - the domain shapes: a listing is []remoteEntry, and remoteEntry belongs to
+//   - the domain shapes: a listing is []RemoteEntry, and RemoteEntry belongs to
 //     the sync side, not to the transport
 //   - captureStdout, which is about this process's os.Stdout
 //
@@ -39,7 +39,7 @@ func fakeClient(f *fakeMCP) *mcp.Client {
 
 // listingFor renders a list_files reply: project-relative paths, one directory
 // deep, with directories carrying no etag.
-func listingFor(entries ...remoteEntry) string {
+func listingFor(entries ...RemoteEntry) string {
 	b, err := json.Marshal(entries)
 	if err != nil {
 		panic(err)
@@ -47,12 +47,12 @@ func listingFor(entries ...remoteEntry) string {
 	return string(b)
 }
 
-func fileEntry(path, etag string, size int64) remoteEntry {
-	return remoteEntry{Path: path, Type: "file", Size: size, Etag: etag}
+func fileEntry(path, etag string, size int64) RemoteEntry {
+	return RemoteEntry{Path: path, Type: "file", Size: size, Etag: etag}
 }
 
-func dirEntry(path string) remoteEntry {
-	return remoteEntry{Path: path, Type: "directory"}
+func dirEntry(path string) RemoteEntry {
+	return RemoteEntry{Path: path, Type: "directory"}
 }
 
 // captureStdout runs fn with os.Stdout redirected and returns what it printed.

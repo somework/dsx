@@ -41,7 +41,7 @@ func TestPullRefusesARemotePathThatFoldsOntoADifferentLocalName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"README.md": {Path: "README.md", Etag: "e2", Size: 7},
 		"other.css": {Path: "other.css", Etag: "e3", Size: 1},
 	}
@@ -72,7 +72,7 @@ func TestPullAcceptsARemotePathThatMatchesItsLocalNameExactly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{"readme.md": {Path: "readme.md", Etag: "e1"}}
+	remote := map[string]RemoteEntry{"readme.md": {Path: "readme.md", Etag: "e1"}}
 	if err := checkPathCollisions(remote, local, dir); err != nil {
 		t.Fatalf("an exact match was refused: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestPullAcceptsARemotePathWithNothingOnDiskToFoldOnto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := map[string]remoteEntry{
+	remote := map[string]RemoteEntry{
 		"README.md": {Path: "README.md", Etag: "e1"},
 		"a/b/c.css": {Path: "a/b/c.css", Etag: "e2"},
 	}
@@ -123,11 +123,11 @@ func TestNestedBuiltInDirectoriesAreStillPrunedWhenAUserRuleExists(t *testing.T)
 // Round four's fourth defect -- the union of two sorted lists is not sorted, and
 // the sort sat after the dry-run early return, so `status` emitted an unsorted
 // list while a real pull emitted a sorted one -- is guarded by
-// report_order_test.go, which drives runPull and runPush in both modes.
+// report_order_test.go, which drives Pull and Push in both modes.
 //
-// The test that stood here did not guard it. It hand-built a pullReport, called
+// The test that stood here did not guard it. It hand-built a PullReport, called
 // the sort on it inside the test body, then asserted the result was sorted: it
-// exercised the stdlib and never reached runPull. Measured before removing it:
+// exercised the stdlib and never reached Pull. Measured before removing it:
 // reversing every sort in pull.go left all 604 tests green. It was named for a
 // defect it could not have caught -- the shape this file exists to record.
 

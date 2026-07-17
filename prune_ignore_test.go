@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-// Invariant 9, driven end to end through runPush -- which nothing else does.
+// Invariant 9, driven end to end through Push -- which nothing else does.
 //
 // This is the guard that matters, and the suite had no equivalent. The two
 // existing tests named for this invariant (TestIgnoredPathIsNeverPrunedFrom-
 // TheServer and ...FromDisk) hand-assemble the correct filtering themselves and
 // call planPush directly, so they prove the decision is right given correct
 // input. They cannot see the wiring that produces it. TestSyncCallers-
-// CannotFilterOneSide reads runPull's and runPush's syntax, so it sees only the
+// CannotFilterOneSide reads Pull's and Push's syntax, so it sees only the
 // shapes it was taught: move the function to another file, rename it, or hoist
 // the calls into a helper, and it matches nothing and passes.
 //
@@ -42,11 +42,11 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 	}
 
 	body := []byte("app")
-	st := syncState{
+	st := State{
 		ProjectID: "p1",
-		Files: map[string]fileState{
-			"dist/app.js": {Etag: "e2", Size: int64(len(body)), SHA: sha256hex(body)},
-			"keep.md":     {Etag: "e1", Size: 4, SHA: sha256hex([]byte("keep"))},
+		Files: map[string]FileState{
+			"dist/app.js": {Etag: "e2", Size: int64(len(body)), SHA: SHA256Hex(body)},
+			"keep.md":     {Etag: "e1", Size: 4, SHA: SHA256Hex([]byte("keep"))},
 		},
 	}
 	if err := st.save(dir); err != nil {
@@ -81,12 +81,12 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 		return fakeReply{Text: "[]"}
 	})
 
-	if _, err := runPush(context.Background(), fakeClient(f), pushOpts{
-		projectID: "p1",
-		dir:       dir,
-		prune:     true,
+	if _, err := Push(context.Background(), fakeClient(f), PushOpts{
+		ProjectID: "p1",
+		Dir:       dir,
+		Prune:     true,
 	}); err != nil {
-		t.Fatalf("runPush: %v", err)
+		t.Fatalf("Push: %v", err)
 	}
 
 	for _, p := range deleted {
@@ -100,7 +100,7 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 }
 
 // The mirror on the pull side: an ignored path must not be deleted from disk.
-// runPull is the caller here, so this catches a one-sided filter in survey's
+// Pull is the caller here, so this catches a one-sided filter in survey's
 // other consumer.
 func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 	dir := t.TempDir()
@@ -116,9 +116,9 @@ func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 	}
 
 	body := []byte("app")
-	st := syncState{
+	st := State{
 		ProjectID: "p1",
-		Files:     map[string]fileState{"dist/app.js": {Etag: "e2", Size: int64(len(body)), SHA: sha256hex(body)}},
+		Files:     map[string]FileState{"dist/app.js": {Etag: "e2", Size: int64(len(body)), SHA: SHA256Hex(body)}},
 	}
 	if err := st.save(dir); err != nil {
 		t.Fatal(err)
@@ -134,13 +134,13 @@ func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 		return fakeReply{Text: "[]"}
 	})
 
-	if _, err := runPull(context.Background(), fakeClient(f), pullOpts{
-		projectID:   "p1",
-		dir:         dir,
-		concurrency: 4,
-		prune:       true,
+	if _, err := Pull(context.Background(), fakeClient(f), PullOpts{
+		ProjectID:   "p1",
+		Dir:         dir,
+		Concurrency: 4,
+		Prune:       true,
 	}); err != nil {
-		t.Fatalf("runPull: %v", err)
+		t.Fatalf("Pull: %v", err)
 	}
 
 	if _, err := os.Stat(appJS); err != nil {

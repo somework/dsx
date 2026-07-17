@@ -12,9 +12,9 @@ import (
 // this one is not.
 func TestPlanPullBothSidesChangedIsAConflict(t *testing.T) {
 	d := planPull(
-		remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),  // server moved
+		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),  // server moved
 		localOf(localFile{Path: "a.css", SHA: "edited"}), // and we edited
-		stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		false, false)
 
 	if len(d.Fetch) != 0 {
@@ -27,9 +27,9 @@ func TestPlanPullBothSidesChangedIsAConflict(t *testing.T) {
 
 func TestPlanPullBothSidesChangedFetchesUnderForce(t *testing.T) {
 	d := planPull(
-		remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 		localOf(localFile{Path: "a.css", SHA: "edited"}),
-		stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		true, false)
 
 	if !slices.Equal(d.Fetch, []string{"a.css"}) {
@@ -40,9 +40,9 @@ func TestPlanPullBothSidesChangedFetchesUnderForce(t *testing.T) {
 // A clean fast-forward: server moved, we did not touch the file.
 func TestPlanPullRemoteOnlyChangeStillFetches(t *testing.T) {
 	d := planPull(
-		remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 		localOf(localFile{Path: "a.css", SHA: "sha1"}),
-		stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		false, false)
 
 	if !slices.Equal(d.Fetch, []string{"a.css"}) {
@@ -58,7 +58,7 @@ func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 	d := planPull(
 		remoteOf(),
 		localOf(localFile{Path: "gone.css", SHA: "edited"}),
-		stateOf(map[string]fileState{"gone.css": {Etag: "1", SHA: "sha1"}}),
+		stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "sha1"}}),
 		false, true)
 
 	if len(d.Delete) != 0 {
@@ -77,9 +77,9 @@ func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 
 func TestPlanPushPruneKeepsLocallyEditedFile(t *testing.T) {
 	d := planPush(
-		remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+		remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 		localOf(),
-		stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		false, true)
 	// Absent locally and unchanged remotely: this one really is a delete.
 	if !slices.Equal(d.Delete, []string{"a.css"}) {
@@ -123,7 +123,7 @@ func TestRemotePathsCannotTouchVCSOrLedger(t *testing.T) {
 	for _, p := range []string{
 		".git/config",
 		".git/hooks/pre-commit",
-		stateFileName,
+		StateFileName,
 		"node_modules/x/index.js",
 		"a/.git/config",
 	} {

@@ -9,7 +9,7 @@ import (
 
 // The ledger's on-disk shape is a compatibility contract with every .dsx-state.json
 // already sitting in a user's directory, and nothing else in the suite pins it.
-// loadState and save agree with each other by construction, so a renamed json tag
+// LoadState and save agree with each other by construction, so a renamed json tag
 // stays green through both -- while in the field it decodes to a zero SHA, which
 // plan.go reads as localDirty for every tracked file: every path a conflict, exit 3,
 // and the user pushed toward --force. That is invariant 5's named failure mode
@@ -37,11 +37,11 @@ const goldenLedger = `{
 }
 `
 
-func goldenState() syncState {
-	return syncState{
+func goldenState() State {
+	return State{
 		ProjectID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
 		Endpoint:  "https://claude.ai/api/organizations/o/mcp",
-		Files: map[string]fileState{
+		Files: map[string]FileState{
 			"README.md": {
 				Etag: `W/"v1-abc"`,
 				Size: 42,
@@ -59,16 +59,16 @@ func goldenState() syncState {
 }
 
 // TestLedgerGoldenDecodes pins the field names a real .dsx-state.json carries.
-// Rename any json tag on fileState or syncState and this goes red.
+// Rename any json tag on FileState or State and this goes red.
 func TestLedgerGoldenDecodes(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte(goldenLedger), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte(goldenLedger), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := loadState(dir)
+	got, err := LoadState(dir)
 	if err != nil {
-		t.Fatalf("loadState: %v", err)
+		t.Fatalf("LoadState: %v", err)
 	}
 
 	want := goldenState()
@@ -102,7 +102,7 @@ func TestLedgerGoldenRoundTripsByteExact(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	b, err := os.ReadFile(filepath.Join(dir, stateFileName))
+	b, err := os.ReadFile(filepath.Join(dir, StateFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,9 +115,9 @@ func TestLedgerGoldenRoundTripsByteExact(t *testing.T) {
 // binary are omitempty; size and sha256 are not, and must not become so: a binary
 // entry's zero Size is meaningful, not absent.
 func TestLedgerOmitemptyContract(t *testing.T) {
-	b, err := json.MarshalIndent(syncState{
+	b, err := json.MarshalIndent(State{
 		ProjectID: "p",
-		Files:     map[string]fileState{"a.txt": {Etag: "e"}},
+		Files:     map[string]FileState{"a.txt": {Etag: "e"}},
 	}, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -150,13 +150,13 @@ func TestLedgerUnknownFieldsSurvive(t *testing.T) {
   "schema_version": 9
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, stateFileName), []byte(future), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte(future), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	st, err := loadState(dir)
+	st, err := LoadState(dir)
 	if err != nil {
-		t.Fatalf("loadState rejected a forward-compatible ledger: %v", err)
+		t.Fatalf("LoadState rejected a forward-compatible ledger: %v", err)
 	}
 	if got := st.Files["a.txt"].Etag; got != "e" {
 		t.Errorf("Etag = %q, want %q", got, "e")

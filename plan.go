@@ -49,10 +49,10 @@ type pullDecision struct {
 }
 
 // planPull decides, without touching the network, what a pull would do.
-func planPull(remote map[string]remoteEntry, local map[string]localFile, st syncState, force, prune bool) pullDecision {
+func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pullDecision {
 	var d pullDecision
 
-	for _, path := range sortedPaths(remote) {
+	for _, path := range SortedPaths(remote) {
 		r := remote[path]
 		prev, tracked := st.Files[path]
 		onDisk, present := local[path]
@@ -89,7 +89,7 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 		// symlinked-directory case safe here for free: nothing under the link
 		// was ever scanned, so nothing under it can be reached from this loop.
 		// planPush needs localCovers because it iterates the server's listing.
-		for _, path := range sortedPaths(local) {
+		for _, path := range SortedPaths(local) {
 			if _, stillRemote := remote[path]; stillRemote {
 				continue
 			}
@@ -139,10 +139,10 @@ type pushDecision struct {
 }
 
 // planPush decides, without touching the network, what a push would do.
-func planPush(remote map[string]remoteEntry, local map[string]localFile, st syncState, force, prune bool) pushDecision {
+func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pushDecision {
 	var d pushDecision
 
-	for _, path := range sortedPaths(local) {
+	for _, path := range SortedPaths(local) {
 		lf := local[path]
 		prev, tracked := st.Files[path]
 		r, onServer := remote[path]
@@ -204,7 +204,7 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 	}
 
 	if prune {
-		for _, path := range sortedPaths(remote) {
+		for _, path := range SortedPaths(remote) {
 			// localCovers, not plain membership: an irregular path counts as
 			// present, and so does everything beneath a symlinked directory the
 			// walk never entered. That is the whole reason scanLocal records

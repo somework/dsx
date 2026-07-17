@@ -19,15 +19,15 @@ func jsonOf(v any) string {
 	return string(b)
 }
 
-// Report slices come out sorted, from runPull and runPush, in every mode.
+// Report slices come out sorted, from Pull and Push, in every mode.
 //
 // Output width is a token budget: dsx exists so an agent can diff two runs and
 // see only what changed. Identical state rendered in two orders is noise that
 // costs the caller real context.
 //
-// The test this replaces hand-built a pullReport, called slices.Sort on it
+// The test this replaces hand-built a PullReport, called slices.Sort on it
 // inside the test body, then asserted it was sorted -- it tested the stdlib and
-// never called runPull. Measured: reversing every sort in pull.go left all 604
+// never called Pull. Measured: reversing every sort in pull.go left all 604
 // tests green, which also means the suite could not have caught a bad
 // sortStrings -> slices.Sort replacement. That refactor was verified by
 // call-site accounting instead, precisely because the tests were no help.
@@ -77,14 +77,14 @@ func TestPullReportFieldsAreSortedInEveryMode(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			rep, err := runPull(context.Background(), fakeClient(orderFake(t)), pullOpts{
-				projectID:   "p1",
-				dir:         dir,
-				concurrency: 4,
-				dryRun:      dry,
+			rep, err := Pull(context.Background(), fakeClient(orderFake(t)), PullOpts{
+				ProjectID:   "p1",
+				Dir:         dir,
+				Concurrency: 4,
+				DryRun:      dry,
 			})
 			if err != nil {
-				t.Fatalf("runPull: %v", err)
+				t.Fatalf("Pull: %v", err)
 			}
 			if len(rep.Fetched) != 4 {
 				t.Fatalf("fetched %d, want 4 — the fixture stopped exercising the sort: %v",
@@ -121,12 +121,12 @@ func TestPullConflictsAreSortedAcrossTheUnionInEveryMode(t *testing.T) {
 			}
 			// Tracked with a stale sha: both sides changed -> conflict. aaa.css is
 			// absent from the listing and locally edited -> prune-conflict.
-			st := syncState{
+			st := State{
 				ProjectID: "p1",
-				Files: map[string]fileState{
-					"zzz.css": {Etag: "old", Size: 3, SHA: sha256hex([]byte("old"))},
-					"mmm.css": {Etag: "old", Size: 3, SHA: sha256hex([]byte("old"))},
-					"aaa.css": {Etag: "old", Size: 3, SHA: sha256hex([]byte("old"))},
+				Files: map[string]FileState{
+					"zzz.css": {Etag: "old", Size: 3, SHA: SHA256Hex([]byte("old"))},
+					"mmm.css": {Etag: "old", Size: 3, SHA: SHA256Hex([]byte("old"))},
+					"aaa.css": {Etag: "old", Size: 3, SHA: SHA256Hex([]byte("old"))},
 				},
 			}
 			if err := st.save(dir); err != nil {
@@ -143,15 +143,15 @@ func TestPullConflictsAreSortedAcrossTheUnionInEveryMode(t *testing.T) {
 				return fakeReply{Text: "[]"}
 			})
 
-			rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
-				projectID:   "p1",
-				dir:         dir,
-				concurrency: 4,
-				prune:       true,
-				dryRun:      dry,
+			rep, err := Pull(context.Background(), fakeClient(f), PullOpts{
+				ProjectID:   "p1",
+				Dir:         dir,
+				Concurrency: 4,
+				Prune:       true,
+				DryRun:      dry,
 			})
 			if err != nil {
-				t.Fatalf("runPull: %v", err)
+				t.Fatalf("Pull: %v", err)
 			}
 			if len(rep.Conflicts) < 2 {
 				t.Fatalf("want at least 2 conflicts to exercise the union, got %v", rep.Conflicts)
@@ -183,7 +183,7 @@ func TestPushReportFieldsAreSorted(t *testing.T) {
 					return fakeReply{Text: `{"plan_token":"tok"}`}
 				case "write_files":
 					// Echo an etag for every path the batch carried, in whatever
-					// order the map yields -- runPush must sort regardless.
+					// order the map yields -- Push must sort regardless.
 					etags := map[string]any{}
 					if fs, ok := args["files"].([]any); ok {
 						for _, e := range fs {
@@ -199,13 +199,13 @@ func TestPushReportFieldsAreSorted(t *testing.T) {
 				return fakeReply{Text: "[]"}
 			})
 
-			rep, err := runPush(context.Background(), fakeClient(f), pushOpts{
-				projectID: "p1",
-				dir:       dir,
-				dryRun:    dry,
+			rep, err := Push(context.Background(), fakeClient(f), PushOpts{
+				ProjectID: "p1",
+				Dir:       dir,
+				DryRun:    dry,
 			})
 			if err != nil {
-				t.Fatalf("runPush: %v", err)
+				t.Fatalf("Push: %v", err)
 			}
 			if len(rep.Written) != 4 {
 				t.Fatalf("written %d, want 4 — the fixture stopped exercising the sort: %v",

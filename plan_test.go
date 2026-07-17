@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func remoteOf(entries ...remoteEntry) map[string]remoteEntry {
-	m := map[string]remoteEntry{}
+func remoteOf(entries ...RemoteEntry) map[string]RemoteEntry {
+	m := map[string]RemoteEntry{}
 	for _, e := range entries {
 		e.Type = "file"
 		m[e.Path] = e
@@ -22,19 +22,19 @@ func localOf(files ...localFile) map[string]localFile {
 	return m
 }
 
-func stateOf(entries map[string]fileState) syncState {
+func stateOf(entries map[string]FileState) State {
 	if entries == nil {
-		entries = map[string]fileState{}
+		entries = map[string]FileState{}
 	}
-	return syncState{ProjectID: "p", Files: entries}
+	return State{ProjectID: "p", Files: entries}
 }
 
 func TestPlanPull(t *testing.T) {
 	t.Run("etag match and sha match costs nothing", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1", Size: 3}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "sha1"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 			false, false)
 
 		if d.Unchanged != 1 || len(d.Fetch) != 0 {
@@ -44,9 +44,9 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("new etag is fetched", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "sha1"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 			false, false)
 
 		if !slices.Equal(d.Fetch, []string{"a.css"}) {
@@ -56,7 +56,7 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("untracked remote file is fetched", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "new.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "new.css", Etag: "1"}),
 			localOf(), stateOf(nil), false, false)
 
 		if !slices.Equal(d.Fetch, []string{"new.css"}) {
@@ -66,9 +66,9 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("local edit at same etag is a conflict, not an overwrite", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 			false, false)
 
 		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
@@ -81,9 +81,9 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("force overrides a local edit", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "sha1"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 			true, false)
 
 		if !slices.Equal(d.Fetch, []string{"a.css"}) {
@@ -93,7 +93,7 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("untracked local collision is a conflict", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
 			stateOf(nil), false, false)
 
@@ -104,9 +104,9 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("known binary at same etag is not re-requested", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "og.png", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "og.png", Etag: "1"}),
 			localOf(),
-			stateOf(map[string]fileState{"og.png": {Etag: "1", Binary: true}}),
+			stateOf(map[string]FileState{"og.png": {Etag: "1", Binary: true}}),
 			false, false)
 
 		if !slices.Equal(d.Binary, []string{"og.png"}) {
@@ -119,9 +119,9 @@ func TestPlanPull(t *testing.T) {
 
 	t.Run("binary with a new etag is retried", func(t *testing.T) {
 		d := planPull(
-			remoteOf(remoteEntry{Path: "og.png", Etag: "2"}),
+			remoteOf(RemoteEntry{Path: "og.png", Etag: "2"}),
 			localOf(),
-			stateOf(map[string]fileState{"og.png": {Etag: "1", Binary: true}}),
+			stateOf(map[string]FileState{"og.png": {Etag: "1", Binary: true}}),
 			false, false)
 
 		if !slices.Equal(d.Fetch, []string{"og.png"}) {
@@ -133,7 +133,7 @@ func TestPlanPull(t *testing.T) {
 		d := planPull(
 			remoteOf(),
 			localOf(localFile{Path: "gone.css", SHA: "s"}),
-			stateOf(map[string]fileState{"gone.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "s"}}),
 			false, true)
 
 		if !slices.Equal(d.Delete, []string{"gone.css"}) {
@@ -156,9 +156,9 @@ func TestPlanPull(t *testing.T) {
 func TestPlanPush(t *testing.T) {
 	t.Run("unchanged file is not sent", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "s"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
 			false, false)
 
 		if d.Unchanged != 1 || len(d.Write) != 0 {
@@ -168,9 +168,9 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("local edit is sent guarded by if_match", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
 			false, false)
 
 		if len(d.Write) != 1 || d.Write[0].IfMatch != "1" {
@@ -191,9 +191,9 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("remote moved ahead is a conflict", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
 			false, false)
 
 		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
@@ -206,9 +206,9 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("force sends unconditionally", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
 			true, false)
 
 		if len(d.Write) != 1 || d.Write[0].IfMatch != "" {
@@ -218,7 +218,7 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("untracked collision is a conflict", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
 			stateOf(nil), false, false)
 
@@ -229,9 +229,9 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("server ahead with no local change is left to pull", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "a.css", Etag: "2"}),
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "s"}),
-			stateOf(map[string]fileState{"a.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
 			false, false)
 
 		if d.Unchanged != 1 || len(d.Write) != 0 || len(d.Conflicts) != 0 {
@@ -242,9 +242,9 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("prune deletes tracked remote files gone locally", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "gone.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "gone.css", Etag: "1"}),
 			localOf(),
-			stateOf(map[string]fileState{"gone.css": {Etag: "1", SHA: "s"}}),
+			stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "s"}}),
 			false, true)
 
 		if !slices.Equal(d.Delete, []string{"gone.css"}) {
@@ -256,9 +256,9 @@ func TestPlanPush(t *testing.T) {
 	// never on disk. Prune must not read that absence as "the user deleted it".
 	t.Run("prune must never delete a binary the server would not serve", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "assets/og.png", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "assets/og.png", Etag: "1"}),
 			localOf(),
-			stateOf(map[string]fileState{"assets/og.png": {Etag: "1", Binary: true}}),
+			stateOf(map[string]FileState{"assets/og.png": {Etag: "1", Binary: true}}),
 			false, true)
 
 		if len(d.Delete) != 0 {
@@ -268,7 +268,7 @@ func TestPlanPush(t *testing.T) {
 
 	t.Run("prune leaves untracked remote files alone", func(t *testing.T) {
 		d := planPush(
-			remoteOf(remoteEntry{Path: "theirs.css", Etag: "1"}),
+			remoteOf(RemoteEntry{Path: "theirs.css", Etag: "1"}),
 			localOf(), stateOf(nil), false, true)
 
 		if len(d.Delete) != 0 {
@@ -278,8 +278,8 @@ func TestPlanPush(t *testing.T) {
 }
 
 func TestSyncStateWithFileIsImmutable(t *testing.T) {
-	orig := stateOf(map[string]fileState{"a": {Etag: "1"}})
-	next := orig.withFile("b", fileState{Etag: "2"})
+	orig := stateOf(map[string]FileState{"a": {Etag: "1"}})
+	next := orig.withFile("b", FileState{Etag: "2"})
 
 	if _, leaked := orig.Files["b"]; leaked {
 		t.Error("withFile mutated the receiver")

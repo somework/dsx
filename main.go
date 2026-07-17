@@ -334,7 +334,7 @@ func cmdHelp(args []string) error {
 // boundProject reports the project a directory is already pinned to, or "" if
 // the directory carries no ledger yet.
 func boundProject(dir string) (string, error) {
-	st, err := loadState(dir)
+	st, err := LoadState(dir)
 	if err != nil {
 		return "", err
 	}
@@ -410,23 +410,23 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	}
 
 	if mode == "push" {
-		rep, err := runPush(ctx, c, pushOpts{
-			projectID: project, dir: dir, concurrency: *jobs,
-			prune: *prune, force: *force, dryRun: dryRun,
+		rep, err := Push(ctx, c, PushOpts{
+			ProjectID: project, Dir: dir, Concurrency: *jobs,
+			Prune: *prune, Force: *force, DryRun: dryRun,
 		})
 		if err != nil {
 			return err
 		}
 		if !*quiet {
-			fmt.Println(rep.render(*asJSON))
+			fmt.Println(rep.Render(*asJSON))
 		}
 		return conflictOutcome(rep.Conflicts, dryRun,
 			"server moved ahead; `dsx pull` first, or --force")
 	}
 
-	pullRep, err := runPull(ctx, c, pullOpts{
-		projectID: project, dir: dir, concurrency: *jobs,
-		prune: *prune, force: *force, dryRun: dryRun,
+	pullRep, err := Pull(ctx, c, PullOpts{
+		ProjectID: project, Dir: dir, Concurrency: *jobs,
+		Prune: *prune, Force: *force, DryRun: dryRun,
 	})
 	if err != nil {
 		return err
@@ -434,7 +434,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 
 	if mode == "pull" {
 		if !*quiet {
-			fmt.Println(pullRep.render(*asJSON))
+			fmt.Println(pullRep.Render(*asJSON))
 		}
 		return conflictOutcome(pullRep.Conflicts, dryRun,
 			"local differs from the server, or was deleted there and edited here")
@@ -442,9 +442,9 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 
 	// `status` is the only mode that reports both directions. Neither side
 	// moves bytes, so the two dry runs cannot interfere.
-	pushRep, err := runPush(ctx, c, pushOpts{
-		projectID: project, dir: dir, concurrency: *jobs,
-		prune: *prune, force: *force, dryRun: true,
+	pushRep, err := Push(ctx, c, PushOpts{
+		ProjectID: project, Dir: dir, Concurrency: *jobs,
+		Prune: *prune, Force: *force, DryRun: true,
 	})
 	if err != nil {
 		return err
@@ -460,7 +460,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		fmt.Println(string(b))
 		return nil
 	}
-	fmt.Println("pull: " + pullRep.render(false))
-	fmt.Println("push: " + pushRep.render(false))
+	fmt.Println("pull: " + pullRep.Render(false))
+	fmt.Println("push: " + pushRep.Render(false))
 	return nil
 }

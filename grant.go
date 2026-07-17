@@ -14,19 +14,19 @@ import (
 // The finalize_plan self-authorisation path.
 //
 // These three sat in two different files, both above the layer they belong to:
-// planToken among the CLI commands, planFor and callWithGrant among push's
+// PlanToken among the CLI commands, planFor and CallWithGrant among push's
 // batching. Neither placement was chosen -- each function landed wherever its
 // first caller happened to be, and their own comments said so. They are gathered
 // here because `dsx rm`, `dsx put` and push's delete path all reach them, and
 // what they share is a protocol obligation, not a command.
 
-// planToken mints a plan_token for exactly the writes or deletes described.
+// PlanToken mints a plan_token for exactly the writes or deletes described.
 //
 // Shared by `dsx rm` and push's delete path so the two cannot disagree about
 // what a missing token means: a missing plan_token is a protocol fault, not a
 // tool error -- the server answered without the one field the call exists to
 // produce.
-func planToken(ctx context.Context, c *mcp.Client, args map[string]any) (string, error) {
+func PlanToken(ctx context.Context, c *mcp.Client, args map[string]any) (string, error) {
 	text, err := c.CallTool(ctx, "finalize_plan", args)
 	if err != nil {
 		return "", fmt.Errorf("finalize_plan: %w", err)
@@ -43,10 +43,10 @@ func planToken(ctx context.Context, c *mcp.Client, args map[string]any) (string,
 
 // planFor authorises writes to exactly these paths.
 func planFor(ctx context.Context, c *mcp.Client, projectID string, paths []string) (string, error) {
-	return planToken(ctx, c, map[string]any{"project_id": projectID, "writes": paths})
+	return PlanToken(ctx, c, map[string]any{"project_id": projectID, "writes": paths})
 }
 
-// callWithGrant runs a write tool, self-authorising if the server demands a
+// CallWithGrant runs a write tool, self-authorising if the server demands a
 // standing project grant.
 //
 // Without a grant the server answers HTTP 403; a path-scoped plan_token
@@ -57,7 +57,7 @@ func planFor(ctx context.Context, c *mcp.Client, projectID string, paths []strin
 // It is shared because push had it and put did not: the same write that push
 // completed left `dsx put` at exit 1 with no next step. Two copies would drift
 // again.
-func callWithGrant(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string) (string, error) {
+func CallWithGrant(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string) (string, error) {
 	text, err := c.CallTool(ctx, tool, args)
 
 	var ge *mcp.GrantError

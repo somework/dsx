@@ -9,7 +9,7 @@ import (
 
 // A non-positive concurrency must not be able to reach a semaphore.
 //
-// walkTree and runPull each build `make(chan struct{}, concurrency)`. At zero
+// WalkTree and Pull each build `make(chan struct{}, concurrency)`. At zero
 // that channel is unbuffered, and walk's `sem <- struct{}{}` blocks forever:
 // its only receiver is `<-sem`, downstream in the same goroutine. wg.Wait never
 // returns, nothing errors, nothing prints -- the process just stops. Below zero
@@ -17,10 +17,10 @@ import (
 //
 // The clamp used to live in the two CLI callers, so `dsx tree -j 0` was safe by
 // convention: two call sites, two clamps, and nothing tying either to the
-// semaphore it protects. cmdTree calls walkTree directly rather than through
-// runPull, so a clamp moved to runPull alone would have deleted cmdTree's.
+// semaphore it protects. cmdTree calls WalkTree directly rather than through
+// Pull, so a clamp moved to Pull alone would have deleted cmdTree's.
 // These tests fix the property at the supplier instead of auditing it at each
-// caller, which is why they call walkTree and runPull rather than the CLI.
+// caller, which is why they call WalkTree and Pull rather than the CLI.
 //
 // They are timeout-guarded because the failure mode is a hang, not a panic: an
 // unguarded assertion here would wedge the whole suite instead of reporting.
@@ -51,7 +51,7 @@ func TestWalkTreeClampsNonPositiveConcurrency(t *testing.T) {
 		t.Run(fmt.Sprint(jobs), func(t *testing.T) {
 			// The listing must depend on the path: a fake answering every walk
 			// with the same directory entry describes an infinite tree, and
-			// walkTree would recurse forever for reasons having nothing to do
+			// WalkTree would recurse forever for reasons having nothing to do
 			// with the semaphore under test.
 			f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 				switch args["path"] {
@@ -67,13 +67,13 @@ func TestWalkTreeClampsNonPositiveConcurrency(t *testing.T) {
 			})
 			c := fakeClient(f)
 
-			withTimeout(t, 5*time.Second, "walkTree", func() error {
-				files, err := walkTree(context.Background(), c, "p1", jobs)
+			withTimeout(t, 5*time.Second, "WalkTree", func() error {
+				files, err := WalkTree(context.Background(), c, "p1", jobs)
 				if err != nil {
-					return fmt.Errorf("walkTree(-j %d): %w", jobs, err)
+					return fmt.Errorf("WalkTree(-j %d): %w", jobs, err)
 				}
 				if len(files) != 2 {
-					return fmt.Errorf("walkTree(-j %d) enumerated %d files, want 2: %v", jobs, len(files), files)
+					return fmt.Errorf("WalkTree(-j %d) enumerated %d files, want 2: %v", jobs, len(files), files)
 				}
 				return nil
 			})
@@ -95,17 +95,17 @@ func TestRunPullClampsNonPositiveConcurrency(t *testing.T) {
 			})
 			dir := t.TempDir()
 
-			withTimeout(t, 5*time.Second, "runPull", func() error {
-				rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
-					projectID:   "p1",
-					dir:         dir,
-					concurrency: jobs,
+			withTimeout(t, 5*time.Second, "Pull", func() error {
+				rep, err := Pull(context.Background(), fakeClient(f), PullOpts{
+					ProjectID:   "p1",
+					Dir:         dir,
+					Concurrency: jobs,
 				})
 				if err != nil {
-					return fmt.Errorf("runPull(-j %d): %w", jobs, err)
+					return fmt.Errorf("Pull(-j %d): %w", jobs, err)
 				}
 				if len(rep.Fetched) != 1 {
-					return fmt.Errorf("runPull(-j %d) fetched %d files, want 1", jobs, len(rep.Fetched))
+					return fmt.Errorf("Pull(-j %d) fetched %d files, want 1", jobs, len(rep.Fetched))
 				}
 				return nil
 			})
