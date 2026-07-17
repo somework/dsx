@@ -6,46 +6,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// commandNames is the one list dsx dispatches, documents and completes from.
-//
-// It is load-bearing three ways: run() refuses anything not in it, `usage` must
-// document every entry, and every shell completes against it. That is
-// deliberate. It used to be only the shells' list, and `put` fell out of it
-// unnoticed -- dispatched, documented, and invisible to everyone pressing Tab.
-// Wiring dispatch to the same list means the next omission breaks loudly
-// instead of quietly.
-//
-// Kept in step by TestUsageDocumentsEveryCommand and
-// TestEveryDispatchedCommandIsCompletable, which walks run()'s AST rather than
-// trusting anyone to update a list twice.
-var commandNames = []string{
-	"auth", "cat", "completion", "conv", "conv-put", "cp", "doctor", "help",
-	"ls", "member-add", "member-rm", "member-role", "members", "new", "plan",
-	"preview", "project", "projects", "prompt", "pull", "push", "put", "raw",
-	"rm", "sharing", "status", "support-js", "systems", "tools", "tree",
-	"version",
-}
-
-func isKnownCommand(name string) bool {
-	for _, n := range commandNames {
-		if n == name {
-			return true
-		}
-	}
-	return false
-}
-
 func cmdCompletion(args []string) error {
-	flags := newFlagSet("completion")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	flags := cmd.NewFlagSet("completion")
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	shell, _, err := need1(pos, "completion <bash|zsh|fish>")
+	shell, _, err := cmd.Need1(pos, "completion <bash|zsh|fish>")
 	if err != nil {
 		return err
 	}

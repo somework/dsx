@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+
+	"github.com/somework/dsx/internal/cmd"
 )
 
 // stamped is what -ldflags "-X main.version=v1.2.3" put in package main, handed
@@ -33,13 +35,13 @@ type versionInfo struct {
 // before any FlagSet and printed prose regardless, so the one command a caller
 // runs to find out what it is talking to was the one that broke the contract.
 func cmdVersion(args []string) error {
-	flags := newFlagSet("version")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	flags := cmd.NewFlagSet("version")
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	if err := noPositionals(pos, "version [--json]"); err != nil {
+	if err := cmd.NoPositionals(pos, "version [--json]"); err != nil {
 		return err
 	}
 	if !*asJSON {

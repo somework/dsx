@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"flag"
@@ -9,13 +9,27 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// noPositionals refuses arguments a command does not take.
+func Need1(args []string, form string) (string, []string, error) {
+	if len(args) < 1 {
+		return "", nil, dsxerr.Usage(form)
+	}
+	return args[0], args[1:], nil
+}
+
+func Need2(args []string, form string) (string, string, []string, error) {
+	if len(args) < 2 {
+		return "", "", nil, dsxerr.Usage(form)
+	}
+	return args[0], args[1], args[2:], nil
+}
+
+// NoPositionals refuses arguments a command does not take.
 //
 // Silently discarding them lets `dsx prompt <project>` -- the spelling every
 // other command uses -- return the generic prompt with exit 0. A plausible
 // wrong answer is worse than an error, because the caller never learns it asked
 // the wrong question.
-func noPositionals(pos []string, form string) error {
+func NoPositionals(pos []string, form string) error {
 	if len(pos) == 0 {
 		return nil
 	}
@@ -23,23 +37,23 @@ func noPositionals(pos []string, form string) error {
 		Msg: fmt.Sprintf("unexpected argument %q — usage: dsx %s", pos[0], form)}
 }
 
-// jsonFlag adds the standard --json. Every command takes it, so that an agent
+// JSONFlag adds the standard --json. Every command takes it, so that an agent
 // never has to know which ones happen to.
-func jsonFlag(fs *flag.FlagSet) *bool { return fs.Bool("json", false, "machine-readable output") }
+func JSONFlag(fs *flag.FlagSet) *bool { return fs.Bool("json", false, "machine-readable output") }
 
-// newFlagSet builds a FlagSet that reports usage errors through dsx's own
+// NewFlagSet builds a FlagSet that reports usage errors through dsx's own
 // classification instead of printing to stderr and returning an unlabelled
 // error. flag's default output would bypass --json entirely.
-func newFlagSet(name string) *flag.FlagSet {
+func NewFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	return fs
 }
 
-// parseArgs parses flags that may appear before, between, or after positional
+// ParseArgs parses flags that may appear before, between, or after positional
 // arguments. Go's flag package stops at the first non-flag token, which would
 // silently ignore `dsx tree <project> --json`.
-func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
+func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -56,8 +70,8 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
-// splitList parses a comma-separated flag value, dropping empties.
-func splitList(s string) []string {
+// SplitList parses a comma-separated flag value, dropping empties.
+func SplitList(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}
@@ -69,4 +83,13 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+func FirstLine(s string) string {
+	for i := range len(s) {
+		if s[i] == '\n' {
+			return s[:i]
+		}
+	}
+	return s
 }

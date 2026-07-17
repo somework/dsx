@@ -3,21 +3,15 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io"
 	"os"
-	"path/filepath"
 	"reflect"
-	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/somework/dsx/internal/auth"
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
@@ -45,19 +39,6 @@ import (
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-// maincliNoLedger is a `bound` func that fails the test if it is consulted.
-// resolveSyncTarget's two-argument form must answer from its arguments alone.
-func maincliNoLedger(t *testing.T) func(string) (string, error) {
-	t.Helper()
-	return func(dir string) (string, error) {
-		t.Fatalf("the ledger was consulted for %q although the caller named the project explicitly", dir)
-		return "", nil
-	}
-}
-
-// maincliUnbound answers as a directory that carries no ledger.
-func maincliUnbound(string) (string, error) { return "", nil }
 
 // maincliCaptureStderr runs fn with os.Stderr redirected and returns what it
 // wrote. It exists to prove flag's own output never reaches the real stderr;
@@ -106,117 +87,6 @@ func maincliKind(t *testing.T, err error) dsxerr.Kind {
 		t.Fatal("expected an error, got nil")
 	}
 	return dsxerr.Classify(err).Kind
-}
-
-// maincliWriteFile drops a file under dir, creating parents.
-func maincliWriteFile(t *testing.T, dir, rel, body string) {
-	t.Helper()
-	full := filepath.Join(dir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// resolveSyncTarget — the compatibility guarantee
-// ---------------------------------------------------------------------------
-
-// The ledger lookup is new. Every caller that already typed both arguments must
-// keep getting exactly what it typed, and must not pay a ledger read for it:
-// a directory bound to another project, or holding a corrupt ledger, would
-// otherwise start failing an invocation that used to work.
-func TestSyncTargetWithBothArgumentsKeepsItsOldMeaningAndSkipsTheLedger(t *testing.T) {
-	project, dir, err := resolveSyncTarget("pull", []string{"proj-uuid", "some/dir"}, maincliNoLedger(t))
-	if err != nil {
-		t.Fatalf("two explicit arguments failed: %v", err)
-	}
-	if project != "proj-uuid" || dir != "some/dir" {
-		t.Fatalf("resolveSyncTarget = (%q, %q), want (%q, %q) verbatim", project, dir, "proj-uuid", "some/dir")
-	}
-}
-
-func TestSyncTargetWithOneArgumentTakesItAsTheDirAndTheProjectFromTheLedger(t *testing.T) {
-	var asked string
-	project, dir, err := resolveSyncTarget("push", []string{"design"}, func(d string) (string, error) {
-		asked = d
-		return "from-ledger", nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dir != "design" {
-		t.Errorf("dir = %q, want the single argument %q", dir, "design")
-	}
-	if project != "from-ledger" {
-		t.Errorf("project = %q, want the ledger's", project)
-	}
-	if asked != "design" {
-		t.Errorf("the ledger was read for %q, want %q — a lookup against the wrong directory answers about the wrong project", asked, "design")
-	}
-}
-
-func TestSyncTargetWithNoArgumentsDefaultsToTheWorkingDirectory(t *testing.T) {
-	var asked string
-	project, dir, err := resolveSyncTarget("status", nil, func(d string) (string, error) {
-		asked = d
-		return "from-ledger", nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dir != "." {
-		t.Errorf("dir = %q, want %q", dir, ".")
-	}
-	if project != "from-ledger" {
-		t.Errorf("project = %q, want the ledger's", project)
-	}
-	if asked != "." {
-		t.Errorf("the ledger was read for %q, want %q", asked, ".")
-	}
-}
-
-func TestSyncTargetOnAnUnboundDirIsAUsageErrorThatSaysHowToBindIt(t *testing.T) {
-	_, _, err := resolveSyncTarget("pull", []string{"fresh"}, maincliUnbound)
-	if got := maincliKind(t, err); got != dsxerr.KindUsage {
-		t.Fatalf("unbound dir classified %q, want %q: retrying the same command cannot help", got, dsxerr.KindUsage)
-	}
-	// "Errors say what to do next": the message has to carry the directory, the
-	// mode, and the fact that naming the project once is enough.
-	msg := err.Error()
-	for _, want := range []string{"fresh", "ledger", "dsx pull <project> fresh"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("message does not tell the user how to recover (missing %q): %q", want, msg)
-		}
-	}
-}
-
-func TestSyncTargetRefusesMoreThanTwoPositionalArguments(t *testing.T) {
-	// Three arguments cannot be an abbreviation of anything; guessing which two
-	// were meant would sync the wrong pair.
-	_, _, err := resolveSyncTarget("pull", []string{"a", "b", "c"}, maincliNoLedger(t))
-	if got := maincliKind(t, err); got != dsxerr.KindUsage {
-		t.Fatalf("three arguments classified %q, want %q", got, dsxerr.KindUsage)
-	}
-}
-
-// A ledger that cannot be read is not a directory without one. Collapsing the
-// two would tell a user with a corrupt .dsx-state.json to "run `dsx pull
-// <project> <dir>` once" — advice that overwrites the very file that would
-// explain the failure.
-func TestSyncTargetPropagatesALedgerReadFailureInsteadOfCallingItUnbound(t *testing.T) {
-	boom := errors.New(".dsx-state.json is corrupt: unexpected end of JSON input")
-	_, _, err := resolveSyncTarget("pull", []string{"design"}, func(string) (string, error) {
-		return "", boom
-	})
-	if !errors.Is(err, boom) {
-		t.Fatalf("a ledger read failure was swallowed: got %v, want it to carry %v", err, boom)
-	}
-	if strings.Contains(err.Error(), "carries no dsx ledger") {
-		t.Error("a broken ledger was reported as an absent one")
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +151,7 @@ func TestJSONSafePassesValidJSONThroughByteIdentical(t *testing.T) {
 		`"a bare string is a JSON document"`,
 		`{"nested":{"deep":[1,2,{"x":null}]}}`,
 	} {
-		if got := jsonSafe(doc, true); got != doc {
+		if got := cmd.JSONSafe(doc, true); got != doc {
 			t.Errorf("jsonSafe(%q) = %q, want it byte-identical", doc, got)
 		}
 	}
@@ -289,7 +159,7 @@ func TestJSONSafePassesValidJSONThroughByteIdentical(t *testing.T) {
 
 func TestJSONSafeWrapsProseSoStdoutStaysParseable(t *testing.T) {
 	const prose = "Deleted 3 files from the project."
-	got := jsonSafe(prose, true)
+	got := cmd.JSONSafe(prose, true)
 
 	if !json.Valid([]byte(got)) {
 		t.Fatalf("prose was handed to a parser unwrapped: %q", got)
@@ -318,7 +188,7 @@ func TestJSONSafeWrapsAStringThatOnlyLooksLikeJSON(t *testing.T) {
 		"{\n  broken\n}",         // braces around prose
 	}
 	for _, s := range cases {
-		got := jsonSafe(s, true)
+		got := cmd.JSONSafe(s, true)
 		if got == s {
 			t.Errorf("jsonSafe(%q) passed it through unwrapped; it is not valid JSON", s)
 			continue
@@ -331,178 +201,13 @@ func TestJSONSafeWrapsAStringThatOnlyLooksLikeJSON(t *testing.T) {
 
 func TestJSONSafeLeavesProseAloneWhenJSONWasNotAsked(t *testing.T) {
 	const prose = "just words"
-	if got := jsonSafe(prose, false); got != prose {
+	if got := cmd.JSONSafe(prose, false); got != prose {
 		t.Errorf("jsonSafe(%q, false) = %q; the human lane must not be wrapped", prose, got)
 	}
 	// Even a valid JSON document is untouched in prose mode.
 	const doc = `{"a":1}`
-	if got := jsonSafe(doc, false); got != doc {
+	if got := cmd.JSONSafe(doc, false); got != doc {
 		t.Errorf("jsonSafe(%q, false) = %q", doc, got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// usage / commandNames — anti-drift, both directions
-// ---------------------------------------------------------------------------
-
-// maincliUsageCommands returns every token that appears immediately after the
-// word "dsx" in `usage`.
-//
-// Exact token equality, not a substring search: "rm" occurs inside "member-rm",
-// "project" inside "projects", and "conv" inside "conv-put", so a
-// strings.Contains check would report a command as documented on the strength
-// of another command's name. Word boundaries alone are not enough either —
-// `\brm\b` still matches inside "member-rm", because "-" is not a word
-// character.
-func maincliUsageCommands() map[string]bool {
-	out := map[string]bool{}
-	fields := strings.Fields(usage)
-	for i := 0; i < len(fields)-1; i++ {
-		if fields[i] == "dsx" {
-			out[fields[i+1]] = true
-		}
-	}
-	return out
-}
-
-func TestUsageDocumentsEveryCommand(t *testing.T) {
-	documented := maincliUsageCommands()
-
-	// Guard the guard: an extractor that silently found nothing would make this
-	// test pass by accident forever.
-	if len(documented) < len(commandNames) {
-		t.Fatalf("only %d `dsx <cmd>` forms found in usage but commandNames has %d — the extractor is broken, not the docs",
-			len(documented), len(commandNames))
-	}
-
-	for _, name := range commandNames {
-		if !documented[name] {
-			t.Errorf("command %q is completable but undocumented — add it to `usage` in main.go", name)
-		}
-	}
-
-	// Prove the match is exact. "member-r" is a prefix of the real "member-role"
-	// and a near-miss of "member-rm"; if either satisfies it, the matcher is a
-	// substring search and every assertion above is decorative.
-	for _, fake := range []string{"member-r", "roject", "onv-put", "ul", "m"} {
-		if documented[fake] {
-			t.Errorf("the matcher accepted %q as a documented command; it is matching substrings", fake)
-		}
-	}
-}
-
-// maincliDispatchedCommands finds run() and reports every literal it branches
-// on: the case clauses of `switch cmd` plus the `cmd == "x"` tests.
-//
-// A switch cannot be reflected over, so the source is parsed. Doing it this way
-// rather than restating the list by hand is the whole point: a case added to
-// run() is checked without anyone remembering to update this test.
-//
-// Every .go file in the package is searched rather than one named outright.
-// run() has already moved once -- it was in main.go until the package split --
-// and a hardcoded filename would have to be remembered at exactly the moment
-// nobody is thinking about it. survey_test.go carries the same scar and the
-// same fix: name what you are looking for, not where it happens to live today.
-func maincliDispatchedCommands(t *testing.T) []string {
-	t.Helper()
-	fset := token.NewFileSet()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var runFn *ast.FuncDecl
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parsing %s: %v", name, err)
-		}
-		for _, d := range file.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "run" {
-				runFn = fd
-			}
-		}
-	}
-	if runFn == nil {
-		t.Fatal("func run not found in this package; this test parses it to enumerate the dispatch")
-	}
-
-	seen := map[string]bool{}
-	add := func(e ast.Expr) {
-		lit, ok := e.(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			return
-		}
-		v, err := strconv.Unquote(lit.Value)
-		if err != nil {
-			return
-		}
-		// "-h"/"--version" are flag spellings of a command, not command names;
-		// nobody completes them as subcommands.
-		if v == "" || strings.HasPrefix(v, "-") {
-			return
-		}
-		seen[v] = true
-	}
-	ast.Inspect(runFn, func(n ast.Node) bool {
-		switch s := n.(type) {
-		case *ast.SwitchStmt:
-			if id, ok := s.Tag.(*ast.Ident); !ok || id.Name != "cmd" {
-				return true
-			}
-			for _, stmt := range s.Body.List {
-				if cc, ok := stmt.(*ast.CaseClause); ok {
-					for _, e := range cc.List {
-						add(e)
-					}
-				}
-			}
-		case *ast.BinaryExpr:
-			// `if cmd == "auth"` — auth and doctor are dispatched this way.
-			if s.Op == token.EQL {
-				if id, ok := s.X.(*ast.Ident); ok && id.Name == "cmd" {
-					add(s.Y)
-				}
-			}
-		}
-		return true
-	})
-
-	out := make([]string, 0, len(seen))
-	for k := range seen {
-		out = append(out, k)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// The reverse of TestUsageDocumentsEveryCommand. That test can only see
-// commands someone already added to commandNames; a command that run()
-// dispatches but the list never learned about is invisible to Tab and to any
-// agent that discovers subcommands by asking the shell.
-func TestEveryDispatchedCommandIsCompletable(t *testing.T) {
-	// This test was born recording a real defect: `put` was dispatched and
-	// documented but missing from commandNames, so no shell ever offered it.
-	// The exemption that held it is gone because the defect is fixed, and
-	// run() now refuses anything the list does not name -- so a command
-	// drifting out of it fails loudly instead of merely disappearing from Tab.
-	dispatched := maincliDispatchedCommands(t)
-	if len(dispatched) < 25 {
-		t.Fatalf("only %d dispatched commands parsed out of run(); the parser is broken: %v", len(dispatched), dispatched)
-	}
-
-	completable := map[string]bool{}
-	for _, n := range commandNames {
-		completable[n] = true
-	}
-	for _, cmd := range dispatched {
-		if !completable[cmd] {
-			t.Errorf("run() dispatches %q but commandNames omits it: run() will reject it as unknown, "+
-				"and no shell will offer it", cmd)
-		}
 	}
 }
 
@@ -526,29 +231,29 @@ func TestCommandNamesHasNoDuplicatesOrEmptyEntries(t *testing.T) {
 func TestNeed1AndNeed2ClassifyTooFewArgumentsAsUsage(t *testing.T) {
 	// Exit 2 is the contract for "running it again will not help". A missing
 	// argument reported as a generic failure invites a retry loop.
-	if _, _, err := need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
+	if _, _, err := cmd.Need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
 		t.Errorf("need1(nil) classified %q, want %q", maincliKind(t, err), dsxerr.KindUsage)
 	}
-	if _, _, err := need1([]string{}, "project <id>"); err == nil {
+	if _, _, err := cmd.Need1([]string{}, "project <id>"); err == nil {
 		t.Error("need1 accepted zero arguments")
 	}
 	for _, args := range [][]string{nil, {"only-one"}} {
-		_, _, _, err := need2(args, "cp <src> <dst>")
+		_, _, _, err := cmd.Need2(args, "cp <src> <dst>")
 		if maincliKind(t, err) != dsxerr.KindUsage {
 			t.Errorf("need2(%v) classified %q, want %q", args, maincliKind(t, err), dsxerr.KindUsage)
 		}
 	}
-	if !strings.Contains(func() string { _, _, err := need1(nil, "project <id>"); return err.Error() }(), "project <id>") {
+	if !strings.Contains(func() string { _, _, err := cmd.Need1(nil, "project <id>"); return err.Error() }(), "project <id>") {
 		t.Error("the usage error must echo the form the caller should have typed")
 	}
 }
 
 func TestNeed1AndNeed2ReturnTheRestForTheNextParser(t *testing.T) {
-	first, rest, err := need1([]string{"a", "b", "c"}, "f")
+	first, rest, err := cmd.Need1([]string{"a", "b", "c"}, "f")
 	if err != nil || first != "a" || !reflect.DeepEqual(rest, []string{"b", "c"}) {
 		t.Fatalf("need1 = (%q, %v, %v)", first, rest, err)
 	}
-	a, b, rest2, err := need2([]string{"a", "b", "c"}, "f")
+	a, b, rest2, err := cmd.Need2([]string{"a", "b", "c"}, "f")
 	if err != nil || a != "a" || b != "b" || !reflect.DeepEqual(rest2, []string{"c"}) {
 		t.Fatalf("need2 = (%q, %q, %v, %v)", a, b, rest2, err)
 	}
@@ -577,9 +282,9 @@ func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fs := newFlagSet("tree")
-			asJSON := jsonFlag(fs)
-			pos, err := parseArgs(fs, tc.args)
+			fs := cmd.NewFlagSet("tree")
+			asJSON := cmd.JSONFlag(fs)
+			pos, err := cmd.ParseArgs(fs, tc.args)
 			if err != nil {
 				t.Fatalf("parseArgs(%v): %v", tc.args, err)
 			}
@@ -597,9 +302,9 @@ func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 
 func TestParseArgsKeepsPositionalOrder(t *testing.T) {
 	// `dsx cp <src> <dst>` means something different reversed.
-	fs := newFlagSet("cp")
-	_ = jsonFlag(fs)
-	pos, err := parseArgs(fs, []string{"src.css", "--json", "dst.css"})
+	fs := cmd.NewFlagSet("cp")
+	_ = cmd.JSONFlag(fs)
+	pos, err := cmd.ParseArgs(fs, []string{"src.css", "--json", "dst.css"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,9 +316,9 @@ func TestParseArgsKeepsPositionalOrder(t *testing.T) {
 func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 	// A typo'd flag swallowed as a positional would be handed to the server as a
 	// path. Retrying it verbatim cannot help, so it is exit 2.
-	fs := newFlagSet("tree")
-	_ = jsonFlag(fs)
-	pos, err := parseArgs(fs, []string{"proj", "--bogus"})
+	fs := cmd.NewFlagSet("tree")
+	_ = cmd.JSONFlag(fs)
+	pos, err := cmd.ParseArgs(fs, []string{"proj", "--bogus"})
 	if err == nil {
 		t.Fatalf("an unknown flag was accepted, positionals = %v", pos)
 	}
@@ -632,9 +337,9 @@ func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	var err error
 	leaked := maincliCaptureStderr(t, func() {
-		fs := newFlagSet("tree")
-		_ = jsonFlag(fs)
-		_, err = parseArgs(fs, []string{"--bogus"})
+		fs := cmd.NewFlagSet("tree")
+		_ = cmd.JSONFlag(fs)
+		_, err = cmd.ParseArgs(fs, []string{"--bogus"})
 	})
 	if err == nil {
 		t.Fatal("expected a usage error")
@@ -649,7 +354,7 @@ func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	control := maincliCaptureStderr(t, func() {
 		raw := flag.NewFlagSet("raw", flag.ContinueOnError)
 		_ = raw.Bool("json", false, "")
-		_, _ = parseArgs(raw, []string{"--bogus"})
+		_, _ = cmd.ParseArgs(raw, []string{"--bogus"})
 	})
 	if control == "" {
 		t.Skip("flag no longer writes to stderr by default; the discard assertion above has lost its teeth")
@@ -687,7 +392,7 @@ func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := splitList(tc.in)
+			got := cmd.SplitList(tc.in)
 			if len(got) != len(tc.want) {
 				t.Fatalf("splitList(%q) = %v, want %v", tc.in, got, tc.want)
 			}
@@ -710,7 +415,7 @@ func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 
 func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
 	// Trimming the ends is not licence to rewrite a path the user actually has.
-	got := splitList(" my file.css ,b.css")
+	got := cmd.SplitList(" my file.css ,b.css")
 	if len(got) != 2 || got[0] != "my file.css" {
 		t.Fatalf("splitList = %v, want the inner space preserved", got)
 	}
@@ -723,7 +428,7 @@ func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
 func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 	_, c := maincliFake(t, "Deleted 3 files.")
 	out, err := captureStdout(t, func() error {
-		return emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false)
+		return cmd.Emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -743,7 +448,7 @@ func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
 	} {
 		out, err := captureStdout(t, func() error {
 			_, c := maincliFake(t, text)
-			return emit(context.Background(), c, "list_projects", map[string]any{}, true)
+			return cmd.Emit(context.Background(), c, "list_projects", map[string]any{}, true)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -766,7 +471,7 @@ func TestEmitPrintsNothingWhenTheToolFails(t *testing.T) {
 	})
 	c := fakeClient(f)
 	out, err := captureStdout(t, func() error {
-		return emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
+		return cmd.Emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
 	})
 	if err == nil {
 		t.Fatal("a tool error was reported as success")
@@ -780,11 +485,12 @@ func TestEmitFlaggedAcceptsJSONAfterThePositionalsEveryCommandTakesIt(t *testing
 	f, c := maincliFake(t, "plain prose")
 	var gotPos []string
 	out, err := captureStdout(t, func() error {
-		return emitFlagged(context.Background(), c, "project", []string{"proj-uuid", "--json"},
+		return cmd.EmitFlagged(context.Background(), c, "project", []string{"proj-uuid", "--json"},
 			func(pos []string) (string, map[string]any, error) {
 				gotPos = pos
 				return "get_project", map[string]any{"project_id": pos[0]}, nil
 			})
+
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -805,10 +511,11 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 	// build's error has to stop the call. Calling the tool anyway would send the
 	// server a request assembled from arguments we already rejected.
 	f, c := maincliFake(t, "unreachable")
-	err := emitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
-		_, _, err := need1(pos, "project <id>")
+	err := cmd.EmitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
+		_, _, err := cmd.Need1(pos, "project <id>")
 		return "", nil, err
 	})
+
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -819,10 +526,11 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 
 func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
-	err := emitFlagged(context.Background(), c, "projects", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
+	err := cmd.EmitFlagged(context.Background(), c, "projects", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
 		t.Fatal("build ran despite an unparseable flag")
 		return "", nil, nil
 	})
+
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -951,273 +659,6 @@ func TestAuthRejectsAnUnknownFlagWithoutReadingAnyCredential(t *testing.T) {
 	err := cmdAuth([]string{"--bogus"})
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// boundProject
-// ---------------------------------------------------------------------------
-
-func TestBoundProjectReadsTheLedgerAndIsSilentWhenThereIsNone(t *testing.T) {
-	dir := t.TempDir()
-	got, err := boundProject(dir)
-	if err != nil {
-		t.Fatalf("a directory without a ledger is not an error: %v", err)
-	}
-	if got != "" {
-		t.Errorf("boundProject on a fresh dir = %q, want \"\"", got)
-	}
-
-	syncSeedState(t, dir, syncer.State{ProjectID: "proj-uuid"})
-	got, err = boundProject(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "proj-uuid" {
-		t.Errorf("boundProject = %q, want %q", got, "proj-uuid")
-	}
-}
-
-func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing.T) {
-	// Reported as unbound, a corrupt ledger sends the user to re-run
-	// `dsx pull <project> <dir>` — which rewrites the evidence.
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, syncer.StateFileName), []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := boundProject(dir); err == nil {
-		t.Fatal("a corrupt ledger read as an unbound directory")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// cmdSync — syncer.ConflictOutcome wired end to end
-// ---------------------------------------------------------------------------
-
-// maincliConflictedPull sets up a directory where a pull must refuse: the file
-// on disk was edited locally *and* the server moved on. Per invariant 2 the
-// refusal keys off the bytes, not the etag — an etag test alone cannot see this
-// case.
-func maincliConflictedPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
-	t.Helper()
-	dir := t.TempDir()
-	const project = "proj-uuid"
-
-	maincliWriteFile(t, dir, "a.css", "LOCAL EDIT")
-	syncSeedState(t, dir, syncer.State{
-		ProjectID: project,
-		Files: map[string]syncer.FileState{
-			"a.css": {Etag: "e1", Size: 3, SHA: syncer.SHA256Hex([]byte("old"))},
-		},
-	})
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		switch name {
-		case "list_files":
-			return fakeReply{Text: listingFor(fileEntry("a.css", "e2", 9))}
-		case "read_file":
-			return fakeReply{Text: envelopeFor("a.css", "e2", "SERVER!!!")}
-		}
-		return fakeReply{Text: "{}", IsError: true}
-	})
-	return f, fakeClient(f), dir
-}
-
-func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"proj-uuid", dir})
-	})
-	if err == nil {
-		t.Fatalf("a pull that refused every file reported success; output was %q", out)
-	}
-	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
-		t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over the local edit", got, dsxerr.ExitConflict)
-	}
-	if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
-		t.Errorf("conflict paths = %v, want [a.css] so the caller knows what to look at", paths)
-	}
-	// The summary still goes out: the caller is told what happened as well as
-	// that it failed.
-	if !strings.Contains(out, "conflicts 1") {
-		t.Errorf("summary did not mention the conflict: %q", out)
-	}
-	// The local edit is the only copy of that work.
-	if b, readErr := os.ReadFile(filepath.Join(dir, "a.css")); readErr != nil || string(b) != "LOCAL EDIT" {
-		t.Fatalf("the local edit was overwritten: %q, %v", b, readErr)
-	}
-}
-
-func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
-	// -n was asked to move nothing. Refusing to move something is the answer it
-	// wanted, and `dsx status` runs through this path on every invocation.
-	_, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"-n", "proj-uuid", dir})
-	})
-	if err != nil {
-		t.Fatalf("a dry run reporting a conflict failed with %v", err)
-	}
-	if !strings.Contains(out, "conflicts 1") {
-		t.Errorf("the dry run did not report the conflict it found: %q", out)
-	}
-}
-
-func TestSyncResolvesTheProjectFromTheLedgerWhenOnlyTheDirIsGiven(t *testing.T) {
-	f, c, dir := maincliConflictedPull(t)
-
-	// No project argument: the ledger seeded above is the only place the binding
-	// is known.
-	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{dir})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	call := syncFirstCall(t, f, "list_files")
-	if call.Args["project_id"] != "proj-uuid" {
-		t.Errorf("list_files project_id = %v, want the ledger's %q", call.Args["project_id"], "proj-uuid")
-	}
-}
-
-func TestSyncOnAnUnboundDirFailsBeforeTouchingTheNetwork(t *testing.T) {
-	f, c := maincliFake(t, "unreachable")
-	dir := t.TempDir()
-
-	err := cmdSync(context.Background(), c, "pull", []string{dir})
-	if got := maincliKind(t, err); got != dsxerr.KindUsage {
-		t.Fatalf("kind = %q, want %q", got, dsxerr.KindUsage)
-	}
-	if len(f.Recorded()) != 0 {
-		t.Errorf("the endpoint was contacted for a directory with no known project: %v", f.Recorded())
-	}
-	// It must not have created the directory's ledger as a side effect either.
-	if syncLedgerExists(t, dir) {
-		t.Error("a failed resolve left a ledger behind")
-	}
-}
-
-func TestStatusReportsBothDirectionsAndTransfersNothing(t *testing.T) {
-	f, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"proj-uuid", dir})
-	})
-	if err != nil {
-		t.Fatalf("status reported a conflict as a failure: %v", err)
-	}
-	if !strings.Contains(out, "pull:") || !strings.Contains(out, "push:") {
-		t.Errorf("status must report both directions: %q", out)
-	}
-	if n := f.CountTool("read_file"); n != 0 {
-		t.Errorf("status fetched %d file(s); it transfers nothing", n)
-	}
-	if n := f.CountTool("write_files"); n != 0 {
-		t.Errorf("status wrote %d file(s); it transfers nothing", n)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "a.css")); string(b) != "LOCAL EDIT" {
-		t.Errorf("status modified the working tree: %q", b)
-	}
-}
-
-func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"proj-uuid", dir, "--json"})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := strings.TrimSuffix(out, "\n")
-	var got struct {
-		Pull *syncer.PullReport `json:"pull"`
-		Push *syncer.PushReport `json:"push"`
-	}
-	if err := json.Unmarshal([]byte(line), &got); err != nil {
-		t.Fatalf("status --json is not one JSON document: %v\n%s", err, line)
-	}
-	if got.Pull == nil || got.Push == nil {
-		t.Fatalf("status --json must carry both directions: %s", line)
-	}
-	if len(got.Pull.Conflicts) != 1 {
-		t.Errorf("pull conflicts = %v, want the one we set up", got.Pull.Conflicts)
-	}
-}
-
-func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
-	// -q suppresses the summary, not the exit code: output width is a token
-	// budget, but a caller must still learn it did not get what it asked for.
-	_, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"-q", "proj-uuid", dir})
-	})
-	if out != "" {
-		t.Errorf("-q printed %q", out)
-	}
-	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
-		t.Errorf("exit code under -q = %d, want %d", got, dsxerr.ExitConflict)
-	}
-}
-
-func TestStatusQuietPrintsNothing(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"-q", "proj-uuid", dir})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != "" {
-		t.Errorf("-q printed %q", out)
-	}
-}
-
-func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
-	// -j 0 would otherwise mean a worker pool that never starts.
-	_, c, dir := maincliConflictedPull(t)
-	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"-j", "0", "proj-uuid", dir})
-	})
-	if err != nil {
-		t.Fatalf("-j 0: %v", err)
-	}
-}
-
-func TestSyncRejectsAnUnknownFlagAsUsage(t *testing.T) {
-	f, c := maincliFake(t, "unreachable")
-	err := cmdSync(context.Background(), c, "pull", []string{"proj", ".", "--bogus"})
-	if got := maincliKind(t, err); got != dsxerr.KindUsage {
-		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
-	}
-	if len(f.Recorded()) != 0 {
-		t.Errorf("the endpoint was contacted despite a bad flag: %v", f.Recorded())
-	}
-}
-
-func TestPullCreatesTheTargetDirectoryButPushDoesNot(t *testing.T) {
-	// A pull is allowed to make the place it is pulling into. A push inventing
-	// an empty directory would then push nothing and, with --prune, read that as
-	// "delete everything on the server".
-	_, c := maincliFake(t, "unreachable")
-	base := t.TempDir()
-
-	// Both runs name the project explicitly, so both get past resolve and fail
-	// later against the fake's unusable listing. What is asserted is the
-	// side effect each one left behind on the way.
-	missing := filepath.Join(base, "made-by-pull")
-	_ = cmdSync(context.Background(), c, "pull", []string{"proj", missing})
-	if _, err := os.Stat(missing); err != nil {
-		t.Errorf("pull did not create its target directory: %v", err)
-	}
-
-	never := filepath.Join(base, "not-made-by-push")
-	_ = cmdSync(context.Background(), c, "push", []string{"proj", never})
-	if _, err := os.Stat(never); err == nil {
-		t.Error("push created a directory that did not exist; an empty tree pushed with --prune deletes the project")
 	}
 }
 
@@ -1411,23 +852,6 @@ func TestKindsSharingAnExitCodeStayDistinctInJSON(t *testing.T) {
 		if dsxerr.ExitCodeFor(&dsxerr.Error{Kind: k}) != dsxerr.ExitFailure {
 			t.Errorf("kind %q no longer exits %d", k, dsxerr.ExitFailure)
 		}
-	}
-}
-
-// The renderer runs outside every FlagSet so that a failure raised before flags
-// were parsed still honours --json. This pins the pair main() actually calls.
-func TestErrorsRaisedBeforeFlagParsingStillHonourJSON(t *testing.T) {
-	argv := []string{"pull", "--json", "a", "b", "c"}
-	_, _, err := resolveSyncTarget("pull", argv[2:], maincliNoLedger(t))
-	if err == nil {
-		t.Fatal("expected a usage error")
-	}
-	line := dsxerr.Render(err, dsxerr.JSONRequested(argv))
-	if !json.Valid([]byte(line)) {
-		t.Fatalf("--json was on the command line but the error rendered as prose: %q", line)
-	}
-	if dsxerr.ExitCodeFor(err) != dsxerr.ExitUsage {
-		t.Errorf("exit code = %d, want %d", dsxerr.ExitCodeFor(err), dsxerr.ExitUsage)
 	}
 }
 
