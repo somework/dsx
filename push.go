@@ -60,18 +60,13 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 			stateFileName, st.ProjectID, o.projectID)
 	}
 
-	ig, err := loadIgnore(o.dir)
-	if err != nil {
-		return rep, err
-	}
 	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
-	// Filtering the listing too is what stops --prune from reading "ignored
-	// here" as "deleted here" and removing the file from the server.
-	remote = filterRemote(remote, ig)
-	local, err := scanLocal(o.dir, ig)
+	// survey filters the listing too, which is what stops --prune from reading
+	// "ignored here" as "deleted here" and removing the file from the server.
+	remote, local, err := survey(o.dir, remote)
 	if err != nil {
 		return rep, err
 	}
