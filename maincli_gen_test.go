@@ -663,17 +663,16 @@ func TestHumanBytesAcrossEveryUnitBoundary(t *testing.T) {
 	}
 }
 
-// KNOWN DEFECT, recorded rather than fixed (source is out of scope here):
-// humanBytes indexes "KMGT" with an exponent it never clamps, so any total of
-// 1 PiB or more (n >= 1<<50) panics with "index out of range [4] with length 4".
-// 1<<50 - 1 is the last safe value. It is not reachable from a Design project's
-// file sizes today, which is the only reason this is not urgent — but the guard
-// is missing, not unnecessary, and rep.Bytes flows here on every sync summary.
+// humanBytes saturates at TB rather than indexing past its unit table. The
+// exponent is clamped at util.go's loop bound, so every int64 names something.
 //
-// This test pins the range that does work, up to and including that ceiling. If
-// a clamp is added, extend it past 1<<50 and drop this comment.
+// This comment used to say the clamp was missing and that 1<<50 panicked. It
+// was added in the meantime and the note was left behind, which is worse than
+// no note: it tells the next reader to fix what is already fixed. The range
+// below now runs past the old ceiling, exactly as the stale note instructed.
+// TestHumanBytesSurvivesASizeItCannotName covers the extremes.
 func TestHumanBytesStaysWithinItsUnitTableForEveryReachableTotal(t *testing.T) {
-	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1} {
+	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1, 1 << 50, 1 << 55} {
 		got := humanBytes(n)
 		if got == "" {
 			t.Errorf("humanBytes(%d) returned nothing", n)
@@ -1294,15 +1293,16 @@ func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
 }
 
 func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
-	// DSX_TOKEN is set only to get past loadToken(), which run() calls before it
-	// reaches the switch's default case.
+	// This comment used to record a KNOWN DEFECT: that run() called loadToken()
+	// before reaching the switch's default case, so `dsx pulll` on a machine
+	// with no login blamed the user's credentials for their typo — exit 5
+	// instead of exit 2. It was fixed and the note was left behind.
 	//
-	// KNOWN DEFECT, recorded rather than fixed (source is out of scope here):
-	// that ordering means `dsx pulll` on a machine with no login reports exit 5
-	// "no Claude Code login found" instead of exit 2 "unknown command pulll" —
-	// dsx blames the user's credentials for their typo. Measured, not inferred.
-	// Once the default case is reachable without a token, drop this Setenv and
-	// the test still passes.
+	// Measured on a machine with no credentials reachable:
+	//   dsx: unknown command "pulll" — run `dsx help`
+	// The Setenv is kept because it costs nothing and pins the classification
+	// under both conditions; the stale note said to drop it, but a token being
+	// present must not change the answer either.
 	t.Setenv("DSX_TOKEN", "test-token")
 	_, err := maincliRun(t, "pulll")
 	if got := maincliKind(t, err); got != kindUsage {
