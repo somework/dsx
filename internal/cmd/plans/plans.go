@@ -1,4 +1,4 @@
-package cli
+package plans
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var plansGroup = cmd.Group{
+// Group is the PLANS / PREVIEW section of `dsx help`.
+var Group = cmd.Group{
 	Title: "PLANS / PREVIEW",
 	Cmds: []cmd.Command{
 		{Name: "plan", Form: "plan <project> [--writes a,b] [--deletes c,d] [--scope project]", Run: cmdPlan},
@@ -69,9 +70,6 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	return cmd.Emit(ctx, c, "render_preview", a, *asJSON)
 }
-
-// defaultSupportJS is where create_support_js writes when `path` is omitted.
-// reference/mcp-tools.json: "defaults to \"support.js\" at the project root".
 
 // defaultSupportJS is where create_support_js writes when `path` is omitted.
 // reference/mcp-tools.json: "defaults to \"support.js\" at the project root".
