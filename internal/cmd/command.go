@@ -14,11 +14,11 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// needs says how much of dsx must exist before a command can run.
+// Needs says how much of dsx must exist before a command can run.
 //
 // It is a field rather than a position in run()'s statement order, which is
 // what it used to be: three ifs stacked above the switch, each load-bearing and
-// none of them saying so. needClient is the zero value because it is both the
+// none of them saying so. NeedClient is the zero value because it is both the
 // common case and the safe one — a command that declares nothing gets a
 // credential and a client, not neither.
 type Needs int
@@ -29,12 +29,12 @@ const (
 	NeedAuth                 // auth: reads the credential itself, builds no client
 )
 
-// command is one dsx subcommand: one thin wrapper over one MCP tool. They exist
+// Command is one dsx subcommand: one thin wrapper over one MCP tool. They exist
 // to spell the arguments out, not to add behaviour — `dsx raw` is the escape
 // hatch for anything not wrapped here, and a wrapper that started interpreting
 // replies would make the two disagree.
 //
-// Every one takes --json. Under it, stdout is one JSON document — see emit.
+// Every one takes --json. Under it, stdout is one JSON document — see Emit.
 //
 // Exactly one of Tool and Run is set — TestEveryCommandHasExactlyOneShape says
 // so, because a command with neither dispatches to a nil call.
@@ -62,14 +62,17 @@ type Command struct {
 	Run   func(ctx context.Context, c *mcp.Client, args []string) error
 }
 
-// group is one section of `dsx help`, and one file in this package.
+// Group is one section of `dsx help`. Each Group value lives in its own package
+// under internal/cmd/<group> (or is diagGroup in cli); package cmd holds only
+// the type, because a kernel that named its own groups would import them while
+// they import it.
 type Group struct {
 	Title string // the whole heading line, parenthetical included
 	Note  string // prose printed under the commands, already indented
 	Cmds  []Command
 }
 
-// dispatch runs the command, whichever of its two shapes it has.
+// Dispatch runs the command, whichever of its two shapes it has.
 func (c Command) Dispatch(ctx context.Context, client *mcp.Client, args []string) error {
 	if c.Tool != nil {
 		return EmitFlagged(ctx, client, c.Name, args, c.Tool)
@@ -77,7 +80,7 @@ func (c Command) Dispatch(ctx context.Context, client *mcp.Client, args []string
 	return c.Run(ctx, client, args)
 }
 
-// noClient adapts a command that needs neither a context nor a client. The two
+// NoClient adapts a command that needs neither a context nor a client. The two
 // parameters stay in the signature so that every command has one shape; the
 // alternative is a second Run field nobody would keep straight.
 func NoClient(f func(args []string) error) func(context.Context, *mcp.Client, []string) error {

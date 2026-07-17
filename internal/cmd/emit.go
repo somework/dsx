@@ -65,8 +65,8 @@ func EmitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]
 	)
 	if _, given := args["plan_token"]; given {
 		// The caller brought their own authority; do not mint another over it.
-		// Short-circuiting to emit() here is what made `dsx put --plan` exit 1
-		// on the very reply that exits 3 without --plan: emit does not classify.
+		// Short-circuiting to Emit() here is what made `dsx put --plan` exit 1
+		// on the very reply that exits 3 without --plan: Emit does not classify.
 		text, err = c.CallTool(ctx, tool, args)
 	} else {
 		text, err = syncer.CallWithGrant(ctx, c, tool, args, projectID, paths)
