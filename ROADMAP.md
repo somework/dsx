@@ -1,8 +1,32 @@
 # dsx roadmap
 
 Current state: 624 tests green under `-race`, plus 20 live tests against the real endpoint.
-Coverage 90.1% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
+Coverage 89.8% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
 `go install github.com/somework/dsx@latest` works. CI builds and tests on Linux and macOS.
+
+## Package split — done
+
+**Why it happened**: not to enforce anything — to make the tree readable. The root held 46
+`.go` files, 27 of them tests, and Go requires tests beside their code, so the only lever
+against a root nobody can navigate was subpackages that take their tests with them. `main.go`
+sat between `maincli_gen_test.go` and `mcp.go`; the entry point was invisible.
+
+`ls *.go` now prints `main.go`, and nothing else. It holds `func main` and `var version`.
+The layers are in CLAUDE.md's Orientation; the counts are unchanged throughout — 324
+top-level tests, 624 with subtests, coverage 89.8% / 98.7% `plan.go` / 100% `envelope.go`.
+
+Three things the split settled that are worth not re-litigating:
+
+- **`internal/syncer`, not `internal/sync`.** `pull.go` and `tree.go` import the stdlib's
+  `sync`. `package sync` beside `import "sync"` compiles silently, which is the exact kind
+  of ripple the split existed to remove.
+- **Invariant 9 gained a compiler.** `survey`, `loadIgnore`, `filterRemote` and `scanLocal`
+  are unexported, so outside `syncer` a one-sided filter no longer resolves. The AST test
+  still guards the inside, where the compiler sees nothing.
+- **Invariant 10 is new, and the split created it.** `var version` and `cmdVersion` used to
+  share a file; now a `cli.Main(version)` argument is all that connects them, and breaking
+  that link is invisible to `go build`, `go vet` and all 624 tests. CI builds with a probe
+  stamp because nothing else can see it.
 
 Good enough to depend on personally, and now technically ready to hand to someone else. Whether
 it *should* be handed to someone else is the question below, and it is not a technical one.

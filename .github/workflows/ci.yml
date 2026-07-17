@@ -35,6 +35,23 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: release stamp reaches main.version
+        # The one property no test can see. `var version` lives in package main
+        # because -X names a symbol by its full path, and goreleaser writes
+        # main.version -- but -X against a symbol that does not exist builds with
+        # no error and no warning, so the binary would ship reporting "(unknown)"
+        # with the whole suite green. version_test.go cannot catch it: it passes
+        # the stamp to buildVersion itself rather than reading the var. Only
+        # building with a stamp and looking for it can, so that is what this does.
+        run: |
+          go build -ldflags "-X main.version=v0.0.0-cistamp" -o ./dsx-stamp-probe .
+          got=$(./dsx-stamp-probe version)
+          rm -f ./dsx-stamp-probe
+          case "$got" in
+            *v0.0.0-cistamp*) echo "ok: $got" ;;
+            *) echo "::error::-X main.version no longer reaches its target; dsx reported: $got"; exit 1 ;;
+          esac
+
       - name: test
         # The live suite is excluded by its build tag: it needs a real login and
         # writes to a real project. CI has neither and must not acquire either.
