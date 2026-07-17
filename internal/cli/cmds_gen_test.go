@@ -91,13 +91,10 @@ func cmdsTempFile(t *testing.T, name, content string) string {
 	return p
 }
 
-type cmdsFn func(context.Context, *mcp.Client, []string) error
-
-// cmdsRun runs a command against a fake server, capturing stdout so the test
-// log stays readable. Callers must not be parallel: captureStdout swaps
-// os.Stdout, which is process-global.
 // cmdsRun dispatches a command by name, exactly the way run() does, rather than
-// calling its function directly.
+// calling its function directly, and captures stdout so the test log stays
+// readable. Callers must not be parallel: captureStdout swaps os.Stdout, which
+// is process-global.
 //
 // A table that named functions could not see a command wired to the wrong one:
 // `Name: "new"` beside `Run: cmdLs` passed, because the table called cmdNew

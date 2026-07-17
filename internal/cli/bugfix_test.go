@@ -76,12 +76,15 @@ func TestUnknownCommandIsAUsageErrorEvenWithNoLoginAvailable(t *testing.T) {
 	// a machine with no login was reported as an auth failure: exit 5, "no
 	// Claude Code login found". dsx blamed the user's credentials for their
 	// typo, and exit 5 invites a re-authentication that cannot possibly help.
-	if isKnownCommand("pulll") {
+	// Assert against commandIndex directly, which is what run() dispatches on:
+	// the property under test is that a typo misses it and every listed name
+	// hits it, before any credential is touched.
+	if _, ok := commandIndex["pulll"]; ok {
 		t.Fatal("`pulll` is not a command")
 	}
 	for _, name := range commandNames {
-		if !isKnownCommand(name) {
-			t.Errorf("%q is in commandNames but isKnownCommand says otherwise", name)
+		if _, ok := commandIndex[name]; !ok {
+			t.Errorf("%q is in commandNames but commandIndex does not resolve it", name)
 		}
 	}
 }

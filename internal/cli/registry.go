@@ -81,8 +81,3 @@ func commandNamesOf(gs []cmd.Group) []string {
 	sort.Strings(out)
 	return out
 }
-
-func isKnownCommand(name string) bool {
-	_, ok := commandIndex[name]
-	return ok
-}
