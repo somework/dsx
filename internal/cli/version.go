@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"encoding/json"
@@ -8,12 +8,13 @@ import (
 	"strings"
 )
 
-// version is stamped at release time with -ldflags "-X main.version=v1.2.3".
-// It stays empty for `go build` and `go install`, where the build info the
-// toolchain embeds is the more truthful answer.
-var version = ""
+// stamped is what -ldflags "-X main.version=v1.2.3" put in package main, handed
+// over by Main. It cannot live here: -X names a symbol by its full path, and
+// main.version is the one goreleaser writes. Empty for `go build` and
+// `go install`, where the build info the toolchain embeds is the truer answer.
+var stamped = ""
 
-func versionString() string { return buildVersion(version, debug.ReadBuildInfo) }
+func versionString() string { return buildVersion(stamped, debug.ReadBuildInfo) }
 
 // versionInfo is the --json shape. Field names are contract.
 type versionInfo struct {
@@ -45,7 +46,7 @@ func cmdVersion(args []string) error {
 		fmt.Println(versionString())
 		return nil
 	}
-	b, err := json.Marshal(buildVersionInfo(version, debug.ReadBuildInfo))
+	b, err := json.Marshal(buildVersionInfo(stamped, debug.ReadBuildInfo))
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -391,28 +391,43 @@ func TestUsageDocumentsEveryCommand(t *testing.T) {
 	}
 }
 
-// maincliDispatchedCommands reads main.go and reports every literal `run`
-// branches on: the case clauses of `switch cmd` plus the `cmd == "x"` tests.
+// maincliDispatchedCommands finds run() and reports every literal it branches
+// on: the case clauses of `switch cmd` plus the `cmd == "x"` tests.
 //
 // A switch cannot be reflected over, so the source is parsed. Doing it this way
 // rather than restating the list by hand is the whole point: a case added to
 // run() is checked without anyone remembering to update this test.
+//
+// Every .go file in the package is searched rather than one named outright.
+// run() has already moved once -- it was in main.go until the package split --
+// and a hardcoded filename would have to be remembered at exactly the moment
+// nobody is thinking about it. survey_test.go carries the same scar and the
+// same fix: name what you are looking for, not where it happens to live today.
 func maincliDispatchedCommands(t *testing.T) []string {
 	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "main.go", nil, 0)
+	entries, err := os.ReadDir(".")
 	if err != nil {
-		t.Fatalf("parsing main.go: %v", err)
+		t.Fatal(err)
 	}
 	var runFn *ast.FuncDecl
-	for _, d := range file.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "run" {
-			runFn = fd
-			break
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		for _, d := range file.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "run" {
+				runFn = fd
+			}
 		}
 	}
 	if runFn == nil {
-		t.Fatal("func run not found in main.go; this test parses it to enumerate the dispatch")
+		t.Fatal("func run not found in this package; this test parses it to enumerate the dispatch")
 	}
 
 	seen := map[string]bool{}
