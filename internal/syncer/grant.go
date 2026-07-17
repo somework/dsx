@@ -13,12 +13,8 @@ import (
 
 // The finalize_plan self-authorisation path.
 //
-// These three sat in two different files, both above the layer they belong to:
-// PlanToken among the CLI commands, planFor and CallWithGrant among push's
-// batching. Neither placement was chosen -- each function landed wherever its
-// first caller happened to be, and their own comments said so. They are gathered
-// here because `dsx rm`, `dsx put` and push's delete path all reach them, and
-// what they share is a protocol obligation, not a command.
+// Gathered here because `dsx rm`, `dsx put` and push's delete path all reach
+// them, and what they share is a protocol obligation, not a command.
 
 // PlanToken mints a plan_token for exactly the writes or deletes described.
 //

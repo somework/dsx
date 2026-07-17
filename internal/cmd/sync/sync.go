@@ -11,7 +11,6 @@ package synccmd
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 
@@ -87,7 +86,7 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 }
 
 func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
-	fs := flag.NewFlagSet(mode, flag.ContinueOnError)
+	fs := cmd.NewFlagSet(mode)
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
 		force  = fs.Bool("force", false, "overwrite conflicts")

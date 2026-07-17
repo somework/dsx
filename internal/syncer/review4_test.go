@@ -1,8 +1,7 @@
 package syncer
 
 import (
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/somework/dsx/internal/dsxerr"
@@ -55,11 +54,11 @@ func TestPullRefusesARemotePathThatFoldsOntoADifferentLocalName(t *testing.T) {
 		t.Errorf("classified %q, want %q — which name survives is the user's call", got, dsxerr.KindConflict)
 	}
 	for _, want := range []string{"README.md", "readme.md"} {
-		if !contains(err.Error(), want) {
+		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not name %q: %v", want, err)
 		}
 	}
-	if contains(err.Error(), "other.css") {
+	if strings.Contains(err.Error(), "other.css") {
 		t.Errorf("an uninvolved path was named: %v", err)
 	}
 }
@@ -130,18 +129,3 @@ func TestNestedBuiltInDirectoriesAreStillPrunedWhenAUserRuleExists(t *testing.T)
 // exercised the stdlib and never reached Pull. Measured before removing it:
 // reversing every sort in pull.go left all 604 tests green. It was named for a
 // defect it could not have caught -- the shape this file exists to record.
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
-}
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-var _ = os.Stat
-var _ = filepath.Join

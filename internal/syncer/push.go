@@ -167,18 +167,15 @@ type writeResult struct {
 }
 
 func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []writeSpec, st *State, rep *PushReport) error {
-	files := make([]map[string]any, 0, len(batch))
+	// writeSpec's json tags carry the wire shape (if_match is omitempty, so an
+	// empty guard is absent rather than ""); the batch marshals itself. paths is
+	// the grant's separate list of what we are authorising a write to.
 	paths := make([]string, 0, len(batch))
 	for _, s := range batch {
-		m := map[string]any{"path": s.Path, "data": s.Data, "encoding": s.Encoding}
-		if s.IfMatch != "" {
-			m["if_match"] = s.IfMatch
-		}
-		files = append(files, m)
 		paths = append(paths, s.Path)
 	}
 
-	args := map[string]any{"project_id": projectID, "files": files}
+	args := map[string]any{"project_id": projectID, "files": batch}
 	text, err := CallWithGrant(ctx, c, "write_files", args, projectID, paths)
 	if err != nil {
 		// A stale if_match is a conflict, and the server is the only party that

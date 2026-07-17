@@ -14,7 +14,7 @@ const (
 )
 
 // envelope is a decoded read_file reply.
-type envelope struct {
+type Envelope struct {
 	Path       string
 	Etag       string
 	Body       string
@@ -24,7 +24,7 @@ type envelope struct {
 }
 
 // Complete reports whether the envelope carries the whole file.
-func (e envelope) Complete() bool {
+func (e Envelope) Complete() bool {
 	return e.TotalLines == 0 || e.Lines[1] >= e.TotalLines
 }
 
@@ -32,8 +32,8 @@ func (e envelope) Complete() bool {
 //
 // The server entity-escapes the body, so no raw '<' or '>' can occur inside it.
 // That is what makes the closing tag an unambiguous terminator.
-func ParseEnvelope(raw string) (envelope, error) {
-	var e envelope
+func ParseEnvelope(raw string) (Envelope, error) {
+	var e Envelope
 
 	if !strings.HasPrefix(raw, openTagPrefix) {
 		return e, fmt.Errorf("unexpected reply: missing %q", strings.TrimSpace(openTagPrefix))
