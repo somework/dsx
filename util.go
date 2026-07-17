@@ -11,6 +11,20 @@ import (
 
 func sortStrings(s []string) { sort.Strings(s) }
 
+// noPositionals refuses arguments a command does not take.
+//
+// Silently discarding them lets `dsx prompt <project>` -- the spelling every
+// other command uses -- return the generic prompt with exit 0. A plausible
+// wrong answer is worse than an error, because the caller never learns it asked
+// the wrong question.
+func noPositionals(pos []string, form string) error {
+	if len(pos) == 0 {
+		return nil
+	}
+	return &dsxError{Kind: kindUsage,
+		Msg: fmt.Sprintf("unexpected argument %q — usage: dsx %s", pos[0], form)}
+}
+
 // jsonFlag adds the standard --json. Every command takes it, so that an agent
 // never has to know which ones happen to.
 func jsonFlag(fs *flag.FlagSet) *bool { return fs.Bool("json", false, "machine-readable output") }

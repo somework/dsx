@@ -472,7 +472,13 @@ func cmdPrompt(ctx context.Context, c *client, args []string) error {
 		ds      = flags.String("ds", "", "design system id")
 		asJSON  = jsonFlag(flags)
 	)
-	if _, err := parseArgs(flags, args); err != nil {
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	// The project goes in --project, not as a positional, so a bare id has to be
+	// refused rather than quietly answered with the generic prompt.
+	if err := noPositionals(pos, "prompt [--project id] [--ds id]"); err != nil {
 		return err
 	}
 	a := map[string]any{}
@@ -491,7 +497,12 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 		full   = flags.Bool("schema", false, "print full JSON schemas")
 		asJSON = jsonFlag(flags)
 	)
-	if _, err := parseArgs(flags, args); err != nil {
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	// `dsx tools <name>` looks like it would filter, and does not.
+	if err := noPositionals(pos, "tools [--schema]"); err != nil {
 		return err
 	}
 	raw, err := c.rpc(ctx, "tools/list", map[string]any{}, true)

@@ -219,6 +219,26 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 		rep.Written = append(rep.Written, path)
 	}
 	sortStrings(rep.Written)
+
+	// A reply naming only some of the paths is not a smaller success. The
+	// unacknowledged ones may well be on the server, and we have no etag for
+	// them -- so they are absent from the ledger, and the next pull sees bytes
+	// it has no record of and calls its own work a conflict. That pushes the
+	// user toward --force, which is the spiral invariant 5 exists to prevent.
+	// The caller saves the ledger for whatever did land, then reports this.
+	var unacknowledged []string
+	for _, s := range batch {
+		if _, ok := res.Etags[s.Path]; !ok {
+			unacknowledged = append(unacknowledged, s.Path)
+		}
+	}
+	if len(unacknowledged) > 0 {
+		sortStrings(unacknowledged)
+		return &dsxError{Kind: kindProtocol, Paths: unacknowledged, Msg: fmt.Sprintf(
+			"write_files returned no etag for %d of %d paths, so they are not in the ledger even though "+
+				"the server may hold them; run `dsx pull` to resynchronise",
+			len(unacknowledged), len(batch))}
+	}
 	return nil
 }
 
