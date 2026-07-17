@@ -79,7 +79,7 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 	d := planPush(remote, local, st, o.force, o.prune)
 	rep.Unchanged = d.Unchanged
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
-	sortStrings(rep.Conflicts)
+	slices.Sort(rep.Conflicts)
 	rep.BinaryConflicts = d.BinaryConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
@@ -248,7 +248,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 		*st = st.withFile(path, fileState{Etag: etag, Size: int64(len(raw)), SHA: sha256hex(raw)})
 		rep.Written = append(rep.Written, path)
 	}
-	sortStrings(rep.Written)
+	slices.Sort(rep.Written)
 
 	// A reply naming only some of the paths is not a smaller success. The
 	// unacknowledged ones may well be on the server, and we have no etag for
@@ -263,7 +263,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 		}
 	}
 	if len(unacknowledged) > 0 {
-		sortStrings(unacknowledged)
+		slices.Sort(unacknowledged)
 		return &dsxError{Kind: kindProtocol, Paths: unacknowledged, Msg: fmt.Sprintf(
 			"write_files returned no etag for %d of %d paths, so they are not in the ledger even though "+
 				"the server may hold them; run `dsx pull` to resynchronise",

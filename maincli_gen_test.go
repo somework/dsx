@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -454,7 +455,7 @@ func maincliDispatchedCommands(t *testing.T) []string {
 	for k := range seen {
 		out = append(out, k)
 	}
-	sortStrings(out)
+	slices.Sort(out)
 	return out
 }
 

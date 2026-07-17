@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -362,7 +363,7 @@ func checkPathCollisions(remote map[string]remoteEntry, local map[string]localFi
 	for p := range collided {
 		names = append(names, p)
 	}
-	sortStrings(names)
+	slices.Sort(names)
 	return conflictError(names, fmt.Sprintf(
 		"%s cannot hold these paths apart — its filesystem folds names that the server keeps "+
 			"distinct, so syncing them would land several files in one and destroy all but the last. "+

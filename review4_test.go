@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -128,7 +129,7 @@ func TestStatusJSONSortsConflictsLikeEveryOtherField(t *testing.T) {
 		Conflicts:      append(append([]string(nil), d.Conflicts...), d.PruneConflicts...),
 		PruneConflicts: d.PruneConflicts,
 	}
-	sortStrings(rep.Conflicts)
+	slices.Sort(rep.Conflicts)
 	if rep.Conflicts[0] != "aaa.css" {
 		t.Fatalf("conflicts = %v, want sorted", rep.Conflicts)
 	}

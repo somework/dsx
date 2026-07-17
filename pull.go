@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -87,7 +88,7 @@ type pullReport struct {
 // asymmetry is the service's, not ours -- pull reports them and moves on.
 func isBinaryRefusal(err error) bool {
 	var te *toolError
-	if !asToolError(err, &te) {
+	if !errors.As(err, &te) {
 		return false
 	}
 	return strings.Contains(te.Text, "is a binary file")
@@ -138,7 +139,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	// so identical state rendered in two different orders depending on the mode,
 	// while every sibling field was sorted.
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
-	sortStrings(rep.Conflicts)
+	slices.Sort(rep.Conflicts)
 	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
@@ -287,12 +288,12 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		return rep, saveErr
 	}
 
-	sortStrings(rep.Fetched)
-	sortStrings(rep.Deleted)
-	sortStrings(rep.Conflicts)
-	sortStrings(rep.PruneConflicts)
-	sortStrings(rep.Irregular)
-	sortStrings(rep.Binary)
+	slices.Sort(rep.Fetched)
+	slices.Sort(rep.Deleted)
+	slices.Sort(rep.Conflicts)
+	slices.Sort(rep.PruneConflicts)
+	slices.Sort(rep.Irregular)
+	slices.Sort(rep.Binary)
 	return rep, nil
 }
 

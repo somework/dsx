@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1246,7 +1247,7 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 				t.Errorf("stdout = %q, want nothing printed for a failed call", out)
 			}
 			var te *toolError
-			if !asToolError(err, &te) {
+			if !errors.As(err, &te) {
 				t.Fatalf("error %v is not a *toolError; callers match on the type, not the text", err)
 			}
 			if te.Text != "path not found" {
