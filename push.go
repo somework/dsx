@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -164,36 +163,6 @@ type writeResult struct {
 }
 
 // planFor obtains a path-scoped plan_token authorising exactly these writes.
-func (c *client) planFor(ctx context.Context, projectID string, paths []string) (string, error) {
-	return planToken(ctx, c, map[string]any{"project_id": projectID, "writes": paths})
-}
-
-// callWithGrant runs a write tool, self-authorising if the server demands a
-// standing project grant.
-//
-// Without a grant the server answers HTTP 403; a path-scoped plan_token
-// authorises exactly these paths instead, so the write proceeds without sending
-// anyone to a browser. A project with no standing grant is the default, so this
-// is the ordinary path rather than a rescue.
-//
-// It lives here, shared, because push had it and put did not: the same write
-// that push completed left `dsx put` at exit 1 with no next step. Two copies
-// would drift again.
-func (c *client) callWithGrant(ctx context.Context, tool string, args map[string]any, projectID string, paths []string) (string, error) {
-	text, err := c.callTool(ctx, tool, args)
-
-	var ge *grantError
-	if errors.As(err, &ge) {
-		token, planErr := c.planFor(ctx, projectID, paths)
-		if planErr != nil {
-			return "", fmt.Errorf("%w; and could not self-authorise: %v", err, planErr)
-		}
-		args["plan_token"] = token
-		return c.callTool(ctx, tool, args)
-	}
-	return text, err
-}
-
 func (c *client) writeBatch(ctx context.Context, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
 	files := make([]map[string]any, 0, len(batch))
 	paths := make([]string, 0, len(batch))

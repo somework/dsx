@@ -597,21 +597,6 @@ func cmdRaw(ctx context.Context, c *client, args []string) error {
 //
 // Shared by `dsx rm` and push's delete path so the two cannot disagree about
 // what a missing token means.
-func planToken(ctx context.Context, c *client, args map[string]any) (string, error) {
-	text, err := c.callTool(ctx, "finalize_plan", args)
-	if err != nil {
-		return "", fmt.Errorf("finalize_plan: %w", err)
-	}
-	var plan struct {
-		PlanToken string `json:"plan_token"`
-	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return "", &dsxError{Kind: kindProtocol,
-			Msg: "finalize_plan returned no plan_token: " + truncate(text, 200)}
-	}
-	return plan.PlanToken, nil
-}
-
 func firstLine(s string) string {
 	for i := range len(s) {
 		if s[i] == '\n' {
