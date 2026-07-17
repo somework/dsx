@@ -1,8 +1,36 @@
 # dsx roadmap
 
 Current state: 624 tests green under `-race`, plus 20 live tests against the real endpoint.
-Coverage 90.1% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
+Coverage 89.9% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
 `go install github.com/somework/dsx@latest` works. CI builds and tests on Linux and macOS.
+
+## Package split, in progress
+
+**Why**: not to enforce anything — to make the tree readable. The root held 46 `.go` files, 27
+of them tests, and Go requires tests beside their code, so the only lever against a root nobody
+can navigate is subpackages that take their tests with them. `main.go` sat between
+`maincli_gen_test.go` and `mcp.go`; the entry point was invisible.
+
+Done, on `refactor/phase-2-packages` (root 46 → 35):
+
+- `internal/dsxerr` — the leaf everything reports through
+- `internal/fmtutil` — `Truncate`, `Bytes`: the two cross-layer helpers
+- `internal/auth` — credentials
+- `internal/mcp` + `internal/mcptest` — transport, and the fake
+
+Remaining: `internal/sync` (plan, pull, push, state, ignore, tree, grant) → root ≈ 20, then
+`internal/cli` (cmds, completion, doctor, util) → root = `main.go` alone. The value is
+back-loaded: the root only becomes legible at the end.
+
+**Two things the next session must not rediscover the hard way.**
+
+`plan.go` has no import block, and that is load-bearing — it is why `remoteEntry` did **not**
+move into `mcp` with the rest of the listing shapes. Whatever `plan.go` reads must live beside
+it, or the split breaks the one rule it was supposed to protect.
+
+`var version` stays in `main.go`. It is `-X main.version`'s target, and a stale `-X` against a
+symbol that no longer exists builds with **no error and no warning** — leaving `version=""`
+while `version_test.go` stays green, because it injects the value itself.
 
 Good enough to depend on personally, and now technically ready to hand to someone else. Whether
 it *should* be handed to someone else is the question below, and it is not a technical one.

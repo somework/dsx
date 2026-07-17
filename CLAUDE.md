@@ -11,26 +11,35 @@ counter-intuitive enough that guessing reliably produces wrong code.
 
 ## Orientation
 
+**A split into packages is in progress**; see ROADMAP. Layers, leaves first — each may
+import only what is above it:
+
+| Package | Holds |
+|---|---|
+| `internal/dsxerr` | the error taxonomy and exit codes — the contract with an agent. The one true leaf: everything reports through it, it imports nothing of ours |
+| `internal/fmtutil` | `Truncate` and `Bytes` — the two helpers more than one layer needs, and the only reason the package exists |
+| `internal/auth` | credential resolution. **Never writes, never prints the token** — there is no setter for `Client.token` anywhere. Includes the Keychain lane (`auth_darwin.go`) and its absence elsewhere |
+| `internal/mcp` | JSON-RPC transport, retry, SSE unwrapping, error types; `read_file` wrapper parsing and window reassembly (`envelope.go`, with `ReadFull` — they are one concern) |
+| `internal/mcptest` | the fake endpoint. **Imports `mcp` never**, so `mcp`'s own internal tests can import it without a cycle |
+
+Still `package main` at the root, and moving next (`sync`, then `cli`):
+
 | File | Holds |
 |---|---|
-| `main.go` | CLI dispatch, `usage`, sync command wiring, `emit` |
+| `main.go` | CLI dispatch, `usage`, sync command wiring, `emit`. `var version` must stay here: it is `-X main.version`'s target |
 | `cmds.go` | one thin function per MCP tool; `raw` is the escape hatch |
 | `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
-| `exit.go` | the error taxonomy and exit codes — the contract with an agent |
-| `auth.go` | credential resolution. **Never writes, never prints the token** |
-| `auth_darwin.go` / `auth_other.go` | the Keychain lane, and its absence elsewhere |
-| `mcp.go` | JSON-RPC transport, retry, SSE unwrapping, error types |
-| `envelope.go` | `read_file` wrapper parsing, entity decoding, window reassembly |
 | `tree.go` | concurrent recursive listing; clamps its own concurrency |
 | `ignore.go` | `.dsxignore`, the built-ins no rule may negate, and `survey` — the only way to filter |
-| `plan.go` | **the sync decisions, pure functions** — where a mistake costs data |
+| `plan.go` | **the sync decisions, pure functions** — where a mistake costs data. Has no import block at all; that is the point |
 | `pull.go` / `push.go` | I/O around those decisions |
 | `state.go` | `.dsx-state.json` ledger, path safety, filesystem fold identity |
-| `util.go` | flag parsing across positionals, formatting |
+| `util.go` | flag parsing across positionals |
 | `doctor.go` | `dsx doctor` — the first thing to run when something is wrong |
 | `completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
 | `version.go` | `--version`, ldflags-stamped or build-info-derived |
-| `reference/mcp-tools.json` | the server's own `tools/list` output, verbatim |
+| `fake_test.go` | what `mcptest` cannot know: how to build a client, the domain shapes, `captureStdout` |
+| `reference/mcp-tools.json` | the server's own `tools/list` output, verbatim. `internal/mcp`'s tests reach it at `../../reference` |
 
 `plan.go` is deliberately pure and separate. Decisions there are testable without a network;
 keep it that way. If you find yourself needing a client inside it, the design is drifting.
