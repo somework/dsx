@@ -120,10 +120,23 @@ and each is written down rather than forgotten.
 - **An in-project symlinked directory never settles.** `safeJoin` allows it, so pull writes
   through to the target while the ledger records the link path — refetched every run, and push
   then duplicates the file server-side under the resolved name.
-- **`push`'s binary conflict says two different things.** stdout says "--force overwrites it and
-  the only copy is gone"; the `--json` error envelope still carries the generic
-  "`dsx pull` first" hint, because `conflictOutcome`'s text is hard-coded at the call site
-  rather than derived from the report. The machine-readable surface is the wrong one.
+- **The conflict hints say two different things, and `--json` gets the wrong one.** This is
+  invariant 4's machine-readable half, still broken. `PushReport.Render` distinguishes a
+  binary conflict ("--force overwrites it and the only copy is gone") from an ordinary one;
+  `PullReport.Render` likewise separates a prune conflict (--force **deletes**) from an
+  overwrite. The error envelope does neither: `cli.go` hands `ConflictOutcome` one flat hint
+  for the whole report, so `--json` advises "`dsx pull` first" for a path `pull` provably
+  cannot fetch — advice that is an infinite loop. With `-q` the report is suppressed and the
+  envelope is the only surface an agent sees. CLAUDE.md calls the agent surface the part that
+  matters most; this is the part of it that lies.
+
+  Not simply "derive the hint from the report": `dsxerr.payload` carries one `Message` and a
+  flat `Paths`, so a mixed report has two truthful hints and one slot. Either the envelope
+  grows a per-class shape — and its field names are contract — or a mixed report picks the
+  most dangerous hint and says so. That choice is the work; `ConflictOutcome` now lives in
+  `internal/syncer/outcome.go` beside the reports, which is what makes either reachable.
+  Five call sites produce exit 3, not two: `cli.go` ×2, `cmds.go` (`dsx put`), `state.go`
+  (path collisions), `push.go` (the write race). Audit all five.
 
 ## UX, for humans
 
