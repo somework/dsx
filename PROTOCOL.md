@@ -266,9 +266,7 @@ direction is closed. The browser is the only way out.
 
 ## Limits
 
-| | |
-|---|---|
-| | | evidence |
+| limit | value | evidence |
 |---|---|---|
 | `read_file` | 256 KiB per call | measured; asserted live |
 | `write_files` | 256 entries per call | **uncorroborated.** The schema states no batch limit and types `files` as an unbounded array; dsx sends at most 128 (`maxBatchFiles`) and so can never discover the ceiling. The real constraint is dsx's own. |

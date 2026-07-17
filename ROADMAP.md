@@ -1,7 +1,7 @@
 # dsx roadmap
 
-Current state: 624 tests green under `-race`, plus 20 live tests against the real endpoint.
-Coverage 89.8% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
+Current state: 627 tests green under `-race`, plus 20 live tests against the real endpoint.
+Coverage 91.6% overall, 98.7% on `plan.go`, 100% on `envelope.go` (CI floors: 80/95/95). All 20 MCP tools reachable.
 `go install github.com/somework/dsx@latest` works. CI builds and tests on Linux and macOS.
 
 ## Package split — done
@@ -12,8 +12,8 @@ against a root nobody can navigate was subpackages that take their tests with th
 sat between `maincli_gen_test.go` and `mcp.go`; the entry point was invisible.
 
 `ls *.go` now prints `main.go`, and nothing else. It holds `func main` and `var version`.
-The layers are in CLAUDE.md's Orientation; the counts are unchanged throughout — 324
-top-level tests, 624 with subtests, coverage 89.8% / 98.7% `plan.go` / 100% `envelope.go`.
+The layers are in CLAUDE.md's Orientation. Test and coverage counts live in CLAUDE.md's
+Testing section — the single place they are maintained, so three docs cannot disagree.
 
 Three things the split settled that are worth not re-litigating:
 
@@ -25,7 +25,7 @@ Three things the split settled that are worth not re-litigating:
   still guards the inside, where the compiler sees nothing.
 - **Invariant 10 is new, and the split created it.** `var version` and `cmdVersion` used to
   share a file; now a `cli.Main(version)` argument is all that connects them, and breaking
-  that link is invisible to `go build`, `go vet` and all 624 tests. CI builds with a probe
+  that link is invisible to `go build`, `go vet` and every test. CI builds with a probe
   stamp because nothing else can see it.
 
 Good enough to depend on personally, and now technically ready to hand to someone else. Whether
