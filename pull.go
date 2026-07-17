@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -62,23 +63,20 @@ type pullReport struct {
 	Fetched   []string `json:"fetched"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
+	// Conflicts names EVERY path a human must look at, prune conflicts included.
+	// It has always meant that, and narrowing it to "overwrite conflicts only"
+	// made `status --json` report zero for the one case where --force destroys
+	// the only copy.
 	Conflicts []string `json:"conflicts"`
-	// PruneConflicts are conflicts --force resolves by DELETING, not by
-	// overwriting. They are reported apart so the advice can tell the truth.
+	// PruneConflicts is the subset of Conflicts that --force resolves by
+	// DELETING rather than overwriting. A discriminator, never a replacement.
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
-	Binary         []string `json:"binary"`
-	Bytes          int64    `json:"bytes"`
-}
-
-// allConflicts is what the exit code and the --json error envelope are built
-// from: both kinds need a human, whatever --force would do to them.
-func (r pullReport) allConflicts() []string {
-	if len(r.PruneConflicts) == 0 {
-		return r.Conflicts
-	}
-	out := append(append([]string(nil), r.Conflicts...), r.PruneConflicts...)
-	sortStrings(out)
-	return out
+	// Irregular are paths that are not regular files here. Reported, never
+	// conflicts: nothing the caller can type resolves a symlink, so exit 3
+	// would be a demand with no answer.
+	Irregular []string `json:"irregular,omitempty"`
+	Binary    []string `json:"binary"`
+	Bytes     int64    `json:"bytes"`
 }
 
 // isBinaryRefusal reports the server's refusal to return a binary file.
@@ -127,8 +125,9 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	d := planPull(remote, local, st, o.force, o.prune)
 	rep.Unchanged = d.Unchanged
 	rep.Binary = d.Binary
-	rep.Conflicts = d.Conflicts
+	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
 	rep.PruneConflicts = d.PruneConflicts
+	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
 
 	if o.dryRun {
@@ -275,6 +274,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	sortStrings(rep.Deleted)
 	sortStrings(rep.Conflicts)
 	sortStrings(rep.PruneConflicts)
+	sortStrings(rep.Irregular)
 	sortStrings(rep.Binary)
 	return rep, nil
 }
@@ -289,21 +289,26 @@ func (r pullReport) render(asJSON bool) string {
 	if len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, ", deleted %d", len(r.Deleted))
 	}
-	if n := len(r.Conflicts) + len(r.PruneConflicts); n > 0 {
-		fmt.Fprintf(&sb, ", conflicts %d", n)
+	if len(r.Conflicts) > 0 {
+		fmt.Fprintf(&sb, ", conflicts %d", len(r.Conflicts))
 	}
 	if len(r.Binary) > 0 {
 		fmt.Fprintf(&sb, ", binary %d", len(r.Binary))
 	}
 	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
+	// One line per path, each carrying the advice its class deserves. --force
+	// overwrites the first kind (the bytes survive on the server) and DELETES
+	// the second (they survive nowhere) -- advertising an overwrite for both is
+	// how a user reaching for --force to fix one file loses another.
 	for _, p := range r.Conflicts {
+		if slices.Contains(r.PruneConflicts, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)
+			continue
+		}
 		fmt.Fprintf(&sb, "\n  ! %s — local differs; --force to overwrite", p)
 	}
-	// Say what --force would actually do here. It deletes, and what it deletes
-	// is the only copy: the server no longer has it. Advertising an overwrite
-	// is how a user reaching for --force to fix some other file loses this one.
-	for _, p := range r.PruneConflicts {
-		fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)
+	for _, p := range r.Irregular {
+		fmt.Fprintf(&sb, "\n  ~ %s — not a regular file here; dsx left it alone", p)
 	}
 	if len(r.Binary) > 0 {
 		fmt.Fprintf(&sb, "\n  ~ %d binary file(s) skipped — read_file serves text only: %s",

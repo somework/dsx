@@ -38,6 +38,9 @@ type pushReport struct {
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
 	Conflicts []string `json:"conflicts"`
+	// Irregular are paths that are not regular files here, so there were no
+	// bytes to send. Reported, never conflicts -- see pullReport.Irregular.
+	Irregular []string `json:"irregular,omitempty"`
 	Bytes     int64    `json:"bytes"`
 }
 
@@ -72,6 +75,7 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 	d := planPush(remote, local, st, o.force, o.prune)
 	rep.Unchanged = d.Unchanged
 	rep.Conflicts = d.Conflicts
+	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
 
 	specs := make([]writeSpec, 0, len(d.Write))
@@ -302,6 +306,9 @@ func (r pushReport) render(asJSON bool) string {
 	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
 	for _, p := range r.Conflicts {
 		fmt.Fprintf(&sb, "\n  ! %s — server moved ahead; `dsx pull` first, or --force", p)
+	}
+	for _, p := range r.Irregular {
+		fmt.Fprintf(&sb, "\n  ~ %s — not a regular file here; dsx sent nothing and left the server's copy alone", p)
 	}
 	return sb.String()
 }

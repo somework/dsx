@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -36,13 +37,29 @@ func isKnownCommand(name string) bool {
 }
 
 func cmdCompletion(args []string) error {
-	shell, _, err := need1(args, "completion <bash|zsh|fish>")
+	flags := newFlagSet("completion")
+	asJSON := jsonFlag(flags)
+	pos, err := parseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	shell, _, err := need1(pos, "completion <bash|zsh|fish>")
 	if err != nil {
 		return err
 	}
 	script, err := completionScript(shell)
 	if err != nil {
 		return err
+	}
+	if *asJSON {
+		// A shell script is not JSON, so under --json it is carried inside one.
+		// `eval "$(dsx completion bash)"` is the prose form and stays the point.
+		b, mErr := json.Marshal(map[string]any{"shell": shell, "script": script})
+		if mErr != nil {
+			return mErr
+		}
+		fmt.Println(string(b))
+		return nil
 	}
 	fmt.Print(script)
 	return nil

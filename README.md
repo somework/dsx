@@ -103,11 +103,16 @@ through untouched; the rest are wrapped as `{"text":…}`. Errors go to stderr:
 `.dsxignore` in the synced directory, gitignore's syntax minus character classes:
 
 ```
-dist/           # directories only
-*.map           # any depth
-/build          # anchored to the root
-!dist/keep.css  # a later rule wins
+# a comment must be on its own line
+dist/
+*.map
+/build
+!dist/keep.css
 ```
+
+`dist/` is directories only, `*.map` matches at any depth, `/build` is anchored to the root,
+and a later `!` rule wins. A `#` starts a comment only at the start of a line — a trailing
+`# like this` is part of the pattern, exactly as in gitignore.
 
 It filters **both** directions. An ignored path is not dsx's business at all: it is not
 pushed, not pulled, and not pruned from either side. (Filtering only the local scan would
@@ -151,7 +156,7 @@ certain exists.
 ## Development
 
 ```bash
-go test -race ./...              # 532 tests
+go test -race ./...              # 569 tests
 go test -tags=live -run TestLive ./...   # 20 more, against the real endpoint
 go vet ./... && gofmt -l .
 ```

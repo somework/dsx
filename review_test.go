@@ -200,8 +200,11 @@ func TestPushDoesNotPruneAPathThatStoppedBeingARegularFile(t *testing.T) {
 			t.Fatal("a symlink's target was uploaded")
 		}
 	}
-	if len(d.Conflicts) != 1 || d.Conflicts[0] != "logo.svg" {
-		t.Errorf("conflicts = %v, want logo.svg reported rather than silently skipped", d.Conflicts)
+	// Reported in its own class, not as a conflict: round two established that
+	// calling a symlink a conflict means exit 3 forever under advice no user can
+	// act on. See TestIrregularPathsDoNotBlockASyncForever.
+	if len(d.Irregular) != 1 || d.Irregular[0] != "logo.svg" {
+		t.Errorf("irregular = %v, want logo.svg reported rather than silently skipped", d.Irregular)
 	}
 }
 
@@ -235,8 +238,8 @@ func TestPullDoesNotClobberAPathThatStoppedBeingARegularFile(t *testing.T) {
 			t.Fatal("pull would write through a symlink the user put there deliberately")
 		}
 	}
-	if len(d.Conflicts) != 1 {
-		t.Errorf("conflicts = %v, want logo.svg named", d.Conflicts)
+	if len(d.Irregular) != 1 || d.Irregular[0] != "logo.svg" {
+		t.Errorf("irregular = %v, want logo.svg named", d.Irregular)
 	}
 }
 
@@ -245,8 +248,12 @@ func TestPullTellsTheTruthAboutWhatForceWillDoToAPrunedConflict(t *testing.T) {
 	// on the server and edited here, --force does not overwrite: it DELETES, and
 	// the bytes it destroys exist nowhere else. The user reaches for --force to
 	// resolve some other file and loses this one.
+	// Conflicts carries EVERY path a human must look at; PruneConflicts is the
+	// subset --force would DELETE rather than overwrite. runPull builds it that
+	// way, because narrowing `conflicts` made `status --json` report zero for
+	// exactly the destructive case.
 	rep := pullReport{
-		Conflicts:      []string{"hero.css"},
+		Conflicts:      []string{"hero.css", "scratch.css"},
 		PruneConflicts: []string{"scratch.css"},
 	}
 	out := rep.render(false)
@@ -510,3 +517,26 @@ func TestNormalizeSSEAcceptsEveryFrameTheGrammarAllows(t *testing.T) {
 }
 
 func jsonUnmarshalString(s string, v any) error { return json.Unmarshal([]byte(s), v) }
+
+func TestCaseInsensitiveBuiltinsDoNotSwallowLegitimatePaths(t *testing.T) {
+	// Making the built-ins case-insensitive is the kind of change that quietly
+	// widens a rule. `.git` must not start matching `.gitignore`, and a project
+	// legitimately holding `.github/workflows/ci.yml` must still sync it.
+	//
+	// The rules are anchored (^(?:.*/)?\.git$), so they do not; this test is here
+	// so that stays true if anyone touches compileIgnorePattern.
+	s := mustParseIgnore(t, "")
+	for _, p := range []string{
+		".gitignore", ".gitattributes", ".github/workflows/ci.yml", "a/.gitkeep",
+		"digit.css", "legit.md", "node_modules.md", "src/gitignore.txt", "DS_Store.md",
+	} {
+		if s.match(p) {
+			t.Errorf("%q is excluded from the sync; it is a legitimate project file", p)
+		}
+	}
+	for _, p := range []string{".git/config", ".GIT/config", "node_modules/x.js", ".DS_Store"} {
+		if !s.match(p) {
+			t.Errorf("%q is not excluded", p)
+		}
+	}
+}

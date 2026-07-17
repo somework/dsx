@@ -4,12 +4,41 @@ package main
 // where a mistake costs data: a wrong call silently overwrites an edit or
 // deletes a file nobody asked to delete. Pure input, pure output, testable.
 
+// localCovers reports whether the scan accounts for a remote path.
+//
+// Exact membership is not enough. A symlinked *directory* is recorded once, at
+// the link, because WalkDir does not descend it -- so nothing underneath was
+// ever looked at. Reading that silence as "the user deleted every file under
+// here" is how one symlink took out a whole server-side subtree, and it is the
+// same mechanism the leaf-level fix closed, one directory up.
+func localCovers(local map[string]localFile, path string) bool {
+	if _, ok := local[path]; ok {
+		return true
+	}
+	for i, c := range path {
+		if c != '/' {
+			continue
+		}
+		if lf, ok := local[path[:i]]; ok && lf.Irregular {
+			return true
+		}
+	}
+	return false
+}
+
 type pullDecision struct {
 	Fetch     []string
 	Unchanged int
 	Binary    []string
 	Conflicts []string
 	Delete    []string
+
+	// Irregular are paths that exist locally but are not regular files. They
+	// are not conflicts: a conflict is a disagreement about content that a
+	// human resolves, and none of --force, `dsx pull` or `dsx push` resolves a
+	// symlink. Reporting them as conflicts meant exit 3 forever, under advice
+	// that was false three ways over.
+	Irregular []string
 
 	// PruneConflicts are paths gone from the server and edited here. They are
 	// conflicts too, but --force resolves them by DELETING rather than by
@@ -39,7 +68,9 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 			// A symlink, a fifo, something the user put there deliberately.
 			// Writing would go through it to wherever it points -- safeJoin
 			// refuses that outright -- and dsx cannot judge what it is for.
-			d.Conflicts = append(d.Conflicts, path)
+			// Its own class, not a conflict: nothing the user can type resolves
+			// it, so exit 3 would be a demand with no answer.
+			d.Irregular = append(d.Irregular, path)
 		case tracked && prev.Etag == r.Etag && prev.Binary:
 			// Known-unreadable and unchanged since we learned that.
 			d.Binary = append(d.Binary, path)
@@ -54,6 +85,10 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 	}
 
 	if prune {
+		// Iterating what is on disk, not what is tracked, is what makes the
+		// symlinked-directory case safe here for free: nothing under the link
+		// was ever scanned, so nothing under it can be reached from this loop.
+		// planPush needs localCovers because it iterates the server's listing.
 		for _, path := range sortedPaths(local) {
 			if _, stillRemote := remote[path]; stillRemote {
 				continue
@@ -89,6 +124,10 @@ type pushDecision struct {
 	Unchanged int
 	Conflicts []string
 	Delete    []string
+
+	// Irregular are paths that exist locally but hold no bytes dsx can send.
+	// See pullDecision.Irregular: reported, never a conflict.
+	Irregular []string
 }
 
 // planPush decides, without touching the network, what a push would do.
@@ -106,10 +145,12 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 		switch {
 		case lf.Irregular:
 			// Not a regular file, so there are no bytes to send. It must still
-			// be named: dropping it silently is what let prune read it as a
-			// deletion and remove the server's copy.
+			// be named -- dropping it silently is what let prune read it as a
+			// deletion -- but it is not a conflict: --force does not resolve a
+			// symlink, `dsx pull` does not, and saying otherwise left the sync
+			// at exit 3 with no way out.
 			if onServer {
-				d.Conflicts = append(d.Conflicts, path)
+				d.Irregular = append(d.Irregular, path)
 			}
 			continue
 		case tracked && !localChanged && onServer && !remoteMoved:
@@ -140,11 +181,15 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 		// if_match turns a blind overwrite into a checked one: the server
 		// refuses the write if the file moved since we last agreed on it.
 		if !force {
+			// Absence is checked first. A tracked path missing from the listing
+			// used to be guarded with its remembered etag, and the server has no
+			// row at that etag -- so the write was refused as stale when the file
+			// was simply gone. "0" is the sentinel that says "not there".
 			switch {
+			case !onServer:
+				cand.IfMatch = "0"
 			case tracked && !prev.Binary:
 				cand.IfMatch = prev.Etag
-			case !onServer:
-				cand.IfMatch = "0" // assert the path does not exist yet
 			}
 		}
 		d.Write = append(d.Write, cand)
@@ -152,10 +197,11 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 
 	if prune {
 		for _, path := range sortedPaths(remote) {
-			// An irregular path is still in `local`, so it counts as present
-			// here and is never pruned. That is the whole reason scanLocal
-			// records it instead of dropping it.
-			if _, stillLocal := local[path]; stillLocal {
+			// localCovers, not plain membership: an irregular path counts as
+			// present, and so does everything beneath a symlinked directory the
+			// walk never entered. That is the whole reason scanLocal records
+			// irregular paths instead of dropping them.
+			if localCovers(local, path) {
 				continue
 			}
 			prev, tracked := st.Files[path]

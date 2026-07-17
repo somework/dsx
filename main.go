@@ -93,8 +93,7 @@ func run() error {
 	cmd, args := os.Args[1], os.Args[2:]
 	switch cmd {
 	case "-h", "--help", "help":
-		fmt.Println(usage)
-		return nil
+		return cmdHelp(args)
 	case "-v", "--version", "version":
 		return cmdVersion(args)
 	case "completion":
@@ -304,6 +303,30 @@ func cmdAuth(args []string) error {
 	return nil
 }
 
+// cmdHelp prints the usage text.
+//
+// It takes --json for the same reason everything else does: the guarantee is
+// that under --json stdout is one JSON document, and a guarantee with
+// exceptions is not one an agent can use. It was dispatched before any FlagSet
+// and printed prose regardless.
+func cmdHelp(args []string) error {
+	flags := newFlagSet("help")
+	asJSON := jsonFlag(flags)
+	if _, err := parseArgs(flags, args); err != nil {
+		return err
+	}
+	if !*asJSON {
+		fmt.Println(usage)
+		return nil
+	}
+	b, err := json.Marshal(map[string]any{"usage": usage, "commands": commandNames})
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
+}
+
 // boundProject reports the project a directory is already pinned to, or "" if
 // the directory carries no ledger yet.
 func boundProject(dir string) (string, error) {
@@ -412,7 +435,7 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 		if !*quiet {
 			fmt.Println(pullRep.render(*asJSON))
 		}
-		return conflictOutcome(pullRep.allConflicts(), dryRun,
+		return conflictOutcome(pullRep.Conflicts, dryRun,
 			"local differs from the server, or was deleted there and edited here")
 	}
 

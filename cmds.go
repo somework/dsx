@@ -183,11 +183,18 @@ func cmdPut(ctx context.Context, c *client, args []string) error {
 // emitWrite is emit for a tool that writes: it recovers from the server's
 // demand for a standing project grant before printing.
 func emitWrite(ctx context.Context, c *client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
+	var (
+		text string
+		err  error
+	)
 	if _, given := args["plan_token"]; given {
-		// The caller brought their own authority; do not second-guess it.
-		return emit(ctx, c, tool, args, asJSON)
+		// The caller brought their own authority; do not mint another over it.
+		// Short-circuiting to emit() here is what made `dsx put --plan` exit 1
+		// on the very reply that exits 3 without --plan: emit does not classify.
+		text, err = c.callTool(ctx, tool, args)
+	} else {
+		text, err = c.callWithGrant(ctx, tool, args, projectID, paths)
 	}
-	text, err := c.callWithGrant(ctx, tool, args, projectID, paths)
 	if err != nil {
 		if conflicts, ok := conflictFromToolError(err); ok {
 			return conflictError(conflicts, "the server changed since dsx read it; nothing was written")
@@ -314,6 +321,10 @@ func cmdPreview(ctx context.Context, c *client, args []string) error {
 	return emit(ctx, c, "render_preview", a, *asJSON)
 }
 
+// defaultSupportJS is where create_support_js writes when `path` is omitted.
+// reference/mcp-tools.json: "defaults to \"support.js\" at the project root".
+const defaultSupportJS = "support.js"
+
 func cmdSupportJS(ctx context.Context, c *client, args []string) error {
 	flags := newFlagSet("support-js")
 	var (
@@ -336,11 +347,14 @@ func cmdSupportJS(ctx context.Context, c *client, args []string) error {
 			a[k] = v
 		}
 	}
+	// The server's own schema says path "defaults to support.js at the project
+	// root", so there is always something to name in a plan. Believing otherwise
+	// left the documented form -- `dsx support-js <project>` -- unable to
+	// self-authorise, and it exited 1 on a project with no standing grant, which
+	// is the default.
 	dest := *path
 	if dest == "" {
-		// The server picks the path when we do not. There is nothing to name in
-		// a plan, so a grant refusal here cannot be self-authorised.
-		return emit(ctx, c, "create_support_js", a, *asJSON)
+		dest = defaultSupportJS
 	}
 	return emitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON)
 }

@@ -52,6 +52,9 @@ type ignoreSet struct {
 	// builtins is how many leading rules are built-in. match() stops at the
 	// first one that hits, so a user rule can never reach past it.
 	builtins int
+	// hasNegation records whether any user rule can re-include a path. It gates
+	// pruning the walk: see canSkipDir.
+	hasNegation bool
 }
 
 func loadIgnore(dir string) (*ignoreSet, error) {
@@ -114,6 +117,9 @@ func parseIgnore(text string) (*ignoreSet, error) {
 			return nil, fmt.Errorf("pattern %q: %w", r.source, err)
 		}
 		r.re = re
+		if r.negate {
+			s.hasNegation = true
+		}
 		s.rules = append(s.rules, r)
 	}
 	s.builtins = builtinCount
@@ -177,6 +183,50 @@ func (s *ignoreSet) match(rel string) bool { return s.matchPath(rel, false) }
 // matchDir reports whether a directory is excluded, so a walk can prune it
 // without reading what is inside.
 func (s *ignoreSet) matchDir(rel string) bool { return s.matchPath(rel, true) }
+
+// canSkipDir reports whether a walk may skip a directory whole.
+//
+// Excluded is not the same as skippable. `dist/` followed by `!dist/keep.css`
+// excludes the directory and re-includes one file inside it -- and pruning the
+// walk there dropped keep.css from the scan while filterRemote, which has no
+// walk to prune, kept it in the listing. That one-sided filtering is exactly
+// what invariant 9 exists to prevent: pull overwrites the local edit, and
+// push --prune deletes the server's copy.
+//
+// Built-ins can never be negated, so they are always safe to prune -- which is
+// what keeps node_modules from being read file by file even when the user has
+// written a `!` rule somewhere.
+func (s *ignoreSet) canSkipDir(rel string) bool {
+	if s.matchesBuiltinDir(rel) {
+		return true
+	}
+	if !s.matchDir(rel) {
+		return false
+	}
+	// A user rule excluded it, and some `!` may re-include a path underneath.
+	// Descending costs a walk; guessing costs a file.
+	return !s.hasNegation
+}
+
+func (s *ignoreSet) matchesBuiltinDir(rel string) bool {
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	if rel == "" {
+		return false
+	}
+	segments := strings.Split(rel, "/")
+	for i := range segments {
+		prefix := strings.Join(segments[:i+1], "/")
+		for n, r := range s.rules {
+			if n >= s.builtins {
+				return false
+			}
+			if r.re.MatchString(prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func (s *ignoreSet) matchPath(rel string, leafIsDir bool) bool {
 	rel = strings.Trim(filepath.ToSlash(rel), "/")

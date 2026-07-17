@@ -250,13 +250,19 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 // ahead of the response, and gluing two JSON documents together yields neither.
 // Only the frame bearing result or error answers our call.
 //
-// The decision is made on the Content-Type, not on the body's first bytes. The
-// old sniff demanded the body open with event: or data:, which is stricter than
-// the grammar this function's own loop implements: SSE permits a comment, an
-// id: or a retry: first, and servers send `: ping` as a keepalive. Such a
-// stream was handed back raw and died as an unretryable "malformed response".
+// Both the Content-Type and the body are consulted, and either is enough.
+//
+// The body sniff alone was too strict: it demanded event: or data: first, while
+// the grammar this function's own loop implements permits a comment, an id: or
+// a retry: -- and servers send `: ping` as a keepalive. But the header alone
+// traded one failure for another: every reply ever measured from this endpoint
+// is application/json, so a server that started framing without relabelling
+// would have died as an unretryable "malformed response".
+//
+// Accepting either costs nothing. A JSON-RPC reply always opens with '{', so
+// the body sniff has an empty false-positive set.
 func normalizeSSE(b []byte, contentType string) []byte {
-	if !isEventStream(contentType) {
+	if !isEventStream(contentType, b) {
 		return b
 	}
 
@@ -301,11 +307,21 @@ func normalizeSSE(b []byte, contentType string) []byte {
 	return b
 }
 
-// isEventStream reports an SSE Content-Type, ignoring any parameters the header
-// carries (charset, boundary).
-func isEventStream(contentType string) bool {
+// isEventStream reports an SSE reply, by its Content-Type or by its body.
+func isEventStream(contentType string, body []byte) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
-	return strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream")
+	if strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream") {
+		return true
+	}
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	for _, field := range [][]byte{
+		[]byte("data:"), []byte("event:"), []byte("id:"), []byte("retry:"), []byte(":"),
+	} {
+		if bytes.HasPrefix(trimmed, field) {
+			return true
+		}
+	}
+	return false
 }
 
 // callTool invokes an MCP tool and returns its concatenated text content.

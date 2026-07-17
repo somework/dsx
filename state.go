@@ -130,7 +130,7 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 			// Pruning the walk at an excluded directory matters beyond speed:
 			// node_modules can hold hundreds of thousands of files, and
 			// scanLocal reads every file it does not skip.
-			if ig.matchDir(rel) {
+			if ig.canSkipDir(rel) {
 				return fs.SkipDir
 			}
 			return nil
