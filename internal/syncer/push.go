@@ -192,6 +192,13 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 		if !ok {
 			continue
 		}
+		// Symmetry with ParseEnvelope, which refuses a read whose etag is empty:
+		// an empty etag is not a usable ledger key — recorded, it reads as
+		// unchanged (empty-vs-empty) next run. Skip it here and let it fall into
+		// the unacknowledged set below so the caller resynchronises with a pull.
+		if etag == "" {
+			continue
+		}
 		raw, err := base64.StdEncoding.DecodeString(spec.Data)
 		if err != nil {
 			return err
@@ -203,7 +210,7 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 
 	var unacknowledged []string
 	for _, s := range batch {
-		if _, ok := res.Etags[s.Path]; !ok {
+		if et, ok := res.Etags[s.Path]; !ok || et == "" {
 			unacknowledged = append(unacknowledged, s.Path)
 		}
 	}
@@ -238,7 +245,11 @@ func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []s
 	})
 	if err != nil {
 		if paths, ok := mcp.ConflictFromToolError(err); ok {
-			return dsxerr.Conflict(paths, "the server moved ahead of a path dsx was pruning; nothing was deleted — `dsx pull` first, or --force")
+			// A prune-delete refusal means the server moved this path ahead of the
+			// ledger. On a --force rerun planPush routes it to Delete, so --force
+			// DELETES the server's newer copy — do not say "pull first" (invariant
+			// 4). Wording mirrors Outcome()/Render for the same prune-conflict.
+			return dsxerr.Conflict(paths, "the server moved ahead of a path dsx was pruning; nothing was deleted — --force would DELETE the server's newer copy")
 		}
 		return err
 	}
