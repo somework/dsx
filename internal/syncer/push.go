@@ -14,8 +14,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Batch limits. The server accepts up to 256 entries per call; the byte cap is
-// ours, to keep a single request from ballooning once base64 inflates it by 4/3.
 const (
 	maxBatchFiles = 128
 	maxBatchBytes = 3 << 20
@@ -41,12 +39,11 @@ type PushReport struct {
 	Written   []string `json:"written"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
-	// Conflicts names EVERY path a human must look at, binary ones included.
+
 	Conflicts []string `json:"conflicts"`
-	// BinaryConflicts is the subset only --force resolves, unrecoverably.
+
 	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
-	// Irregular are paths that are not regular files here, so there were no
-	// bytes to send. Reported, never conflicts -- see PullReport.Irregular.
+
 	Irregular []string `json:"irregular,omitempty"`
 	Bytes     int64    `json:"bytes"`
 }
@@ -67,8 +64,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	// survey filters the listing too, which is what stops --prune from reading
-	// "ignored here" as "deleted here" and removing the file from the server.
+
 	remote, local, err := survey(o.Dir, remote)
 	if err != nil {
 		return rep, err
@@ -108,16 +104,14 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		return rep, nil
 	}
 
-	// Pin the directory before the first write. An error path that saves the
-	// ledger without this leaves project_id empty, and an empty pin is no pin:
-	// the guards above short-circuit on it and the next sync could target a
-	// different project against this project's etags.
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
+	// Save the ledger whenever bytes moved, error paths included: a file on disk
+	// with no ledger entry becomes a conflict next run, pushing the user to --force.
 	for _, batch := range batches(specs) {
 		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
-			_ = st.save(o.Dir) // keep whatever succeeded
+			_ = st.save(o.Dir)
 			return rep, err
 		}
 	}
@@ -138,7 +132,6 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	return rep, nil
 }
 
-// batches splits specs into requests bounded by both count and payload size.
 func batches(specs []writeSpec) [][]writeSpec {
 	var (
 		out   [][]writeSpec
@@ -159,7 +152,6 @@ func batches(specs []writeSpec) [][]writeSpec {
 	return out
 }
 
-// writeResult is what write_files replies with: a path -> etag map, not a list.
 type writeResult struct {
 	Etags   map[string]string `json:"etags"`
 	Written int               `json:"written"`
@@ -167,9 +159,6 @@ type writeResult struct {
 }
 
 func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []writeSpec, st *State, rep *PushReport) error {
-	// writeSpec's json tags carry the wire shape (if_match is omitempty, so an
-	// empty guard is absent rather than ""); the batch marshals itself. paths is
-	// the grant's separate list of what we are authorising a write to.
 	paths := make([]string, 0, len(batch))
 	for _, s := range batch {
 		paths = append(paths, s.Path)
@@ -178,10 +167,6 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 	args := map[string]any{"project_id": projectID, "files": batch}
 	text, err := CallWithGrant(ctx, c, "write_files", args, projectID, paths)
 	if err != nil {
-		// A stale if_match is a conflict, and the server is the only party that
-		// can see this one: it lost the race between our listing and our write.
-		// Reporting it as a generic failure would send exit 1 to a caller
-		// watching for exit 3.
 		if paths, ok := mcp.ConflictFromToolError(err); ok {
 			return dsxerr.Conflict(paths, "the server changed while dsx was writing; nothing was written — `dsx pull` first, or --force")
 		}
@@ -190,8 +175,6 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 
 	var res writeResult
 	if jsonErr := json.Unmarshal([]byte(text), &res); jsonErr != nil || len(res.Etags) == 0 {
-		// The bytes may be up but the ledger is not. Say so rather than
-		// recording an etag we never saw.
 		return fmt.Errorf("write reply was unrecognised, so etags were not recorded; "+
 			"run `dsx pull` to resynchronise. reply: %s", fmtutil.Truncate(text, 300))
 	}
@@ -214,12 +197,6 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 	}
 	slices.Sort(rep.Written)
 
-	// A reply naming only some of the paths is not a smaller success. The
-	// unacknowledged ones may well be on the server, and we have no etag for
-	// them -- so they are absent from the ledger, and the next pull sees bytes
-	// it has no record of and calls its own work a conflict. That pushes the
-	// user toward --force, which is the spiral invariant 5 exists to prevent.
-	// The caller saves the ledger for whatever did land, then reports this.
 	var unacknowledged []string
 	for _, s := range batch {
 		if _, ok := res.Etags[s.Path]; !ok {
@@ -236,8 +213,6 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 	return nil
 }
 
-// deletePaths removes remote files. Deletes always require a path-scoped
-// plan_token; a project-scoped one is refused by the server.
 func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []string, st State) error {
 	token, err := PlanToken(ctx, c, map[string]any{"project_id": projectID, "deletes": paths})
 	if err != nil {
@@ -276,9 +251,6 @@ func (r PushReport) Render(asJSON bool) string {
 	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
 	for _, p := range r.Conflicts {
 		if slices.Contains(r.BinaryConflicts, p) {
-			// Not "server moved ahead": for these it usually has not. And not
-			// "`dsx pull` first": pull cannot fetch what read_file will not
-			// serve, so that advice is an infinite loop.
 			fmt.Fprintf(&sb, "\n  ! %s — dsx cannot read the server's copy, so it cannot merge; "+
 				"--force overwrites it and the only copy is gone", p)
 			continue

@@ -11,10 +11,6 @@ import (
 	"testing"
 )
 
-// cmdImportNames reports the local names under which a file imports
-// internal/cmd. Usually the one name "cmd"; the alias if the file renamed it. It
-// exists so the group-declaration scan matches `alias.Group{}` and not just a
-// hardcoded `cmd.Group{}` -- see the caller for why the hardcode was a blind spot.
 func cmdImportNames(file *ast.File) map[string]bool {
 	const cmdPath = "github.com/somework/dsx/internal/cmd"
 	names := map[string]bool{}
@@ -24,24 +20,16 @@ func cmdImportNames(file *ast.File) map[string]bool {
 			continue
 		}
 		if imp.Name != nil {
-			names[imp.Name.Name] = true // aliased import
+			names[imp.Name.Name] = true
 		} else {
-			names["cmd"] = true // internal/cmd's own package name
+			names["cmd"] = true
 		}
 	}
 	return names
 }
 
-// wantUsage is `dsx help`, written out rather than generated.
-//
-// It is the fixture for the same reason ledger_golden_test.go's is: a golden
-// built from renderUsage would only prove the code equals itself. This text
-// traces to the hand-written const that preceded the registry -- it was diffed
-// against it byte for byte, and the one deliberate change is noted below.
-//
-// This is dsx's most-read output and an agent-facing contract, so a change here
-// is a change to the product, not to a detail. If this test goes red, look at
-// the diff before touching the fixture: output width is a token budget.
+// wantUsage is hand-written: a golden regenerated from renderUsage would only
+// prove the generator equals itself. This is dsx's most-read output.
 const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
 
 SYNC (etag-aware; unchanged files cost no request at all)
@@ -103,17 +91,12 @@ EXIT CODES
 
 Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP URL.`
 
-// The generated text is byte-identical to the const it replaced, save one line:
-// `dsx prompt` had its description at column 41 where every other line in the
-// file sits at 40. The generator cannot reproduce a one-off hand slip, and
-// should not; this records that the difference was seen and wanted.
 func TestUsageIsGeneratedByteForByte(t *testing.T) {
 	t.Parallel()
 	if usage == wantUsage {
 		return
 	}
-	// A whole-string diff of ~70 lines is unreadable. Report the first line that
-	// moved, which is the one the author changed.
+
 	got, want := strings.Split(usage, "\n"), strings.Split(wantUsage, "\n")
 	for i := 0; i < len(got) && i < len(want); i++ {
 		if got[i] != want[i] {
@@ -123,9 +106,6 @@ func TestUsageIsGeneratedByteForByte(t *testing.T) {
 	t.Fatalf("usage has %d lines, want %d", len(got), len(want))
 }
 
-// A command with neither shape dispatches to a nil func and panics; one with
-// both silently ignores Run, because dispatch checks Tool first. Neither is
-// reachable through the type system, so it is asserted here.
 func TestEveryCommandHasExactlyOneShape(t *testing.T) {
 	t.Parallel()
 	for _, g := range groups {
@@ -140,13 +120,6 @@ func TestEveryCommandHasExactlyOneShape(t *testing.T) {
 	}
 }
 
-// Form is what usage prints after "dsx "; Name is what run() dispatches on. A
-// Form that starts with a different word documents one command and runs
-// another, and `dsx help` is the only place a user would find out.
-//
-// This is the half of the old anti-drift pair that survives derivation: usage
-// and commandNames now come from the same slice and cannot disagree about which
-// commands exist, but they can still disagree about what one is called.
 func TestEveryCommandFormStartsWithItsName(t *testing.T) {
 	t.Parallel()
 	for _, g := range groups {
@@ -159,9 +132,6 @@ func TestEveryCommandFormStartsWithItsName(t *testing.T) {
 	}
 }
 
-// An alias is dispatched but never listed, so one that collides with a real
-// command silently shadows it in commandIndex -- and the shadowed command keeps
-// appearing in usage and in every shell.
 func TestNoAliasShadowsACommand(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
@@ -195,27 +165,12 @@ func TestNoGroupIsEmptyOrDuplicated(t *testing.T) {
 	}
 }
 
-// This is the one drift the registry cannot rule out by construction: a group
-// declared in a file but never added to `groups` compiles clean, tests clean,
-// and is simply absent -- no `dsx help` section, and every command in it
-// rejected as unknown. Deriving the three lists from `groups` cannot help,
-// because the omission is upstream of all three.
-//
-// The declared set is parsed rather than restated. A hand-kept list here would
-// be the same list under test: whoever forgot `groups` would forget this too,
-// and it would pass. That mistake has already been made once in this repo --
-// see survey_test.go's comment -- and it passed for exactly that reason.
 func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 	t.Parallel()
 
-	declared := map[string]string{} // how `groups` must name it -> where it lives
+	declared := map[string]string{}
 	registered := map[string]bool{}
 
-	// A group is declared in one of two places, and both have to be swept: as
-	// `var xGroup = cmd.Group{...}` here, or as `var Group = cmd.Group{...}` in
-	// its own package under internal/cmd. A sweep of only one of them would go
-	// quiet for every group in the other -- which is what happened the first time
-	// members moved out, and only the count check below caught it.
 	scan := func(dir, qualifier string) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -231,13 +186,7 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parsing %s: %v", name, err)
 			}
-			// Resolve what internal/cmd is called in THIS file rather than
-			// assuming "cmd". A group file that imports it under an alias --
-			// `import c "…/internal/cmd"` writing `var Group = c.Group{…}` -- and
-			// is then forgotten from `groups` would slip a hardcoded `pkg == "cmd"`
-			// past both this scan and the count check (declared misses it, so both
-			// counts stay equal). The repo already aliases the sync import, so an
-			// aliased cmd in a group file is not hypothetical.
+
 			cmdNames := cmdImportNames(file)
 			for _, d := range file.Decls {
 				gd, ok := d.(*ast.GenDecl)
@@ -253,10 +202,7 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 					if !ok {
 						continue
 					}
-					// The type is cmd.Group -- a SelectorExpr, not an Ident, now
-					// that it comes from a package. Matching Ident silently found
-					// nothing, and the guard below is the only reason that was
-					// noticed rather than shipped.
+
 					if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
 						if pkg, ok := sel.X.(*ast.Ident); ok && cmdNames[pkg.Name] {
 							declared[qualifier+vs.Names[0].Name] = filepath.Join(dir, name)
@@ -265,9 +211,9 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 					if qualifier == "" && vs.Names[0].Name == "groups" {
 						for _, elt := range lit.Elts {
 							switch v := elt.(type) {
-							case *ast.Ident: // a group declared in this package
+							case *ast.Ident:
 								registered[v.Name] = true
-							case *ast.SelectorExpr: // members.Group and friends
+							case *ast.SelectorExpr:
 								if pkg, ok := v.X.(*ast.Ident); ok {
 									registered[pkg.Name+"."+v.Sel.Name] = true
 								}
@@ -290,8 +236,6 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 		}
 	}
 
-	// Guard the guard. An extractor that found nothing would pass forever, which
-	// is the failure mode this whole test exists to avoid repeating.
 	if len(declared) == 0 {
 		t.Fatal("no `= cmd.Group{...}` found anywhere; the parser is broken, not the code")
 	}

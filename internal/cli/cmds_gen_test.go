@@ -18,20 +18,6 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// Tests for cmds.go -- the thin per-tool wrappers.
-//
-// These wrappers exist to spell arguments out, so the thing worth pinning is
-// exactly that: for a given command line, WHICH tool is called and with WHICH
-// arguments. Asserting that output is non-empty would pass against almost any
-// mutation of this file; asserting the recorded call would not.
-//
-// Nothing here is evidence about the server. The fake only repeats what dsx
-// already believes; PROTOCOL.md and the live suite own protocol truth.
-
-// cmdsNormalize round-trips a value through JSON so an expectation written in
-// Go types (int, []string) compares equal to what the fake decoded off the wire
-// (float64, []any). Without it every expectation would have to be spelled in
-// wire types, which reads nothing like the call site under test.
 func cmdsNormalize(t *testing.T, v any) any {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -45,9 +31,6 @@ func cmdsNormalize(t *testing.T, v any) any {
 	return out
 }
 
-// cmdsWantArgs asserts the recorded arguments map equals want exactly -- every
-// key present, and no key beyond them. Exactness is the point: an optional flag
-// that leaks through as "" is a different request from one that was omitted.
 func cmdsWantArgs(t *testing.T, got map[string]any, want map[string]any) {
 	t.Helper()
 	if !reflect.DeepEqual(any(got), cmdsNormalize(t, want)) {
@@ -55,7 +38,6 @@ func cmdsWantArgs(t *testing.T, got map[string]any, want map[string]any) {
 	}
 }
 
-// cmdsToolCalls returns just the tools/call traffic, in order.
 func cmdsToolCalls(f *fakeMCP) []mcptest.Call {
 	var out []mcptest.Call
 	for _, c := range f.Recorded() {
@@ -66,7 +48,6 @@ func cmdsToolCalls(f *fakeMCP) []mcptest.Call {
 	return out
 }
 
-// cmdsOnlyCall asserts exactly one tool was called and returns it.
 func cmdsOnlyCall(t *testing.T, f *fakeMCP) mcptest.Call {
 	t.Helper()
 	calls := cmdsToolCalls(f)
@@ -76,12 +57,10 @@ func cmdsOnlyCall(t *testing.T, f *fakeMCP) mcptest.Call {
 	return calls[0]
 }
 
-// cmdsReplyJSON answers every tool with one fixed JSON document.
 func cmdsReplyJSON(text string) func(string, map[string]any) fakeReply {
 	return func(string, map[string]any) fakeReply { return fakeReply{Text: text} }
 }
 
-// cmdsTempFile writes content to a throwaway file and returns its path.
 func cmdsTempFile(t *testing.T, name, content string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), name)
@@ -91,15 +70,6 @@ func cmdsTempFile(t *testing.T, name, content string) string {
 	return p
 }
 
-// cmdsRun dispatches a command by name, exactly the way run() does, rather than
-// calling its function directly, and captures stdout so the test log stays
-// readable. Callers must not be parallel: captureStdout swaps os.Stdout, which
-// is process-global.
-//
-// A table that named functions could not see a command wired to the wrong one:
-// `Name: "new"` beside `Run: cmdLs` passed, because the table called cmdNew
-// itself and never asked the registry what `dsx new` runs. Naming the command
-// asks the same question the user's shell does.
 func cmdsRun(t *testing.T, f *fakeMCP, name string, argv ...string) (string, error) {
 	t.Helper()
 	entry, ok := commandIndex[name]
@@ -111,17 +81,6 @@ func cmdsRun(t *testing.T, f *fakeMCP, name string, argv ...string) (string, err
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Which tool, with which arguments.
-// ---------------------------------------------------------------------------
-
-// TestCmdsCallTheRightToolWithExactlyTheRightArguments is the regression net
-// for the whole file. Each case pins one command line onto one tool call.
-//
-// The wantArgs are exact, which is what catches the failure mode this file is
-// most exposed to: an optional flag sent as "" rather than omitted. The server
-// is undocumented and an empty if_match is not the same request as no if_match
-// -- "0" already means "assert this path does not exist".
 func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -326,13 +285,6 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 	}
 }
 
-// TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString pins the guard
-// most likely to be quietly broken by a refactor.
-//
-// "" and "0" are not the same request: "0" asserts the path does not exist yet,
-// so a wrapper that forwarded an unset flag as "" would turn every plain put
-// into a create-only put, and every one of them would fail against an existing
-// file.
 func TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString(t *testing.T) {
 	body := "h1 { color: red; }"
 	src := cmdsTempFile(t, "a.css", body)
@@ -340,7 +292,7 @@ func TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString(t *testing.T) {
 	cases := []struct {
 		name        string
 		argv        []string
-		wantIfMatch any // nil means the key must be absent
+		wantIfMatch any
 	}{
 		{"unset", []string{"p1", "a.css", src}, nil},
 		{`"0" asserts the path is new`, []string{"p1", "a.css", src, "--if-match", "0"}, "0"},
@@ -380,12 +332,7 @@ func TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString(t *testing.T) {
 	}
 }
 
-// TestCmdPutBase64sTheFileAndDeclaresTheEncoding pins the wire shape of a write:
-// the bytes must arrive base64 with encoding declared, or the server stores the
-// literal text of whatever we sent.
 func TestCmdPutBase64sTheFileAndDeclaresTheEncoding(t *testing.T) {
-	// Bytes that are not valid UTF-8, to prove nothing on the way is treating
-	// the payload as text.
 	body := "\x00\x01\xff\xfe binary-ish"
 	src := cmdsTempFile(t, "blob.bin", body)
 
@@ -412,8 +359,6 @@ func TestCmdPutBase64sTheFileAndDeclaresTheEncoding(t *testing.T) {
 	}
 }
 
-// TestCmdPutOmitsPlanTokenWhenNotGiven -- a plan_token of "" is not a token,
-// and sending one would ask the server to authorise a write against nothing.
 func TestCmdPutOmitsPlanTokenWhenNotGiven(t *testing.T) {
 	src := cmdsTempFile(t, "a.css", "x")
 
@@ -434,17 +379,6 @@ func TestCmdPutOmitsPlanTokenWhenNotGiven(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// rm: the plan_token dance.
-// ---------------------------------------------------------------------------
-
-// TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting.
-//
-// Deletes are the one operation dsx cannot undo, and the server refuses a
-// project-scoped token for them. Three things have to hold together and each is
-// asserted separately: finalize_plan comes FIRST, it names every path being
-// deleted (not a subset, and with no scope override), and the token it returned
-// is the one delete_files carries.
 func TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch name {
@@ -472,12 +406,11 @@ func TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting(t *testing.
 		t.Fatalf("second call = %q, want delete_files", calls[1].Tool)
 	}
 
-	// Path-scoped: every path named, and no scope key asking for a project token.
 	cmdsWantArgs(t, calls[0].Args, map[string]any{
 		"project_id": "p1",
 		"deletes":    []any{"a.css", "dir/b.css"},
 	})
-	// The token that came back is the token that goes out.
+
 	cmdsWantArgs(t, calls[1].Args, map[string]any{
 		"project_id": "p1",
 		"plan_token": "tok-123",
@@ -485,15 +418,10 @@ func TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting(t *testing.
 	})
 }
 
-// TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken.
-//
-// The guard in syncer.PlanToken is the only thing standing between a malformed plan
-// reply and a delete_files carrying plan_token "". Asserting the error alone
-// would not catch a version that reported the failure *after* calling the tool.
 func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name == "finalize_plan" {
-			return fakeReply{Text: `{"status":"ok"}`} // well-formed JSON, no token
+			return fakeReply{Text: `{"status":"ok"}`}
 		}
 		return fakeReply{Text: `{"deleted":[]}`}
 	})
@@ -510,9 +438,6 @@ func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
 	}
 }
 
-// TestCmdRmWithNoPathsTouchesNoNetwork -- a doomed invocation must not mint a
-// plan token. Exit 2 tells an agent not to retry; a token minted on the way to
-// that answer is a side effect of a command that did nothing.
 func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		t.Errorf("rm with no paths called %q", name)
@@ -528,16 +453,6 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// syncer.PlanToken -- shared by `dsx rm` and push's delete path.
-// ---------------------------------------------------------------------------
-
-// TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport.
-//
-// The classification is the contract, not the message. dsxerr.KindProtocol means the
-// server said something dsx cannot use, and repeating the request will produce
-// the same answer; dsxerr.KindTransport (exit 4) would invite an agent to retry a call
-// that is guaranteed to fail again, and each retry mints plan state server-side.
 func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -569,7 +484,6 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 	}
 }
 
-// TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim.
 func TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(`{"plan_token":"tok-abc","expires_in":900}`))
 
@@ -592,9 +506,6 @@ func TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim(t *testing.T) {
 	})
 }
 
-// TestPlanTokenKeepsATransportFailureRetryable -- the opposite guard to the one
-// above. A 5xx on the way to a token is worth retrying, and flattening every
-// finalize_plan failure to dsxerr.KindProtocol would lose that.
 func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{HTTPStatus: 503, HTTPBody: "upstream unavailable"}
@@ -610,17 +521,6 @@ func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The --json contract.
-// ---------------------------------------------------------------------------
-
-// TestJSONOutputIsExactlyOneJSONDocument.
-//
-// Under --json stdout is promised to be one JSON document for every command. A
-// guarantee with exceptions is not one an agent can use, so both lanes are
-// pinned: a tool answering in JSON passes through untouched (no double
-// wrapping), a tool answering in prose gets wrapped (no raw text handed to a
-// parser).
 func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 	const prose = "Design guidance:\n  use tokens, not hex.\nThat is all."
 	const asJSON = `{"tools":["a"],"count":1}`
@@ -659,8 +559,7 @@ func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 			if m["text"] != prose {
 				t.Errorf("text = %q, want the prose verbatim %q", m["text"], prose)
 			}
-			// One document per line: the prose carried newlines, and a caller
-			// reading stdout line-by-line must still get whole documents.
+
 			if n := strings.Count(strings.TrimSuffix(out, "\n"), "\n"); n != 0 {
 				t.Errorf("stdout spans %d extra lines; wrapped prose must escape its newlines", n)
 			}
@@ -682,11 +581,6 @@ func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 	}
 }
 
-// TestCmdCatJSONPutsTheBodyInAJSONStringInsteadOfDumpingItOnStdout.
-//
-// A caller that asked for JSON is running a parser, and a CSS file is not one.
-// The body here holds a quote and newlines, so a version that printed it raw
-// would fail json.Valid rather than merely look untidy.
 func TestCmdCatJSONPutsTheBodyInAJSONStringInsteadOfDumpingItOnStdout(t *testing.T) {
 	body := "h1 {\n  content: \"a \\\" quote\";\n}\n"
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -720,11 +614,6 @@ func TestCmdCatJSONPutsTheBodyInAJSONStringInsteadOfDumpingItOnStdout(t *testing
 	}
 }
 
-// TestCmdCatWithoutJSONWritesTheBodyVerbatimAndAddsNothing.
-//
-// cat is the one command whose stdout IS the file. Println instead of
-// WriteString here would append a newline that the file never had, and a caller
-// piping cat into a file would land a byte the server does not hold.
 func TestCmdCatWithoutJSONWritesTheBodyVerbatimAndAddsNothing(t *testing.T) {
 	body := "no trailing newline here"
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
@@ -740,7 +629,6 @@ func TestCmdCatWithoutJSONWritesTheBodyVerbatimAndAddsNothing(t *testing.T) {
 	}
 }
 
-// TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout.
 func TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout(t *testing.T) {
 	body := "h1 { color: red; }\n"
 	reply := func(string, map[string]any) fakeReply {
@@ -783,7 +671,7 @@ func TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &m); err != nil {
 			t.Fatal(err)
 		}
-		// The receipt describes the write; it must not duplicate the payload.
+
 		if _, present := m["content"]; present {
 			t.Error("the body was printed as well as written; --out means the caller wants it on disk")
 		}
@@ -804,17 +692,11 @@ func TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout(t *testing.T) {
 	})
 }
 
-// TestCmdCatOutReportsAFailedWriteInsteadOfFallingBackToStdout.
-//
-// If --out cannot be honoured the command failed. Printing the body to stdout
-// as a consolation would look like success to a caller redirecting stdout
-// elsewhere, and quietly put the file somewhere it never asked for.
 func TestCmdCatOutReportsAFailedWriteInsteadOfFallingBackToStdout(t *testing.T) {
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{Text: envelopeFor("a.css", "e1", "h1 { color: red; }")}
 	})
 
-	// A path whose parent directory does not exist.
 	dst := filepath.Join(t.TempDir(), "no-such-dir", "out.css")
 	out, err := cmdsRun(t, f, "cat", "p1", "a.css", "--out", dst)
 	if err == nil {
@@ -825,15 +707,10 @@ func TestCmdCatOutReportsAFailedWriteInsteadOfFallingBackToStdout(t *testing.T) 
 	}
 }
 
-// ---------------------------------------------------------------------------
-// tree.
-// ---------------------------------------------------------------------------
-
-// TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories.
 func TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch args["path"] {
-		case nil: // the project root
+		case nil:
 			return fakeReply{Text: listingFor(
 				fileEntry("z.css", "e-z", 3),
 				dirEntry("src"),
@@ -867,8 +744,6 @@ func TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories(t *testing.T) {
 	}
 }
 
-// TestCmdTreeJSONOnAnEmptyProjectIsAnEmptyArrayNotNull -- a caller running a
-// parser over `[]` iterates zero times; over `null` it has to special-case.
 func TestCmdTreeJSONOnAnEmptyProjectIsAnEmptyArrayNotNull(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(listingFor()))
 
@@ -881,11 +756,6 @@ func TestCmdTreeJSONOnAnEmptyProjectIsAnEmptyArrayNotNull(t *testing.T) {
 	}
 }
 
-// TestCmdTreeWithoutJSONSummarisesEveryFileOnce.
-//
-// The summary line is what a human reads to decide whether the tree is the one
-// they expected, so the count and the byte total have to come from the files
-// actually listed rather than from the last directory walked.
 func TestCmdTreeWithoutJSONSummarisesEveryFileOnce(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch args["path"] {
@@ -907,25 +777,19 @@ func TestCmdTreeWithoutJSONSummarisesEveryFileOnce(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("got %d lines, want one per file plus a summary:\n%s", len(lines), out)
 	}
-	// Sorted, so the nested file comes first.
+
 	if !strings.HasSuffix(lines[0], "src/a.css") || !strings.HasSuffix(lines[1], "z.css") {
 		t.Errorf("rows are not sorted by path:\n%s", out)
 	}
 	if !strings.Contains(lines[0], "e-a") || !strings.Contains(lines[1], "e-z") {
 		t.Errorf("etags are missing from the rows:\n%s", out)
 	}
-	// 1000 + 24 == 1024 == "1.0 KB": the total is summed, not taken from a row.
+
 	if got := lines[2]; got != "2 files, 1.0 KB" {
 		t.Errorf("summary = %q, want %q", got, "2 files, 1.0 KB")
 	}
 }
 
-// TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree.
-//
-// A subdirectory that failed to list is not an empty subdirectory. Printing the
-// files we did get, with exit 0, would hand a caller a tree that silently omits
-// whatever lived under the failure -- and `dsx tree` is what a caller reaches
-// for to decide what exists.
 func TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if args["path"] == nil {
@@ -943,19 +807,6 @@ func TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree(t *testing.T)
 	}
 }
 
-// TestCmdTreeClampsConcurrencyBelowOneToOne now lives in internal/cmd/files,
-// with cmdTree: it drives the wrapper directly, and the wrapper is unexported
-// there. The tree tests above that dispatch by name stay here.
-
-// ---------------------------------------------------------------------------
-// tools.
-// ---------------------------------------------------------------------------
-
-// TestCmdToolsPrintsOneLinePerToolAndTruncatesAtTheFirstLine.
-//
-// The fake advertises a description carrying a newline, which is what the real
-// tools/list does. One tool per line is the contract a caller greps; without
-// firstLine a multi-line description silently becomes several rows.
 func TestCmdToolsPrintsOneLinePerToolAndTruncatesAtTheFirstLine(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(`{}`))
 
@@ -971,13 +822,12 @@ func TestCmdToolsPrintsOneLinePerToolAndTruncatesAtTheFirstLine(t *testing.T) {
 	if !strings.HasPrefix(lines[0], "list_files") {
 		t.Errorf("first line = %q, want it to start with the tool name", lines[0])
 	}
-	// "List files\nin a project" must not spill onto a row of its own.
+
 	if strings.Contains(out, "in a project") {
 		t.Errorf("the tail of a multi-line description reached stdout:\n%s", out)
 	}
 }
 
-// TestCmdToolsJSONEmitsTheServersOwnListAsOneDocument.
 func TestCmdToolsJSONEmitsTheServersOwnListAsOneDocument(t *testing.T) {
 	for _, flag := range []string{"--json", "--schema"} {
 		t.Run(flag, func(t *testing.T) {
@@ -1005,27 +855,13 @@ func TestCmdToolsJSONEmitsTheServersOwnListAsOneDocument(t *testing.T) {
 	}
 }
 
-// cmdTools' dsxerr.KindProtocol branch (a tools/list whose result is not a tool list)
-// is not reachable here: the fake answers tools/list itself, ahead of the reply
-// func, so no test can hand cmdTools a malformed list without a second harness.
-// Left uncovered on purpose rather than grown a competing fake.
-
-// ---------------------------------------------------------------------------
-// conv-put.
-// ---------------------------------------------------------------------------
-
-// TestCmdConvPutSendsSyncedThroughIdxOnlyWhenGiven.
-//
-// Zero is a real value here -- "synced through message 0" -- so the sentinel has
-// to be -1, not 0. A guard written as `if *through != 0` would drop exactly the
-// case that means "nothing has been synced yet but I am telling you so".
 func TestCmdConvPutSendsSyncedThroughIdxOnlyWhenGiven(t *testing.T) {
 	msgs := cmdsTempFile(t, "m.json", `[{"role":"user","content":"hi"}]`)
 
 	cases := []struct {
 		name string
 		argv []string
-		want any // nil means the key must be absent
+		want any
 	}{
 		{"unset", []string{"p1", "--messages", msgs}, nil},
 		{"explicit zero", []string{"p1", "--messages", msgs, "--synced-through-idx", "0"}, float64(0)},
@@ -1050,7 +886,6 @@ func TestCmdConvPutSendsSyncedThroughIdxOnlyWhenGiven(t *testing.T) {
 	}
 }
 
-// TestCmdConvPutForwardsTheMessagesArrayAndTheOptionalMetadata.
 func TestCmdConvPutForwardsTheMessagesArrayAndTheOptionalMetadata(t *testing.T) {
 	msgs := cmdsTempFile(t, "m.json", `[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]`)
 	f := newFakeMCP(t, cmdsReplyJSON(`{"ok":true}`))
@@ -1076,10 +911,6 @@ func TestCmdConvPutForwardsTheMessagesArrayAndTheOptionalMetadata(t *testing.T) 
 	})
 }
 
-// TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer.
-//
-// put_conversation replaces the conversation by default. A file holding an
-// object rather than an array must be caught locally, not sent and refused.
 func TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer(t *testing.T) {
 	for _, content := range []string{`{"role":"user"}`, `not json`, ``} {
 		bad := cmdsTempFile(t, "m.json", content)
@@ -1097,7 +928,6 @@ func TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer(t 
 	}
 }
 
-// TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer.
 func TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		t.Errorf("conv-put called %q though its messages file does not exist", name)
@@ -1113,16 +943,6 @@ func TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer(t *testin
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Usage classification.
-// ---------------------------------------------------------------------------
-
-// TestUsageErrorsClassifyAsUsageAndTouchNoNetwork.
-//
-// Exit 2 is the signal an agent branches on to stop retrying. Both halves
-// matter and both are asserted: the classification (so the process exits 2) and
-// the absence of traffic (so a doomed invocation costs nothing and, for the
-// mutating commands, cannot half-apply).
 func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 	cases := []struct {
 		name string
@@ -1182,10 +1002,6 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 	}
 }
 
-// TestFlagsAreAcceptedAfterPositionalArguments -- Go's flag package stops at the
-// first non-flag token, so `dsx ls p1 --json` would silently ignore --json and
-// hand prose to a parser. parseArgs exists to prevent that; these commands are
-// the ones that would carry the wart.
 func TestFlagsAreAcceptedAfterPositionalArguments(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON("plain prose, not JSON"))
 
@@ -1199,15 +1015,6 @@ func TestFlagsAreAcceptedAfterPositionalArguments(t *testing.T) {
 	cmdsWantArgs(t, cmdsOnlyCall(t, f).Args, map[string]any{"project_id": "p1", "path": "src"})
 }
 
-// ---------------------------------------------------------------------------
-// Error passthrough.
-// ---------------------------------------------------------------------------
-
-// TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess.
-//
-// The wrappers deliberately do not interpret replies, but a tool failure must
-// still stop the command: printing an error body on stdout and exiting 0 is the
-// one outcome a scripted caller cannot detect.
 func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T) {
 	cases := []struct {
 		name string
@@ -1245,8 +1052,6 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 	}
 }
 
-// TestCmdCatSurfacesAMalformedEnvelopeRatherThanPrintingIt -- cat's stdout is
-// the file, so a reply that did not parse must never reach it.
 func TestCmdCatSurfacesAMalformedEnvelopeRatherThanPrintingIt(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON("this is not an envelope at all"))
 
@@ -1258,10 +1063,6 @@ func TestCmdCatSurfacesAMalformedEnvelopeRatherThanPrintingIt(t *testing.T) {
 		t.Errorf("stdout = %q, want nothing", out)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// firstLine.
-// ---------------------------------------------------------------------------
 
 func TestFirstLine(t *testing.T) {
 	cases := []struct {
@@ -1275,8 +1076,7 @@ func TestFirstLine(t *testing.T) {
 		{"stops at the first newline", "first\nsecond\nthird", "first"},
 		{"a trailing newline is not part of the line", "first\n", "first"},
 		{"only a newline", "\n", ""},
-		// The cut is on \n alone, so a CRLF description keeps its CR. Pinned
-		// because a caller aligning columns would see one stray byte of width.
+
 		{"CRLF keeps the carriage return", "first\r\nsecond", "first\r"},
 	}
 

@@ -10,15 +10,10 @@ import (
 	"github.com/somework/dsx/internal/cmd"
 )
 
-// stamped is what -ldflags "-X main.version=v1.2.3" put in package main, handed
-// over by Main. It cannot live here: -X names a symbol by its full path, and
-// main.version is the one goreleaser writes. Empty for `go build` and
-// `go install`, where the build info the toolchain embeds is the truer answer.
 var stamped = ""
 
 func versionString() string { return buildVersion(stamped, debug.ReadBuildInfo) }
 
-// versionInfo is the --json shape. Field names are contract.
 type versionInfo struct {
 	Version  string `json:"version"`
 	Revision string `json:"revision,omitempty"`
@@ -28,12 +23,6 @@ type versionInfo struct {
 	Go       string `json:"go"`
 }
 
-// cmdVersion reports the build.
-//
-// It takes --json like everything else. The guarantee is that under --json
-// stdout is one JSON document, with no carve-out; version used to be dispatched
-// before any FlagSet and printed prose regardless, so the one command a caller
-// runs to find out what it is talking to was the one that broke the contract.
 func cmdVersion(args []string) error {
 	flags := cmd.NewFlagSet("version")
 	asJSON := cmd.JSONFlag(flags)
@@ -90,9 +79,6 @@ func buildVersionInfo(stamped string, readBuildInfo func() (*debug.BuildInfo, bo
 	return v
 }
 
-// buildVersion renders one line naming the build precisely enough to reproduce
-// it from a bug report: what it calls itself, which commit it came from, and
-// whether that commit's tree was clean.
 func buildVersion(stamped string, readBuildInfo func() (*debug.BuildInfo, bool)) string {
 	info, ok := readBuildInfo()
 	if !ok {

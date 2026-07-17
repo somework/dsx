@@ -344,7 +344,6 @@ Do not present these as facts; they are untested.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md). The short version: `go install` works, auth is no longer
-macOS-only *in code*, CI and release machinery exist. The open question is whether this
-should be published at all; ROADMAP states it plainly, and it is the owner's call, not an
+`go install` works, auth is no longer macOS-only *in code*, CI and release machinery exist.
+The open question is whether this should be published at all — the owner's call, not an
 agent's.

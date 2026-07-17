@@ -28,28 +28,16 @@ type PullReport struct {
 	Fetched   []string `json:"fetched"`
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
-	// Conflicts names EVERY path a human must look at, prune conflicts included.
-	// It has always meant that, and narrowing it to "overwrite conflicts only"
-	// made `status --json` report zero for the one case where --force destroys
-	// the only copy.
+
 	Conflicts []string `json:"conflicts"`
-	// PruneConflicts is the subset of Conflicts that --force resolves by
-	// DELETING rather than overwriting. A discriminator, never a replacement.
+
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
-	// Irregular are paths that are not regular files here. Reported, never
-	// conflicts: nothing the caller can type resolves a symlink, so exit 3
-	// would be a demand with no answer.
+
 	Irregular []string `json:"irregular,omitempty"`
 	Binary    []string `json:"binary"`
 	Bytes     int64    `json:"bytes"`
 }
 
-// isBinaryRefusal reports the server's refusal to return a binary file.
-//
-// read_file only serves text. Binary blobs are stored base64 and there is no
-// way to read them back: the server advertises no `resources` capability and
-// read_file takes no encoding parameter. write_files does accept them, so the
-// asymmetry is the service's, not ours -- pull reports them and moves on.
 func isBinaryRefusal(err error) bool {
 	var te *mcp.ToolError
 	if !errors.As(err, &te) {
@@ -74,18 +62,12 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	// survey filters both sides or neither: an ignored path that stayed in the
-	// listing but vanished from the scan is indistinguishable from a local
-	// delete, and --prune acts on that difference.
+
 	remote, local, err := survey(o.Dir, remote)
 	if err != nil {
 		return rep, err
 	}
-	// Before anything is fetched: paths the server keeps apart may be one file
-	// here -- either two listing entries, or a listing entry and a file already
-	// on disk under a folded name. Writing them destroys all but the last, and
-	// each write's size assertion passes on its own, so nothing downstream
-	// notices.
+
 	if err := checkPathCollisions(remote, local, o.Dir); err != nil {
 		return rep, err
 	}
@@ -93,10 +75,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	d := planPull(remote, local, st, o.Force, o.Prune)
 	rep.Unchanged = d.Unchanged
 	rep.Binary = d.Binary
-	// Sorted here, at the union site, not at the end of the function: the tail
-	// sort sits after the dry-run return, and `status` is always a dry run --
-	// so identical state rendered in two different orders depending on the mode,
-	// while every sibling field was sorted.
+
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
 	slices.Sort(rep.Conflicts)
 	rep.PruneConflicts = d.PruneConflicts
@@ -111,7 +90,6 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, nil
 	}
 
-	// Refuse hostile remote paths before any of them reaches the disk.
 	for _, path := range append(append([]string{}, d.Fetch...), d.Delete...) {
 		if err := checkRemotePath(path); err != nil {
 			return rep, err
@@ -121,13 +99,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
-		// Clamped beside the semaphore for the same reason as WalkTree's: zero
-		// deadlocks the fetch, negative panics make, and neither says so.
+
 		sem  = make(chan struct{}, max(o.Concurrency, 1))
 		errs []error
 	)
-	// The caller's context stays separate: the derived one is cancelled by our
-	// own error path too, so only the parent can report an interruption.
+
 	parent := ctx
 	fetchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -148,8 +124,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 				mu.Lock()
 				if isBinaryRefusal(err) {
 					rep.Binary = append(rep.Binary, path)
-					// Remember the refusal against this etag so later syncs
-					// stop re-asking. A new etag re-tries it.
+
 					st = st.withFile(path, FileState{Etag: remote[path].Etag, Binary: true})
 				} else {
 					errs = append(errs, err)
@@ -159,8 +134,8 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 				return
 			}
 
-			// The listing told us the byte size. If the decoded body does not
-			// match it, the decode is wrong -- refuse to write a corrupt file.
+			// A decoded length that disagrees with list_files' size means a
+			// corrupt decode; refuse rather than land a bad file on disk.
 			if want := remote[path].Size; int64(len(body)) != want {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf(
@@ -203,9 +178,6 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 	wg.Wait()
 
-	// Files already written are on disk whether or not the run finished. Save
-	// the ledger for them, or the next sync sees bytes it has no record of and
-	// calls its own work a conflict.
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
@@ -218,12 +190,6 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, fmt.Errorf("pull interrupted: %w", err)
 	}
 
-	// The delete loop must not return before the ledger is saved. Every file
-	// this run fetched is already on disk, and a bare return here throws away
-	// the etag and sha for all of them -- so the next pull sees bytes it has no
-	// record of, calls its own download a conflict, and demands --force for
-	// every one. That is invariant 5's stated harm, and it arrived through this
-	// loop: one unwritable directory was enough.
 	var pruneErr error
 	for _, path := range rep.Deleted {
 		full, err := safeJoin(o.Dir, path)
@@ -238,9 +204,6 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		delete(st.Files, path)
 	}
 
-	// The prune failure is the news; a save error after it is a second-order
-	// symptom, usually of the same unwritable directory. Returning the save
-	// error first hid the prune failure entirely.
 	saveErr := st.save(o.Dir)
 	if pruneErr != nil {
 		return rep, pruneErr
@@ -275,10 +238,7 @@ func (r PullReport) Render(asJSON bool) string {
 		fmt.Fprintf(&sb, ", binary %d", len(r.Binary))
 	}
 	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
-	// One line per path, each carrying the advice its class deserves. --force
-	// overwrites the first kind (the bytes survive on the server) and DELETES
-	// the second (they survive nowhere) -- advertising an overwrite for both is
-	// how a user reaching for --force to fix one file loses another.
+
 	for _, p := range r.Conflicts {
 		if slices.Contains(r.PruneConflicts, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)

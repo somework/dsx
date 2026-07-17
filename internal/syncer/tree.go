@@ -19,8 +19,6 @@ type RemoteEntry struct {
 
 func (e RemoteEntry) isDir() bool { return e.Type == "directory" }
 
-// listDir lists one directory. Pass "" for the project root. The server
-// returns project-relative paths, not basenames.
 func listDir(ctx context.Context, c *mcp.Client, projectID, path string) ([]RemoteEntry, error) {
 	args := map[string]any{"project_id": projectID}
 	if path != "" {
@@ -37,18 +35,7 @@ func listDir(ctx context.Context, c *mcp.Client, projectID, path string) ([]Remo
 	return entries, nil
 }
 
-// WalkTree enumerates every file in the project, descending concurrently.
-//
-// This is the whole basis of a cheap sync: one listing per directory yields
-// every etag up front, so unchanged files are never requested at all.
 func WalkTree(ctx context.Context, c *mcp.Client, projectID string, concurrency int) (map[string]RemoteEntry, error) {
-	// Clamp here, beside the semaphore, not in the callers. A non-positive size
-	// is not a slow walk, it is no walk: at zero the channel is unbuffered and
-	// walk's send blocks on a receiver that only runs after it, so wg.Wait never
-	// returns; below zero make panics outright. Both are silent from the caller's
-	// side, and cmdTree reaches this function without passing through Pull, so
-	// a clamp kept in the callers is a rule two of them must remember rather than
-	// a property this one guarantees.
 	concurrency = max(concurrency, 1)
 
 	var (
@@ -59,8 +46,6 @@ func WalkTree(ctx context.Context, c *mcp.Client, projectID string, concurrency 
 		sem   = make(chan struct{}, concurrency)
 	)
 
-	// Keep the caller's context: the derived one is also cancelled by our own
-	// error path, so it cannot tell "the user interrupted us" from "we gave up".
 	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -104,8 +89,7 @@ func WalkTree(ctx context.Context, c *mcp.Client, projectID string, concurrency 
 	if len(errs) > 0 {
 		return nil, errs[0]
 	}
-	// An interrupted walk returns a short listing. Reporting that as success
-	// would let --prune read "not enumerated" as "deleted on the server".
+
 	if err := parent.Err(); err != nil {
 		return nil, fmt.Errorf("listing interrupted before the tree was complete: %w", err)
 	}

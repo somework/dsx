@@ -9,15 +9,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// Defects the adversarial test pass turned up. Each is written red first, and
-// each names what it would have cost, because that is the part a later reader
-// needs in order to not undo it.
-
 func TestPutIsOfferedByTheShells(t *testing.T) {
-	// `put` was dispatched by run() and documented in usage, but missing from
-	// commandNames, so no shell ever offered it. Two independent checks found
-	// it: an AST walk of run()'s switch, and a word-set extraction per shell.
-	// A substring test would not have: "conv-put" contains "put".
 	found := false
 	for _, n := range commandNames {
 		if n == "put" {
@@ -30,13 +22,8 @@ func TestPutIsOfferedByTheShells(t *testing.T) {
 }
 
 func TestAuthHonoursDSXTokenLikeEveryOtherCommand(t *testing.T) {
-	// usage promises "DSX_TOKEN overrides the stored credential", and every
-	// command honoured it except this one: cmdAuth went straight to the stored
-	// credential. Someone running `dsx auth` to explain a 401 was shown the
-	// metadata of a credential the next request would not use.
 	t.Setenv("DSX_TOKEN", "sk-ant-oat01-OVERRIDE")
-	// Point the credential lookup at a config dir with no login, so a fall
-	// through to the store would fail loudly rather than read the real one.
+
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	out, err := captureStdout(t, func() error { return cmdAuth(nil) })
@@ -72,13 +59,6 @@ func TestAuthJSONStaysParseableWhenTheTokenComesFromTheEnvironment(t *testing.T)
 }
 
 func TestUnknownCommandIsAUsageErrorEvenWithNoLoginAvailable(t *testing.T) {
-	// run() loaded the token before it reached the dispatch switch, so a typo on
-	// a machine with no login was reported as an auth failure: exit 5, "no
-	// Claude Code login found". dsx blamed the user's credentials for their
-	// typo, and exit 5 invites a re-authentication that cannot possibly help.
-	// Assert against commandIndex directly, which is what run() dispatches on:
-	// the property under test is that a typo misses it and every listed name
-	// hits it, before any credential is touched.
 	if _, ok := commandIndex["pulll"]; ok {
 		t.Fatal("`pulll` is not a command")
 	}
@@ -90,10 +70,6 @@ func TestUnknownCommandIsAUsageErrorEvenWithNoLoginAvailable(t *testing.T) {
 }
 
 func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
-	// A body dsx cannot parse was dsxerr.KindProtocol; a *result* dsx cannot parse
-	// degraded to the generic dsxerr.KindFailure. Both are "the server sent a shape we
-	// do not model", and dsxerr.Kind is the stable token an agent matches on, so
-	// the two must not disagree.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":"a bare string, not a tool result"}`}
 	})
@@ -108,14 +84,6 @@ func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
 }
 
 func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
-	// writeBatch only complained when the etag map was entirely empty. A reply
-	// naming a subset left the missing paths out of both the ledger and the
-	// report, with no error.
-	//
-	// That is not merely a miscount. A file on the server with no ledger entry
-	// is untracked, so the next pull sees bytes it has no record of and calls
-	// its own work a conflict — which pushes the user toward --force, the exact
-	// spiral invariant 5 exists to prevent.
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "a")
 	mkfile(t, dir, "b.css", "b")
@@ -125,7 +93,6 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 		case "list_files":
 			return fakeReply{Text: listingFor()}
 		case "write_files":
-			// The server took both and acknowledged one.
 			return fakeReply{Text: `{"etags":{"a.css":"e1"},"written":2,"url":"https://x"}`}
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
@@ -142,7 +109,6 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 		t.Errorf("the error must say what to do next: %v", err)
 	}
 
-	// Whatever WAS acknowledged still has to reach the ledger: invariant 5.
 	st, loadErr := syncer.LoadState(dir)
 	if loadErr != nil {
 		t.Fatal(loadErr)

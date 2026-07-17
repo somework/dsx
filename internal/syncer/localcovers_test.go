@@ -2,26 +2,6 @@ package syncer
 
 import "testing"
 
-// localCovers has exactly one call site -- planPush's prune loop (plan.go:212)
-// -- and until now no test of its own. `go tool cover` reported it at 100%,
-// which was incidental coverage through planPush, not a test: mutation showed
-// the suite catches only half its contract.
-//
-// It answers invariant 4's hardest question: does the scan account for this
-// remote path? A symlinked *directory* is recorded once, at the link, because
-// WalkDir does not descend it -- so nothing underneath was ever looked at, and
-// reading that silence as "the user deleted every file under here" is how one
-// symlink took out a whole server-side subtree.
-//
-// The two directions fail differently, which is why both need pinning:
-//
-//   - too strict (an irregular prefix stops covering) -> prune deletes a subtree
-//     nobody touched. Data loss. The suite already catches this.
-//   - too loose (any prefix covers) -> prune skips paths it should remove. Stale
-//     files, no data loss -- and the suite is blind to it. Measured: mutating
-//     `lf.Irregular` to `lf.Path != ""` leaves all 604 tests green.
-//
-// Phase 2 reshapes this file. An untested edge in it is not one to reshape past.
 func TestLocalCovers(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -67,9 +47,6 @@ func TestLocalCovers(t *testing.T) {
 			why: "the link can be at any depth",
 		},
 		{
-			// The discriminating case, and the one the suite was blind to. A
-			// REGULAR file at a prefix must not vouch for anything beneath it:
-			// the walk did enter that far, so absence below really is absence.
 			name:  "under a REGULAR prefix does not count",
 			local: map[string]localFile{"vendor": {Path: "vendor"}},
 			path:  "vendor/lib/a.css", want: false,

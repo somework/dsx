@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// Remote paths are untrusted input: a hostile listing must not be able to
-// write outside the target directory.
 func TestSafeJoinRefusesEscapes(t *testing.T) {
 	root := t.TempDir()
 

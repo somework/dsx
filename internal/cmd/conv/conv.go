@@ -11,7 +11,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Group is the CONVERSATION section of `dsx help`.
 var Group = cmd.Group{
 	Title: "CONVERSATION",
 	Cmds: []cmd.Command{

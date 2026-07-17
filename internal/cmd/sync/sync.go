@@ -1,11 +1,5 @@
-// Package synccmd holds the pull/push/status commands.
-//
-// The directory is internal/cmd/sync, but the package is synccmd, not sync:
-// pull.go and tree.go over in internal/syncer use the stdlib's sync (Mutex,
-// WaitGroup), and a package named sync sitting next to `import "sync"` compiles
-// while quietly shadowing it — the exact collision that forced the engine to be
-// internal/syncer rather than internal/sync. Naming this leaf `sync` would set
-// the same trap for the first file here that reaches for a Mutex.
+// Package synccmd is named synccmd, not sync: a package named sync beside the
+// stdlib's `import "sync"` compiles while silently shadowing it.
 package synccmd
 
 import (
@@ -20,7 +14,6 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// Group is the SYNC section of `dsx help`.
 var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
 	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
@@ -36,18 +29,12 @@ var Group = cmd.Group{
 	},
 }
 
-// syncMode binds cmdSync's mode, which is the only thing that separates the
-// three. The mode restates the command's own name because Run is handed args
-// and nothing else; a signature carrying the name would be paid for by the
-// twenty-eight commands that do not want it.
 func syncMode(mode string) func(context.Context, *mcp.Client, []string) error {
 	return func(ctx context.Context, c *mcp.Client, args []string) error {
 		return cmdSync(ctx, c, mode, args)
 	}
 }
 
-// boundProject reports the project a directory is already pinned to, or "" if
-// the directory carries no ledger yet.
 func boundProject(dir string) (string, error) {
 	st, err := syncer.LoadState(dir)
 	if err != nil {
@@ -56,11 +43,6 @@ func boundProject(dir string) (string, error) {
 	return st.ProjectID, nil
 }
 
-// resolveSyncTarget works out which project and directory a sync command means.
-//
-// The ledger already records the project id, so retyping a UUID on every sync
-// is pure friction. Two positional arguments keep their old meaning exactly;
-// fewer fall back to the ledger, which is the only place the binding is known.
 func resolveSyncTarget(mode string, pos []string, bound func(string) (string, error)) (project, dir string, err error) {
 	switch len(pos) {
 	case 0:
@@ -142,8 +124,6 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 			"local differs from the server, or was deleted there and edited here")
 	}
 
-	// `status` is the only mode that reports both directions. Neither side
-	// moves bytes, so the two dry runs cannot interfere.
 	pushRep, err := syncer.Push(ctx, c, syncer.PushOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
 		Prune: *prune, Force: *force, DryRun: true,

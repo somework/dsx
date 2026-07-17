@@ -22,51 +22,18 @@ import (
 	"github.com/somework/dsx/internal/mcptest"
 )
 
-// Tests for doctor.go and completion.go -- the two commands a user runs when
-// something is already wrong. Both have the same failure mode: saying something
-// reassuring and untrue. A doctor that reports ok on a broken login, or a
-// completion that silently omits a command, is worse than one that does not
-// exist, because it ends the investigation.
-
-// ---------------------------------------------------------------------------
-// Pinning the credential store
-// ---------------------------------------------------------------------------
-
-// diagPinCredentialStore points every credential lookup at a temp dir, so a
-// doctor run reads what the test wrote rather than the developer's real login.
-//
-// CLAUDE_SECURESTORAGE_CONFIG_DIR dominates both credentialsPath and
-// keychainServiceName. The service name it derives is sha256(dir)[:8], which no
-// keychain holds, so readCredentialsChain falls through the keychain lane
-// (auth.ErrNoCredentials) and lands on the file lane the test controls. The real
-// "Claude Code-credentials" item is never queried.
 func diagPinCredentialStore(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", dir)
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
-	// Assert the pin rather than trust it. If this ever resolved to the default
-	// service name, every doctor test below would be reading the developer's
-	// real login -- passing or failing on credentials no CI machine has.
 	if svc := auth.KeychainServiceName(os.LookupEnv, auth.HomeDir()); svc == "Claude Code-credentials" {
 		t.Fatalf("credential store is not pinned: service resolved to the real item %q", svc)
 	}
 	return dir
 }
 
-// writeCreds plants a Claude Code credentials file and returns its path.
-//
-// The JSON is spelled out here rather than marshalled through auth's own blob
-// type. A test that builds the file with the producer's struct agrees with it by
-// construction: rename a json tag and both sides move together, green, while
-// every file Claude Code actually wrote stops decoding and dsx reports "no login
-// found" to a user who is plainly logged in. That is the ledger's failure mode
-// (invariant 5) in a different file, and the reason ledger_golden_test.go
-// hand-writes its fixture too.
-//
-// The filename is hardcoded for the same reason: `.credentials.json` is the name
-// Claude Code writes, not a name dsx gets to choose.
 func writeCreds(t *testing.T, dir string, c auth.Creds) string {
 	t.Helper()
 	scopes, err := json.Marshal(c.Scopes)
@@ -83,7 +50,6 @@ func writeCreds(t *testing.T, dir string, c auth.Creds) string {
 	return p
 }
 
-// diagHealthyCreds is a login with nothing wrong with it.
 func diagHealthyCreds() auth.Creds {
 	return auth.Creds{
 		AccessToken: "sk-ant-oat01-diag",
@@ -103,9 +69,6 @@ func diagCheckNamed(t *testing.T, rep doctorReport, name string) check {
 	return check{}
 }
 
-// diagHealthyServer answers tools/list the way the endpoint does and fails the
-// test if doctor reaches for anything else: every check it makes must be
-// read-only, or running `dsx doctor` on a sick install could change something.
 func diagHealthyServer(t *testing.T) *fakeMCP {
 	t.Helper()
 	return newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -114,10 +77,6 @@ func diagHealthyServer(t *testing.T) *fakeMCP {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// tokenExpiryCheck
-// ---------------------------------------------------------------------------
-
 func TestExpiredTokenFailsAndNamesTheFix(t *testing.T) {
 	t.Parallel()
 	got := tokenExpiryCheck(time.Now().Add(-90 * time.Minute).UnixMilli())
@@ -125,13 +84,11 @@ func TestExpiredTokenFailsAndNamesTheFix(t *testing.T) {
 	if got.Status != checkFail {
 		t.Errorf("expired token reported %q, want %q — this is the whole reason to run doctor", got.Status, checkFail)
 	}
-	// Errors say what to do next. dsx refuses to refresh the token itself
-	// (auth.go), so the only exit is the user running `claude`.
+
 	if !strings.Contains(got.Detail, "claude") {
 		t.Errorf("detail does not tell the user to run claude: %q", got.Detail)
 	}
-	// The elapsed time must read forwards. `expired -1h30m0s ago` is the shape
-	// of a sign bug, and it makes the one number in the line nonsense.
+
 	if !strings.Contains(got.Detail, "1h30m0s") {
 		t.Errorf("detail does not report how long ago: %q", got.Detail)
 	}
@@ -152,11 +109,6 @@ func TestLiveTokenPassesAndReportsTimeLeft(t *testing.T) {
 	}
 }
 
-// A credential with no expiry is not a healthy credential: it is one dsx cannot
-// judge. Reporting ok would answer "is my login alive?" with a guess, and 0 is
-// also what an unparsed or absent expiresAt looks like. Worse, feeding a
-// non-positive value to time.UnixMilli renders it as 1970 -- doctor would claim
-// the token expired decades ago, which is a lie in the opposite direction.
 func TestATokenWithNoRecordedExpiryWarnsRatherThanBeingJudged(t *testing.T) {
 	t.Parallel()
 	for _, ms := range []int64{0, -1, -1 << 40} {
@@ -171,10 +123,6 @@ func TestATokenWithNoRecordedExpiryWarnsRatherThanBeingJudged(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// scopeCheck
-// ---------------------------------------------------------------------------
-
 func TestScopeCheckPassesWhenTheEnforcedScopeIsPresent(t *testing.T) {
 	t.Parallel()
 	got := scopeCheck([]string{"user:profile", enforcedScope, "user:inference"})
@@ -183,12 +131,6 @@ func TestScopeCheckPassesWhenTheEnforcedScopeIsPresent(t *testing.T) {
 	}
 }
 
-// This test deliberately does NOT assert a failure. enforcedScope was
-// established by probing the endpoint, not from documentation, and the server
-// is free to change its mind. Failing here would make dsx refuse a login the
-// server would have accepted -- dsx guessing on the server's behalf about a
-// scope list it does not recognise. A warn says what dsx noticed without
-// overriding the only authority on the question.
 func TestAnAbsentScopeWarnsAndNeverBlocksTheRun(t *testing.T) {
 	t.Parallel()
 	got := scopeCheck([]string{"user:inference", "user:profile"})
@@ -199,8 +141,7 @@ func TestAnAbsentScopeWarnsAndNeverBlocksTheRun(t *testing.T) {
 	if got.Status != checkWarn {
 		t.Fatalf("scopes reported %q, want %q", got.Status, checkWarn)
 	}
-	// The detail has to carry both halves: what dsx wanted and what it found.
-	// Without the second, a user whose scopes changed cannot see what changed.
+
 	if !strings.Contains(got.Detail, enforcedScope) {
 		t.Errorf("detail does not name the scope dsx wanted: %q", got.Detail)
 	}
@@ -217,20 +158,6 @@ func TestNoScopesAtAllStillOnlyWarns(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// clockCheck
-// ---------------------------------------------------------------------------
-
-// Skew is judged by magnitude, in both directions.
-//
-// This check exists because dsx compares the token's expiresAt against the
-// LOCAL clock, so a machine far enough off calls a live token dead -- a failure
-// indistinguishable from a real expiry, which sends the user to re-run `claude`
-// forever. A local clock running behind the server's produces a negative skew,
-// and comparing that signed value against the positive thresholds would report
-// ok for every one of them: half of the failures the check exists to find would
-// be invisible, and they are the half that matters (a slow clock is the one
-// that calls a live token expired).
 func TestClockSkewIsJudgedByMagnitudeInBothDirections(t *testing.T) {
 	t.Parallel()
 	server := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
@@ -267,11 +194,6 @@ func TestClockSkewIsJudgedByMagnitudeInBothDirections(t *testing.T) {
 	}
 }
 
-// 0 is mcp.go's sentinel for "no reply carried a Date header". Treating it as a
-// timestamp would compare the local clock against 1970 and report a 56-year
-// skew as a hard failure; treating it as ok would compare the local clock
-// against itself and pass on precisely the skewed machine this check exists to
-// find. Neither is an answer dsx has, so it says so.
 func TestNoServerDateWarnsRatherThanInventingAVerdict(t *testing.T) {
 	t.Parallel()
 	got := clockCheck(0, time.Now())
@@ -287,20 +209,12 @@ func TestAFailingClockSaysWhyItMatters(t *testing.T) {
 	t.Parallel()
 	server := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	got := clockCheck(server.UnixNano(), server.Add(-time.Hour))
-	// The user's visible symptom is an auth failure, not a wrong clock. Naming
-	// the connection is what stops them re-running `claude` forever.
+
 	if !strings.Contains(got.Detail, "expiry") {
 		t.Errorf("detail does not connect skew to the failure it causes: %q", got.Detail)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// roundDur
-// ---------------------------------------------------------------------------
-
-// "expires in 45s" and "expired 3s ago" are the two most decision-relevant
-// readings doctor produces. Rounding those to the minute renders them "0s",
-// which reads as a bug rather than as an expiry about to happen.
 func TestRoundDurKeepsSecondsVisibleBelowAMinute(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -320,10 +234,6 @@ func TestRoundDurKeepsSecondsVisibleBelowAMinute(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// credentialsModeCheck
-// ---------------------------------------------------------------------------
-
 func TestCredentialsFileModeIsJudgedByWhoElseCanRead(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows does not carry unix permission bits")
@@ -334,8 +244,7 @@ func TestCredentialsFileModeIsJudgedByWhoElseCanRead(t *testing.T) {
 		want checkStatus
 	}{
 		{0o600, checkOK},
-		// Stricter than Claude Code writes is not a problem: the check is about
-		// who else can read a bearer token, not about matching a mode exactly.
+
 		{0o400, checkOK},
 		{0o644, checkWarn},
 		{0o640, checkWarn},
@@ -355,7 +264,6 @@ func TestCredentialsFileModeIsJudgedByWhoElseCanRead(t *testing.T) {
 				t.Fatalf("mode %04o reported %q (%s), want %q", tc.mode.Perm(), got.Status, got.Detail, tc.want)
 			}
 			if tc.want == checkWarn {
-				// The user has to be able to act on it: which file, which mode.
 				if !strings.Contains(got.Detail, "0644") && tc.mode == 0o644 {
 					t.Errorf("detail does not name the offending mode: %q", got.Detail)
 				}
@@ -367,9 +275,6 @@ func TestCredentialsFileModeIsJudgedByWhoElseCanRead(t *testing.T) {
 	}
 }
 
-// A keychain-backed install has no plaintext file at all. That is the healthy
-// shape, not something to warn about, or every macOS user would see a warning
-// for doing the right thing.
 func TestAnAbsentCredentialsFileIsNotAComplaint(t *testing.T) {
 	t.Parallel()
 	got := credentialsModeCheck(filepath.Join(t.TempDir(), "nothing-here.json"))
@@ -378,9 +283,6 @@ func TestAnAbsentCredentialsFileIsNotAComplaint(t *testing.T) {
 	}
 }
 
-// A stat that fails for any other reason must not collapse into the "no file
-// here" answer above: an unreadable credentials file is a real problem, and
-// reporting it as ok hides it behind a reassuring line.
 func TestAnUnstatableCredentialsPathWarnsRatherThanReadingAsAbsent(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("windows does not enforce directory search bits this way")
@@ -398,7 +300,7 @@ func TestAnUnstatableCredentialsPathWarnsRatherThanReadingAsAbsent(t *testing.T)
 	if err := os.Chmod(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	// Restore before TempDir's cleanup tries to walk it.
+
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
 
 	got := credentialsModeCheck(p)
@@ -408,14 +310,6 @@ func TestAnUnstatableCredentialsPathWarnsRatherThanReadingAsAbsent(t *testing.T)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// describeSource
-// ---------------------------------------------------------------------------
-
-// Naming the store is the single most useful thing doctor can say to someone
-// whose login it cannot see -- and for the keychain, "keychain" alone is not
-// naming it. A machine with CLAUDE_CONFIG_DIR set holds several logins under
-// several service names, and which item dsx read is the whole question.
 func TestDescribeSourceNamesTheKeychainItemNotJustTheKeychain(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	want := auth.KeychainServiceName(os.LookupEnv, auth.HomeDir())
@@ -436,13 +330,6 @@ func TestDescribeSourceNamesTheKeychainItemNotJustTheKeychain(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// runDoctor
-// ---------------------------------------------------------------------------
-
-// A warn is not a failure. Exiting non-zero on a run whose worst finding is
-// "your credentials file is 0644" trains people to ignore doctor's exit code,
-// which is the only part of it a script reads.
 func TestAWarnAloneKeepsTheReportOK(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	p := writeCreds(t, dir, diagHealthyCreds())
@@ -452,8 +339,6 @@ func TestAWarnAloneKeepsTheReportOK(t *testing.T) {
 
 	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
-	// Guard against a vacuous pass: if the mode check ever stops firing, this
-	// test would still be green while asserting nothing.
 	var warns int
 	for _, c := range rep.Checks {
 		if c.Status == checkWarn {
@@ -472,7 +357,7 @@ func TestReportIsNotOKExactlyWhenSomeCheckFails(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, auth.Creds{
 		AccessToken: "sk-ant-oat01-diag",
-		ExpiresAt:   time.Now().Add(-time.Hour).UnixMilli(), // the only fault
+		ExpiresAt:   time.Now().Add(-time.Hour).UnixMilli(),
 		Scopes:      []string{enforcedScope},
 	})
 
@@ -486,8 +371,6 @@ func TestReportIsNotOKExactlyWhenSomeCheckFails(t *testing.T) {
 	}
 }
 
-// The endpoint check must report the reply it actually parsed. "ok" with no
-// evidence behind it is the failure mode of every health check.
 func TestAHealthyRunReportsTheEndpointItReachedAndWhatItSaw(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, diagHealthyCreds())
@@ -505,11 +388,11 @@ func TestAHealthyRunReportsTheEndpointItReachedAndWhatItSaw(t *testing.T) {
 	if !strings.Contains(ep.Detail, c.Endpoint()) {
 		t.Errorf("endpoint detail does not name the URL it used: %q", ep.Detail)
 	}
-	// The fake's tools/list answers with exactly two tools.
+
 	if !strings.Contains(ep.Detail, "2 tools") {
 		t.Errorf("endpoint detail does not report what the reply held: %q", ep.Detail)
 	}
-	// A reply proves the clock too: httptest sends a Date header.
+
 	if got := diagCheckNamed(t, rep, "clock").Status; got != checkOK {
 		t.Errorf("clock check = %q, want %q against a server one second away", got, checkOK)
 	}
@@ -525,7 +408,6 @@ func TestARejectedTokenFailsTheEndpointCheck(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, diagHealthyCreds())
 
-	// 401 is not retryable, so this returns without walking the backoff.
 	c := diagRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
@@ -539,8 +421,7 @@ func TestARejectedTokenFailsTheEndpointCheck(t *testing.T) {
 	if rep.OK {
 		t.Error("an unreachable endpoint reported OK")
 	}
-	// Without a reply there is no Date header, so claiming anything about the
-	// clock would be inventing it. The check must be absent, not green.
+
 	for _, c := range rep.Checks {
 		if c.Name == "clock" {
 			t.Errorf("a clock verdict was reported without a reply to judge it by: %+v", c)
@@ -548,10 +429,8 @@ func TestARejectedTokenFailsTheEndpointCheck(t *testing.T) {
 	}
 }
 
-// "not signed in" is the report a user acts on. It must survive a store that
-// holds nothing, and it must not be reported as OK.
 func TestNoLoginAnywhereFailsTheCredentialsCheck(t *testing.T) {
-	diagPinCredentialStore(t) // pinned at an empty dir: no keychain item, no file
+	diagPinCredentialStore(t)
 
 	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
@@ -561,9 +440,7 @@ func TestNoLoginAnywhereFailsTheCredentialsCheck(t *testing.T) {
 	if rep.OK {
 		t.Error("a run that found no login reported OK")
 	}
-	// Nothing was read, so there is nothing to say about expiry or scopes.
-	// Reporting on a credential dsx never got would be reporting on the zero
-	// value: "expired 56 years ago", from a struct nobody filled in.
+
 	for _, c := range rep.Checks {
 		if c.Name == "token" || c.Name == "scopes" {
 			t.Errorf("%q was judged despite no credential being read: %+v", c.Name, c)
@@ -571,13 +448,6 @@ func TestNoLoginAnywhereFailsTheCredentialsCheck(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// The token must not appear in doctor's output
-// ---------------------------------------------------------------------------
-
-// dsx reads the credential and never prints it. doctor is the command that
-// handles the most credential state, and the one most likely to be run with a
-// terminal being recorded or pasted into an issue.
 func TestDoctorNeverRendersTheToken(t *testing.T) {
 	const secret = "sk-ant-oat01-DOCTOR-MUST-NEVER-PRINT-THIS"
 
@@ -587,10 +457,6 @@ func TestDoctorNeverRendersTheToken(t *testing.T) {
 	writeCreds(t, dir, creds)
 	t.Setenv("DSX_TOKEN", secret+"-from-env")
 
-	// The bearer dsx would actually send. New takes the token as its first
-	// argument, so this needs no way in past the boundary: Client.token stays
-	// unexported, and there is no setter for it anywhere -- which is invariant 8
-	// stated as an absence rather than as a rule.
 	c := mcp.New(secret, mcp.WithEndpoint(diagHealthyServer(t).URL()))
 
 	for _, asJSON := range []bool{false, true} {
@@ -610,10 +476,6 @@ func TestDoctorNeverRendersTheToken(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// doctorReport.render
-// ---------------------------------------------------------------------------
 
 func diagSampleReport() doctorReport {
 	return doctorReport{
@@ -644,8 +506,7 @@ func TestDoctorJSONIsOneLineAndRoundTrips(t *testing.T) {
 	if !reflect.DeepEqual(back, rep) {
 		t.Errorf("round trip lost data:\n got %+v\nwant %+v", back, rep)
 	}
-	// The verdict is what a script branches on; it must survive as a bool
-	// rather than being inferred from the prose.
+
 	if back.OK {
 		t.Error("ok=false did not survive the round trip")
 	}
@@ -683,10 +544,6 @@ func TestAnEmptyReportRendersWithoutPanicking(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// cmdDoctor
-// ---------------------------------------------------------------------------
-
 func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, diagHealthyCreds())
@@ -710,17 +567,13 @@ func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitFailure {
 		t.Errorf("doctor exit = %d, want %d", got, dsxerr.ExitFailure)
 	}
-	// The report is the point of the command; it must be printed even when the
-	// command then reports failure, or the user learns only that "something" is
-	// wrong.
+
 	if !strings.Contains(out, "endpoint") {
 		t.Errorf("the failing report was not printed:\n%s", out)
 	}
 }
 
 func TestCmdDoctorRejectsAnUnknownFlagAsUsage(t *testing.T) {
-	// A bad invocation must not reach the network, and must not be reported as
-	// a diagnosis.
 	err := cmdDoctor(context.Background(), fakeClient(diagHealthyServer(t)), []string{"--nope"})
 	if err == nil {
 		t.Fatal("an unknown flag was accepted")
@@ -730,19 +583,12 @@ func TestCmdDoctorRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// completion.go
-// ---------------------------------------------------------------------------
-
 var (
 	diagBashList = regexp.MustCompile(`compgen -W "([^"]*)"`)
 	diagZshList  = regexp.MustCompile(`cmds=\(([^)]*)\)`)
 	diagFishItem = regexp.MustCompile(`(?m)^complete -c dsx -n __fish_use_subcommand -a (\S+)$`)
 )
 
-// diagCompletedCommands extracts the command words a shell would actually offer.
-// A plain substring search would not do: "conv" is a substring of "conv-put",
-// so a script that had lost "conv" entirely would still look present.
 func diagCompletedCommands(t *testing.T, shell, script string) []string {
 	t.Helper()
 	switch shell {
@@ -774,9 +620,6 @@ func diagCompletedCommands(t *testing.T, shell, script string) []string {
 
 var diagShells = []string{"bash", "zsh", "fish"}
 
-// A command that exists but is not in the completion is invisible to a user
-// pressing Tab, and there is no error to lead them anywhere: the command simply
-// looks like it does not exist.
 func TestEveryCommandNameIsOfferedByEveryShell(t *testing.T) {
 	t.Parallel()
 	want := append([]string(nil), commandNames...)
@@ -805,8 +648,6 @@ func TestEveryCommandNameIsOfferedByEveryShell(t *testing.T) {
 	}
 }
 
-// Every shell needs its registration line, or the script sources cleanly and
-// completes nothing -- a silent no-op is the worst outcome for this command.
 func TestEachScriptRegistersItselfWithItsShell(t *testing.T) {
 	t.Parallel()
 	cases := map[string][]string{
@@ -827,13 +668,10 @@ func TestEachScriptRegistersItselfWithItsShell(t *testing.T) {
 	}
 }
 
-// The list is sorted by completionScript rather than assumed sorted at its
-// source, so Tab output stays alphabetical however commandNames is maintained.
 func TestTheOfferedListIsSortedEvenWhenTheSourceListIsNot(t *testing.T) {
 	saved := append([]string(nil), commandNames...)
 	t.Cleanup(func() { commandNames = saved })
-	// Nothing else in the package reads commandNames, and this test is
-	// sequential, so no reader can observe the reversal.
+
 	shuffled := append([]string(nil), commandNames...)
 	for i, j := 0, len(shuffled)-1; i < j; i, j = i+1, j-1 {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
@@ -849,7 +687,7 @@ func TestTheOfferedListIsSortedEvenWhenTheSourceListIsNot(t *testing.T) {
 		if !sort.StringsAreSorted(got) {
 			t.Errorf("%s offers an unsorted list: %v", shell, got)
 		}
-		// And the same input must produce the same script every time.
+
 		again, err := completionScript(shell)
 		if err != nil {
 			t.Fatal(err)
@@ -860,10 +698,6 @@ func TestTheOfferedListIsSortedEvenWhenTheSourceListIsNot(t *testing.T) {
 	}
 }
 
-// The three names in the usage string are the contract; a fourth shell must not
-// silently produce a bash script, and must not produce an empty one either --
-// `eval "$(dsx completion tcsh)"` evaluating nothing at all is how a user ends
-// up debugging their shell instead of their typo.
 func TestAnUnknownShellIsAUsageErrorAndNoScript(t *testing.T) {
 	t.Parallel()
 	script, err := completionScript("powershell")
@@ -906,16 +740,13 @@ func TestCmdCompletionPrintsTheScriptItselfSoItCanBeEvalled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cmdCompletion(zsh): %v", err)
 	}
-	// Byte-for-byte: the output is eval'd, so anything added around it is
-	// executed by the user's shell.
+
 	if out != want {
 		t.Errorf("printed script differs from completionScript(zsh)\n got %q\nwant %q", out, want)
 	}
 }
 
 func TestCmdCompletionRejectsAnUnknownShellWithoutPrinting(t *testing.T) {
-	// Printing a partial or bash-shaped script before returning the error would
-	// leave the shell evaluating it anyway.
 	out, err := captureStdout(t, func() error { return cmdCompletion([]string{"tcsh"}) })
 	if err == nil {
 		t.Fatal("an unknown shell was accepted")
@@ -925,18 +756,10 @@ func TestCmdCompletionRejectsAnUnknownShellWithoutPrinting(t *testing.T) {
 	}
 }
 
-// Moved out of the transport's own suite: it asserts what clockCheck makes of a
-// reply that carried no Date header, and clockCheck is doctor's. The transport's
-// half -- that lastServerDate stays zero -- is reachable through the exported
-// LastServerDate, so nothing here needs mcp's internals.
-
-// Zero is the sentinel doctor turns into "skew unknown". Storing time.Now() as
-// a stand-in would make the clock check compare the local clock against itself
-// and report ok on precisely the skewed machine the check exists to find.
 func TestReplyWithoutADateLeavesLastServerDateZero(t *testing.T) {
 	t.Parallel()
 	c := diagRawServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header()["Date"] = nil // suppress net/http's automatic Date
+		w.Header()["Date"] = nil
 		mcptest.WriteJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
 	})
 
@@ -946,15 +769,12 @@ func TestReplyWithoutADateLeavesLastServerDateZero(t *testing.T) {
 	if got := c.LastServerDate(); got != 0 {
 		t.Fatalf("LastServerDate = %d, want 0 for a reply carrying no Date", got)
 	}
-	// The sentinel only matters through what doctor does with it.
+
 	if ch := clockCheck(c.LastServerDate(), time.Now()); ch.Status != checkWarn {
 		t.Errorf("clock check = %+v, want a warn rather than an invented verdict", ch)
 	}
 }
 
-// diagRawServer wires a client to a bare HTTP handler, for the checks that care
-// about headers rather than about JSON-RPC. WithEndpoint is the only way in from
-// outside the transport's package -- Client.endpoint stays unexported.
 func diagRawServer(t *testing.T, h http.HandlerFunc) *mcp.Client {
 	t.Helper()
 	srv := httptest.NewServer(h)

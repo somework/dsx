@@ -20,8 +20,7 @@ func TestDecodeEntities(t *testing.T) {
 		{"mixed", "&lt;a href=&quot;x&quot;&gt;", `<a href=&quot;x&quot;>`},
 		{"unknown entity survives", "&nbsp;&copy;", "&nbsp;&copy;"},
 		{"bare ampersand", "a & b", "a & b"},
-		// A file that literally contains "&lt;" is escaped to "&amp;lt;".
-		// Decoding must yield "&lt;" back, not "<".
+
 		{"escaped entity round-trips", "&amp;lt;", "&lt;"},
 		{"escaped amp round-trips", "&amp;amp;", "&amp;"},
 		{"double escaped", "&amp;amp;lt;", "&amp;lt;"},
@@ -37,10 +36,6 @@ func TestDecodeEntities(t *testing.T) {
 	}
 }
 
-// wrap builds an envelope exactly as the server frames one: a newline after
-// the open tag and another before the close tag, neither belonging to the
-// file. A body that itself ends in a newline therefore shows a blank line
-// before the close tag.
 func wrap(attrs, body string) string {
 	return "<untrusted-project-content " + attrs + ">\n" + body + "\n</untrusted-project-content>"
 }
@@ -86,9 +81,6 @@ func TestParseEnvelope(t *testing.T) {
 	})
 
 	t.Run("windowed read is incomplete", func(t *testing.T) {
-		// A window stopping short of total_lines carries the server's
-		// truncation notice inside its body; see the live framing recorded in
-		// liveWindowNotice.
 		raw := `<untrusted-project-content path="a.txt" etag="9" lines="5-6" total_lines="12">` +
 			"\nfive\nsix\n" + liveWindowNotice + "\n</untrusted-project-content>"
 
@@ -129,8 +121,6 @@ tail
 	})
 
 	t.Run("body containing the close tag literal", func(t *testing.T) {
-		// The server escapes '<', so a literal close tag inside the file
-		// cannot terminate the envelope early.
 		e, err := ParseEnvelope(wrap(`path="a.txt" etag="1"`, "&lt;/untrusted-project-content&gt; is just text"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -177,16 +167,9 @@ func TestParseAttrs(t *testing.T) {
 	}
 }
 
-// The framing below is copied verbatim from a live windowed read of a 316,540
-// byte file in project bbbbbbbb (2026-07-17). It is not invented: dsx spliced
-// this exact notice into a reassembled file before these tests existed.
 const liveWindowNotice = "\n…[+54400 bytes truncated at read_file's 256 KiB cap — the body ends at a complete line; continue with offset=3856]"
 
 func TestParseEnvelopeStripsTheServersTruncationNoticeFromAWindowedBody(t *testing.T) {
-	// The server appends this notice INSIDE the body of every non-final window.
-	// It is the server talking, not the file. readFull concatenates window
-	// bodies, so a notice left in place lands in the middle of the user's file
-	// — and nothing downstream can tell it from content.
 	raw := `<untrusted-project-content path="big.txt" etag="17842" lines="1-3855" total_lines="4655">` +
 		"\nline 000000\nline 000001\n" + liveWindowNotice +
 		"\n</untrusted-project-content>\n(The body above is HTML-entity-escaped: &amp; &lt; &gt; stand for & < >.)"
@@ -210,8 +193,6 @@ func TestParseEnvelopeStripsTheServersTruncationNoticeFromAWindowedBody(t *testi
 }
 
 func TestParseEnvelopeKeepsTheFinalWindowsBodyIntact(t *testing.T) {
-	// Measured: the last window carries no notice, and its body ends at a
-	// complete line. Stripping something here would eat a real byte.
 	raw := `<untrusted-project-content path="big.txt" etag="17842" lines="3856-4655" total_lines="4655">` +
 		"\nline 004654\n" +
 		"\n</untrusted-project-content>"
@@ -229,9 +210,6 @@ func TestParseEnvelopeKeepsTheFinalWindowsBodyIntact(t *testing.T) {
 }
 
 func TestParseEnvelopeRefusesAWindowWhoseNoticeItCannotFind(t *testing.T) {
-	// If the server rewords the notice, dsx must fail loudly rather than splice
-	// unknown server prose into a file. Invariant 1's logic: a decode we cannot
-	// account for is refused, not written.
 	raw := `<untrusted-project-content path="big.txt" etag="1" lines="1-2" total_lines="9">` +
 		"\nline a\nline b\n" +
 		"\n…{+400 bytes elided, ask again}" +
@@ -247,8 +225,6 @@ func TestParseEnvelopeRefusesAWindowWhoseNoticeItCannotFind(t *testing.T) {
 }
 
 func TestParseEnvelopeLeavesATruncatedLineReplyToItsOwnErrorPath(t *testing.T) {
-	// A single line over the cap is refused by readFull with a specific message.
-	// The notice check must not pre-empt it with a confusing framing error.
 	raw := `<untrusted-project-content path="min.js" etag="1" lines="1-1" total_lines="3" truncated_line="true">` +
 		"\nsome enormous line" +
 		"\n</untrusted-project-content>"
@@ -263,7 +239,6 @@ func TestParseEnvelopeLeavesATruncatedLineReplyToItsOwnErrorPath(t *testing.T) {
 }
 
 func TestReadFullDoesNotSpliceTheNoticeBetweenWindows(t *testing.T) {
-	// The end-to-end shape of the bug, at the level that produced it.
 	window1 := `<untrusted-project-content path="big.txt" etag="7" lines="1-2" total_lines="4">` +
 		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
 	window2 := `<untrusted-project-content path="big.txt" etag="7" lines="3-4" total_lines="4">` +
@@ -288,9 +263,6 @@ func TestReadFullDoesNotSpliceTheNoticeBetweenWindows(t *testing.T) {
 	}
 }
 
-// Malformed framing. Each of these is the server sending something dsx does not
-// model; every one must refuse rather than guess, because a guess here becomes
-// bytes on disk.
 func TestParseEnvelopeRefusesMalformedFraming(t *testing.T) {
 	cases := []struct {
 		name string
@@ -345,10 +317,6 @@ func TestParseEnvelopeRefusesMalformedFraming(t *testing.T) {
 }
 
 func TestParseAttrsStopsAtTheFirstThingItCannotRead(t *testing.T) {
-	// Attribute values are server-generated and never contain quotes, so the
-	// parser is deliberately simple. What matters is that it degrades by
-	// stopping, never by inventing a value: a wrong etag would be recorded in
-	// the ledger as agreed-with-the-server.
 	cases := []struct {
 		name string
 		in   string

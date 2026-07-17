@@ -10,24 +10,7 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// Defects found by the adversarial review, each reproduced by three independent
-// skeptics who were paid to refute it and could not. Written red first.
-//
-// Each test says what the defect would have cost, because that is the part a
-// later reader needs in order not to undo the fix.
-
-// ---------------------------------------------------------------------------
-// data loss
-// ---------------------------------------------------------------------------
-
 func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
-	// Found independently by three axes. The prune loop returned bare, skipping
-	// the st.save nine lines below, so a single failed os.Remove discarded the
-	// etag and sha of every file the run had just written.
-	//
-	// The next pull then sees bytes it has no record of, calls its own download
-	// a conflict, and tells the user "--force to overwrite" — for every file.
-	// That is invariant 5's stated harm, exactly.
 	if runtime.GOOS == "windows" {
 		t.Skip("permission semantics differ")
 	}
@@ -36,8 +19,6 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	// A tracked file inside a directory we will make unwritable, so its removal
-	// fails; and a fresh file the pull will fetch.
 	mkfile(t, dir, "locked/old.css", "old")
 	syncSeedState(t, dir, State{
 		ProjectID: "p1",
@@ -83,15 +64,6 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 }
 
 func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
-	// A path tracked as binary has no SHA (read_file will not serve those bytes,
-	// so dsx never held them). planPush computed localChanged from that empty
-	// SHA — always true — and then matched no if_match case at all, because the
-	// entry is both tracked-as-binary and on the server. The write went out with
-	// no guard and no conflict.
-	//
-	// The server's copy is the only copy: dsx cannot pull it back, the API has no
-	// `resources` lane, and there is no encoding parameter. Overwriting it is
-	// unrecoverable, which is the worst outcome in this codebase.
 	remote := map[string]RemoteEntry{
 		"assets/hero.png": {Path: "assets/hero.png", Etag: "e1", Size: 2 << 20},
 	}
@@ -99,7 +71,7 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 		"assets/hero.png": {Path: "assets/hero.png", Size: 12, SHA: SHA256Hex([]byte("placeholder!"))},
 	}
 	st := State{Files: map[string]FileState{
-		"assets/hero.png": {Etag: "e1", Binary: true}, // no SHA: we never held it
+		"assets/hero.png": {Etag: "e1", Binary: true},
 	}}
 
 	d := planPush(remote, local, st, false, false)
@@ -108,14 +80,12 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 			t.Fatal("push would overwrite an unreadable server file with no if_match and no conflict")
 		}
 	}
-	// Its own class since round three: the ordinary "server moved ahead; `dsx
-	// pull` first" advice is false here and `dsx pull` cannot resolve it.
+
 	if len(d.BinaryConflicts) != 1 || d.BinaryConflicts[0] != "assets/hero.png" {
 		t.Fatalf("binaryConflicts = %v, want the binary path: dsx never held those bytes, so it "+
 			"cannot tell a replacement from an accident", d.BinaryConflicts)
 	}
 
-	// --force still means force: the user said so explicitly.
 	forced := planPush(remote, local, st, true, false)
 	if len(forced.Write) != 1 {
 		t.Errorf("--force must still write: %+v", forced)
@@ -126,14 +96,6 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 }
 
 func TestPushDoesNotPruneAPathThatStoppedBeingARegularFile(t *testing.T) {
-	// scanLocal silently drops anything that is not a regular file — the right
-	// call for a symlink, since dsx must not upload whatever it points at. But
-	// the path stayed in the server listing, so planPush's prune read "absent
-	// from the scan" as "the user deleted it" and deleted it from the server,
-	// with a matching if_match so the server complied.
-	//
-	// Invariant 4: --prune deletes only what we can prove was ours and
-	// unmodified. A symlink is not proof of a deletion; it is proof of nothing.
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ")
 	}
@@ -175,9 +137,7 @@ func TestPushDoesNotPruneAPathThatStoppedBeingARegularFile(t *testing.T) {
 			t.Fatal("a symlink's target was uploaded")
 		}
 	}
-	// Reported in its own class, not as a conflict: round two established that
-	// calling a symlink a conflict means exit 3 forever under advice no user can
-	// act on. See TestIrregularPathsDoNotBlockASyncForever.
+
 	if len(d.Irregular) != 1 || d.Irregular[0] != "logo.svg" {
 		t.Errorf("irregular = %v, want logo.svg reported rather than silently skipped", d.Irregular)
 	}
@@ -219,14 +179,6 @@ func TestPullDoesNotClobberAPathThatStoppedBeingARegularFile(t *testing.T) {
 }
 
 func TestPullTellsTheTruthAboutWhatForceWillDoToAPrunedConflict(t *testing.T) {
-	// Both kinds of conflict printed "--force to overwrite". For a file deleted
-	// on the server and edited here, --force does not overwrite: it DELETES, and
-	// the bytes it destroys exist nowhere else. The user reaches for --force to
-	// resolve some other file and loses this one.
-	// Conflicts carries EVERY path a human must look at; PruneConflicts is the
-	// subset --force would DELETE rather than overwrite. Pull builds it that
-	// way, because narrowing `conflicts` made `status --json` report zero for
-	// exactly the destructive case.
 	rep := PullReport{
 		Conflicts:      []string{"hero.css", "scratch.css"},
 		PruneConflicts: []string{"scratch.css"},
@@ -235,7 +187,7 @@ func TestPullTellsTheTruthAboutWhatForceWillDoToAPrunedConflict(t *testing.T) {
 	if !strings.Contains(out, "scratch.css") || !strings.Contains(out, "hero.css") {
 		t.Fatalf("both conflicts must be named: %q", out)
 	}
-	// The line about the file --force would delete must not promise an overwrite.
+
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, "scratch.css") {
 			continue
@@ -249,15 +201,7 @@ func TestPullTellsTheTruthAboutWhatForceWillDoToAPrunedConflict(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// security
-// ---------------------------------------------------------------------------
-
 func TestRemotePathGuardIsCaseInsensitiveBecauseTheFilesystemIs(t *testing.T) {
-	// macOS's default APFS is case-insensitive, so ".GIT/config" IS ".git/config".
-	// Both the guard and the built-in ignore rules compared case-sensitively, so
-	// a project we do not control could name a path that walks straight past
-	// invariant 7 and into the real .git — or over dsx's own ledger.
 	for _, rel := range []string{
 		".GIT/config", ".Git/hooks/pre-commit", "a/NODE_MODULES/x.js",
 		".DSX-STATE.JSON", ".DSXignore", "sub/.Git/HEAD",
@@ -266,7 +210,7 @@ func TestRemotePathGuardIsCaseInsensitiveBecauseTheFilesystemIs(t *testing.T) {
 			t.Errorf("checkRemotePath(%q) allowed it; on a case-insensitive volume that is the real thing", rel)
 		}
 	}
-	// The ordinary paths must still be allowed.
+
 	for _, rel := range []string{"styles.css", "git.md", "src/gitignore-notes.txt", "nodes/x.js"} {
 		if err := checkRemotePath(rel); err != nil {
 			t.Errorf("checkRemotePath(%q) refused a legitimate path: %v", rel, err)
@@ -281,7 +225,7 @@ func TestBuiltinIgnoresAreCaseInsensitiveToo(t *testing.T) {
 			t.Errorf("built-in exclusion missed %q; on a case-insensitive volume it is the real path", p)
 		}
 	}
-	// A user rule stays case-sensitive, as gitignore's are.
+
 	u := mustParseIgnore(t, "dist/\n")
 	if u.match("DIST/app.js") {
 		t.Error("a user rule became case-insensitive; gitignore's are not")
@@ -289,12 +233,6 @@ func TestBuiltinIgnoresAreCaseInsensitiveToo(t *testing.T) {
 }
 
 func TestCaseInsensitiveBuiltinsDoNotSwallowLegitimatePaths(t *testing.T) {
-	// Making the built-ins case-insensitive is the kind of change that quietly
-	// widens a rule. `.git` must not start matching `.gitignore`, and a project
-	// legitimately holding `.github/workflows/ci.yml` must still sync it.
-	//
-	// The rules are anchored (^(?:.*/)?\.git$), so they do not; this test is here
-	// so that stays true if anyone touches compileIgnorePattern.
 	s := mustParseIgnore(t, "")
 	for _, p := range []string{
 		".gitignore", ".gitattributes", ".github/workflows/ci.yml", "a/.gitkeep",
@@ -311,19 +249,7 @@ func TestCaseInsensitiveBuiltinsDoNotSwallowLegitimatePaths(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// the contract with an agent
-// ---------------------------------------------------------------------------
-
 func TestServerDetectedConflictExitsThreeLikeALocallyDetectedOne(t *testing.T) {
-	// A stale if_match is the exact race the guard exists to catch, and the
-	// server is the only party that can see it. dsx classified the refusal as a
-	// generic failure: exit 1, {"error":"error"} — so an agent that branches on
-	// exit 3 to fetch a human sails past the one case that needs one.
-	//
-	// The reply shape below is copied from the live endpoint (2026-07-17), not
-	// guessed: a finder claimed a {status:"conflict"} marker that does not exist,
-	// and a skeptic was right to refuse it. This is what the server really sends.
 	body := `{"conflicts":[{"path":"a.css","etag":"1784268009093847",` +
 		`"current_content":"<untrusted-project-content path=\"a.css\" etag=\"1784268009093847\">\nhello\n\n</untrusted-project-content>"}],` +
 		`"message":"write_files: refused — the user (or another writer) changed one or more of these files since your if_match etag. Nothing was written."}`

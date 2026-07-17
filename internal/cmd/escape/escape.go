@@ -11,7 +11,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Group is the ESCAPE HATCH section of `dsx help`.
 var Group = cmd.Group{
 	Title: "ESCAPE HATCH",
 	Cmds: []cmd.Command{
@@ -32,8 +31,7 @@ func cmdPrompt(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	// The project goes in --project, not as a positional, so a bare id has to be
-	// refused rather than quietly answered with the generic prompt.
+
 	if err := cmd.NoPositionals(pos, "prompt [--project id] [--ds id]"); err != nil {
 		return err
 	}
@@ -57,7 +55,7 @@ func cmdTools(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	// `dsx tools <name>` looks like it would filter, and does not.
+
 	if err := cmd.NoPositionals(pos, "tools [--schema]"); err != nil {
 		return err
 	}
@@ -100,10 +98,7 @@ func cmdRaw(ctx context.Context, c *mcp.Client, args []string) error {
 		if err := json.Unmarshal([]byte(rest[0]), &a); err != nil {
 			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "arguments must be a JSON object", Err: err}
 		}
-		// The literal `null` unmarshals into a map without error and leaves it
-		// nil, so the guard above waves it through and dsx sends
-		// "arguments": null. Every other non-object is refused; this one was an
-		// inconsistent boundary, not a decision.
+
 		if a == nil {
 			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "arguments must be a JSON object, not null"}
 		}

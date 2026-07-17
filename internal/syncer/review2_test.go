@@ -10,24 +10,7 @@ import (
 	"testing"
 )
 
-// Round two. The first round's fixes were themselves audited by agents told to
-// prove they did not work, and four of them did not. Everything here is a
-// defect in a fix, or one the fix's own premise exposed.
-//
-// The lesson is the one CLAUDE.md already states and this round paid for twice:
-// a fix that looks right is worth nothing. The defects below were all measured.
-
-// ---------------------------------------------------------------------------
-// the Irregular fix did not hold
-// ---------------------------------------------------------------------------
-
 func TestPushDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
-	// The first fix recorded a symlink as Irregular and stopped prune from
-	// deleting THAT path. But a symlinked DIRECTORY is recorded at the link
-	// only: WalkDir does not descend it, so nothing under it is ever scanned.
-	// The prune loop keys on exact-path membership, so every file under the link
-	// still read as "the user deleted it" — the same mechanism as before, one
-	// directory up, and far worse: one link takes out a whole subtree.
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ")
 	}
@@ -79,14 +62,6 @@ func TestPullDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 }
 
 func TestIrregularPathsAreReportedAsThemselvesNotAsAFalseConflict(t *testing.T) {
-	// The Irregular cases sit first in both switches and never consult force, so
-	// a symlink became a permanent exit 3 carrying advice that was false three
-	// ways: "server moved ahead" (it did not), "`dsx pull` first" (pull conflicts
-	// too), "or --force" (force is ignored). Nothing ever said "this is a
-	// symlink", so there was no next step at all.
-	//
-	// This is the same dishonest-advice class the previous commit fixed for
-	// PruneConflicts — fixed in one place and created in another.
 	rep := PushReport{Irregular: []string{"logo.svg"}}
 	out := rep.Render(false)
 	if !strings.Contains(out, "logo.svg") {
@@ -112,9 +87,6 @@ func TestIrregularPathsAreReportedAsThemselvesNotAsAFalseConflict(t *testing.T) 
 }
 
 func TestIrregularPathsDoNotBlockASyncForever(t *testing.T) {
-	// A symlink is not a conflict between two versions; it is a path dsx cannot
-	// see through. Exiting 3 forever, with no resolution, trains a caller to
-	// ignore exit 3 — which is the one code that means "fetch a human".
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ")
 	}
@@ -158,16 +130,7 @@ func TestIrregularPathsDoNotBlockASyncForever(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// .dsxignore negation, and the asymmetry it re-opened
-// ---------------------------------------------------------------------------
-
 func TestNegatedPathUnderAnExcludedDirectoryIsScannedLocally(t *testing.T) {
-	// scanLocal prunes the walk at an excluded directory, so `dist/` plus
-	// `!dist/keep.css` dropped keep.css from the scan — while filterRemote,
-	// which has no walk to prune, kept it in the listing. That is exactly the
-	// one-sided filtering invariant 9 exists to prevent: pull overwrites the
-	// local edit, push --prune deletes the server's copy.
 	dir := t.TempDir()
 	mkfile(t, dir, "dist/app.js", "generated")
 	mkfile(t, dir, "dist/keep.css", "hand written")
@@ -191,7 +154,6 @@ func TestNegatedPathUnderAnExcludedDirectoryIsScannedLocally(t *testing.T) {
 		t.Error("dist/app.js was scanned despite dist/")
 	}
 
-	// The two sides must agree, which is the whole of invariant 9.
 	remote := filterRemote(map[string]RemoteEntry{
 		"dist/app.js":   {Path: "dist/app.js", Etag: "1"},
 		"dist/keep.css": {Path: "dist/keep.css", Etag: "2"},
@@ -205,9 +167,6 @@ func TestNegatedPathUnderAnExcludedDirectoryIsScannedLocally(t *testing.T) {
 }
 
 func TestBuiltInDirectoriesAreStillPrunedFromTheWalk(t *testing.T) {
-	// The negation fix must not cost the reason the prune exists: node_modules
-	// can hold hundreds of thousands of files and scanLocal reads every file it
-	// does not skip. A built-in can never be negated, so it is always safe.
 	dir := t.TempDir()
 	mkfile(t, dir, "node_modules/pkg/index.js", "x")
 	mkfile(t, dir, ".git/objects/ab/cdef", "x")
@@ -231,12 +190,6 @@ func TestBuiltInDirectoriesAreStillPrunedFromTheWalk(t *testing.T) {
 }
 
 func TestREADMEsIgnoreExampleIsAcceptedByTheParser(t *testing.T) {
-	// The example used trailing `# comments`, which parseIgnore does not support
-	// and gitignore does not either — copied verbatim, three of its four rules
-	// silently became patterns nothing matches. A README that does not run is
-	// worse than none: it is believed.
-	// The README is at the repo root, and this test is not: the path is relative
-	// to the package directory. internal/mcp's tests reach reference/ the same way.
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -266,17 +219,7 @@ func TestREADMEsIgnoreExampleIsAcceptedByTheParser(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// the report contract
-// ---------------------------------------------------------------------------
-
 func TestStatusJSONStillNamesEveryConflictInTheConflictsField(t *testing.T) {
-	// Splitting PruneConflicts out narrowed the pre-existing `conflicts` field
-	// from "all conflicts" to "overwrite conflicts only", silently. A caller
-	// reading .pull.conflicts — which before carried prune conflicts — now saw
-	// zero for the ONE case where --force destroys the only copy. And omitempty
-	// meant a run without prune conflicts looked byte-identical to old dsx, so
-	// nothing could discover the new field either.
 	rep := PullReport{
 		Conflicts:      []string{"hero.css", "scratch.css"},
 		PruneConflicts: []string{"scratch.css"},
@@ -315,7 +258,7 @@ func TestProseAndJSONAgreeOnHowManyConflictsThereAre(t *testing.T) {
 	if len(got.Conflicts) != 2 {
 		t.Errorf("json conflicts = %v, prose says 2", got.Conflicts)
 	}
-	// Each path gets exactly one line, with the message its class deserves.
+
 	if strings.Count(prose, "b.css") != 1 {
 		t.Errorf("b.css is reported twice: %q", prose)
 	}
@@ -329,16 +272,8 @@ func TestProseAndJSONAgreeOnHowManyConflictsThereAre(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// the write path
-// ---------------------------------------------------------------------------
-
 func TestPushAssertsAbsenceForAPathTheListingSaysIsGone(t *testing.T) {
-	// The if_match arms were ordered so that a tracked path missing from the
-	// listing got if_match=<remembered etag> instead of "0". The server has no
-	// row at that etag, so the write is refused for a reason that is not true:
-	// the file is not stale, it is absent. "0" is the sentinel that says so.
-	remote := map[string]RemoteEntry{} // the server no longer has it
+	remote := map[string]RemoteEntry{}
 	local := map[string]localFile{"a.css": {Path: "a.css", Size: 1, SHA: "new"}}
 	st := State{Files: map[string]FileState{"a.css": {Etag: "e-old", SHA: "old"}}}
 

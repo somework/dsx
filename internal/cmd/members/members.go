@@ -8,7 +8,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Group is the MEMBERS / SHARING section of `dsx help`.
 var Group = cmd.Group{
 	Title: "MEMBERS / SHARING",
 	Cmds: []cmd.Command{
@@ -67,7 +66,6 @@ func cmdMemberRm(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 		return "remove_member", map[string]any{"project_id": project, "account_uuid": uuid}, nil
 	})
-
 }
 
 func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
@@ -83,7 +81,6 @@ func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
 			"project_id": project, "account_uuid": uuid, "role": rest[0],
 		}, nil
 	})
-
 }
 
 func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {

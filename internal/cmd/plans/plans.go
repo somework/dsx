@@ -7,7 +7,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Group is the PLANS / PREVIEW section of `dsx help`.
 var Group = cmd.Group{
 	Title: "PLANS / PREVIEW",
 	Cmds: []cmd.Command{
@@ -71,8 +70,6 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	return cmd.Emit(ctx, c, "render_preview", a, *asJSON)
 }
 
-// defaultSupportJS is where create_support_js writes when `path` is omitted.
-// reference/mcp-tools.json: "defaults to \"support.js\" at the project root".
 const defaultSupportJS = "support.js"
 
 func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
@@ -97,11 +94,7 @@ func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
 			a[k] = v
 		}
 	}
-	// The server's own schema says path "defaults to support.js at the project
-	// root", so there is always something to name in a plan. Believing otherwise
-	// left the documented form -- `dsx support-js <project>` -- unable to
-	// self-authorise, and it exited 1 on a project with no standing grant, which
-	// is the default.
+
 	dest := *path
 	if dest == "" {
 		dest = defaultSupportJS

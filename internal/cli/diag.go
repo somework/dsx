@@ -26,18 +26,13 @@ var diagGroup = cmd.Group{
 	},
 }
 
-// cmdAuth reports the credential's metadata. It must never render the token:
-// this is the command most likely to be run with a terminal being recorded.
 func cmdAuth(args []string) error {
 	flags := cmd.NewFlagSet("auth")
 	asJSON := flags.Bool("json", false, "JSON output")
 	if _, err := cmd.ParseArgs(flags, args); err != nil {
 		return err
 	}
-	// DSX_TOKEN overrides the stored credential for every other command, so it
-	// has to override it here too. Reporting the stored credential's metadata
-	// while the next request uses a different token is worse than reporting
-	// nothing: this is the command someone runs to explain a 401.
+
 	if t, _ := os.LookupEnv("DSX_TOKEN"); t != "" {
 		if *asJSON {
 			b, err := json.Marshal(map[string]any{"source": "DSX_TOKEN"})
@@ -71,12 +66,6 @@ func cmdAuth(args []string) error {
 	return nil
 }
 
-// cmdHelp prints the usage text.
-//
-// It takes --json for the same reason everything else does: the guarantee is
-// that under --json stdout is one JSON document, and a guarantee with
-// exceptions is not one an agent can use. It was dispatched before any FlagSet
-// and printed prose regardless.
 func cmdHelp(args []string) error {
 	flags := cmd.NewFlagSet("help")
 	asJSON := cmd.JSONFlag(flags)

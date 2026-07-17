@@ -7,33 +7,9 @@ import (
 	"testing"
 )
 
-// Invariant 9, driven end to end through Push -- which nothing else does.
-//
-// This is the guard that matters, and the suite had no equivalent. The two
-// existing tests named for this invariant (TestIgnoredPathIsNeverPrunedFrom-
-// TheServer and ...FromDisk) hand-assemble the correct filtering themselves and
-// call planPush directly, so they prove the decision is right given correct
-// input. They cannot see the wiring that produces it. TestSyncCallers-
-// CannotFilterOneSide reads Pull's and Push's syntax, so it sees only the
-// shapes it was taught: move the function to another file, rename it, or hoist
-// the calls into a helper, and it matches nothing and passes.
-//
-// This test is blind to all of that because it asks the only question that
-// matters: did an ignored path reach delete_files? Every bypass shape fails it.
-//
-// Two traps, both load-bearing:
-//
-//   - push's delete sends "files" -- a list of {path, if_match} maps -- while
-//     `dsx rm` sends "paths". A probe reading args["paths"] passes vacuously.
-//   - --prune is only exposed by a ledger that tracked the path BEFORE it became
-//     ignored. With an empty ledger, prune is a correct no-op via invariant 4
-//     and this test would pass no matter how broken the filtering is.
 func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 	dir := t.TempDir()
 
-	// dist/ is ignored now. It was not when app.js was pulled, so the ledger
-	// still tracks it as ours and unmodified -- invariant 4's proof is
-	// satisfied, which is exactly what makes it eligible for prune.
 	if err := os.WriteFile(filepath.Join(dir, ".dsxignore"), []byte("dist/\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +40,6 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 		case "finalize_plan":
 			return fakeReply{Text: `{"plan_token":"tok"}`}
 		case "delete_files":
-			// push sends "files", not "paths" -- see the trap above.
 			if fs, ok := args["files"].([]any); ok {
 				for _, e := range fs {
 					if m, ok := e.(map[string]any); ok {
@@ -99,9 +74,6 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 	}
 }
 
-// The mirror on the pull side: an ignored path must not be deleted from disk.
-// Pull is the caller here, so this catches a one-sided filter in survey's
-// other consumer.
 func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".dsxignore"), []byte("dist/\n"), 0o600); err != nil {
@@ -124,9 +96,6 @@ func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The server no longer lists dist/app.js. Were the scan filtered but not the
-	// listing -- or either side dropped -- prune would read that as "deleted on
-	// the server" and remove the only copy.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name == "list_files" {
 			return fakeReply{Text: listingFor()}

@@ -14,29 +14,8 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// Where Claude Code keeps its OAuth material, and how dsx finds it.
-//
-// All of the below was read out of the shipped binary (v2.1.211) rather than
-// guessed at. The storage layer is
-//
-//	qc() = Kac(Bwi, MBn)   // "keychain-with-plaintext-fallback"
-//
-// which tries the macOS keychain and, if it yields nothing, a plaintext JSON
-// file -- on every platform, with no check on process.platform. Both backends
-// serialise the same object, so both hold the same {"claudeAiOauth":{...}}.
-//
-// Measured on a real install: the keychain item is service
-// "Claude Code-credentials", account $USER.
-//
-// NOT verified: no Linux machine was available, so the file lane has never been
-// read from a file Claude Code actually wrote. The derivation is from Claude
-// Code's own code, but it is a derivation. See PROTOCOL.md.
 const credentialsFileName = ".credentials.json"
 
-// ErrNoCredentials means a store holds no login -- distinct from a store that
-// holds a broken one. The chain falls through the first and stops on the
-// second, because silently skipping a corrupt keychain would report "not
-// signed in" to a user who is.
 var ErrNoCredentials = errors.New("no stored credentials")
 
 type Creds struct {
@@ -49,9 +28,6 @@ type keychainBlob struct {
 	ClaudeAiOauth Creds `json:"claudeAiOauth"`
 }
 
-// envLookup has os.LookupEnv's signature. Claude Code distinguishes an unset
-// variable from one set to the empty string, so dsx has to see the difference
-// too.
 type envLookup func(string) (string, bool)
 
 func HomeDir() string {
@@ -62,11 +38,6 @@ func HomeDir() string {
 	return h
 }
 
-// claudeConfigDir mirrors Claude Code's resolution, in its order:
-//
-//	CLAUDE_SECURESTORAGE_CONFIG_DIR, if defined -- empty means the default
-//	CLAUDE_CONFIG_DIR
-//	~/.claude
 func claudeConfigDir(lookup envLookup, home string) string {
 	if v, ok := lookup("CLAUDE_SECURESTORAGE_CONFIG_DIR"); ok {
 		if v != "" {
@@ -84,16 +55,6 @@ func CredentialsPath(lookup envLookup, home string) string {
 	return filepath.Join(claudeConfigDir(lookup, home), credentialsFileName)
 }
 
-// KeychainServiceName reproduces Claude Code's service name.
-//
-// The name is computed, not constant: a login under a non-default config dir
-// gets a sha256(dir)[:8] suffix so several logins can share one keychain.
-// Hardcoding the plain name -- which dsx used to do -- reads the wrong item, or
-// none, for anyone who sets CLAUDE_CONFIG_DIR.
-//
-// The OAUTH_FILE_SUFFIX that sits between "Claude Code" and "-credentials" is
-// "" for the production build and non-empty only for Anthropic's internal local
-// and custom-endpoint builds; dsx targets the production one.
 func KeychainServiceName(lookup envLookup, home string) string {
 	const base = "Claude Code" + "-credentials"
 
@@ -114,8 +75,6 @@ func KeychainServiceName(lookup envLookup, home string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:8]
 }
 
-// readCredentialsFile reads the plaintext store. Absence is not a failure: it
-// is how a keychain-backed install looks, and the chain must fall through it.
 func readCredentialsFile(path string) (Creds, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -134,9 +93,6 @@ func readCredentialsFile(path string) (Creds, error) {
 	return blob.ClaudeAiOauth, nil
 }
 
-// Source names the store a login came out of. `dsx doctor` reports it, and
-// a user debugging "why does dsx not see my login" needs it more than anything
-// else dsx could print.
 type Source string
 
 const (
@@ -145,8 +101,6 @@ const (
 	SrcFile     Source = "file"
 )
 
-// readCredentialsChain walks the stores in Claude Code's own order and names
-// the one that answered.
 func readCredentialsChain(keychain func() (Creds, error), filePath string) (Creds, Source, error) {
 	c, err := keychain()
 	if err == nil {
@@ -162,7 +116,6 @@ func readCredentialsChain(keychain func() (Creds, error), filePath string) (Cred
 	return c, SrcFile, nil
 }
 
-// ReadCredentials resolves the stored login the way `claude` itself would.
 func ReadCredentials() (Creds, Source, error) {
 	home := HomeDir()
 	service := KeychainServiceName(os.LookupEnv, home)
@@ -172,11 +125,6 @@ func ReadCredentials() (Creds, Source, error) {
 	)
 }
 
-// LoadToken resolves the bearer token for the design MCP endpoint.
-//
-// The token is read, never written. Refreshing here would rotate the refresh
-// token out from under Claude Code and silently break its login, so an expired
-// token is reported rather than renewed.
 func LoadToken() (string, error) {
 	return tokenFrom(os.LookupEnv, func() (Creds, error) {
 		c, _, err := ReadCredentials()
@@ -208,8 +156,6 @@ func tokenFrom(lookup envLookup, read func() (Creds, error)) (string, error) {
 	return c.AccessToken, nil
 }
 
-// TokenInfo reports non-secret metadata about the stored credential. It must
-// never return, log, or render the token itself.
 func TokenInfo() (scopes []string, expiresAt time.Time, err error) {
 	c, _, err := ReadCredentials()
 	if err != nil {

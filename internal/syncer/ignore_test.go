@@ -27,8 +27,6 @@ func mustParseIgnore(t *testing.T, text string) *ignoreSet {
 }
 
 func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
-	// The hardcoded exclusions predate .dsxignore. Losing one to a refactor
-	// would start uploading a .git directory to a Design project.
 	s := mustParseIgnore(t, "")
 	for _, p := range []string{
 		".git/config", "node_modules/x/index.js", ".DS_Store",
@@ -46,8 +44,6 @@ func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
 }
 
 func TestIgnoreBuiltInsCannotBeNegated(t *testing.T) {
-	// The ledger is dsx's own bookkeeping and .git is not the project's. A
-	// project we do not control must not be able to talk dsx into either.
 	s := mustParseIgnore(t, "!.git\n!"+StateFileName+"\n!node_modules\n")
 	for _, p := range []string{".git/config", StateFileName, "node_modules/x.js"} {
 		if !s.match(p) {
@@ -122,8 +118,6 @@ func TestIgnoreLastMatchingRuleWins(t *testing.T) {
 }
 
 func TestIgnoreRejectsAPatternItCannotHonour(t *testing.T) {
-	// Silently ignoring a rule the user wrote is the worst option: they would
-	// believe a path is excluded when it is being uploaded.
 	if _, err := parseIgnore("[\n"); err == nil {
 		t.Fatal("a malformed pattern was accepted; the user would think it applied")
 	}
@@ -154,9 +148,6 @@ func TestLoadIgnoreReadsTheFile(t *testing.T) {
 }
 
 func TestIgnoreFileItselfIsNotSynced(t *testing.T) {
-	// .dsxignore is local policy. Pushing it would publish the fact that a
-	// directory exists, and pulling someone else's would silently change what
-	// this machine syncs.
 	s := mustParseIgnore(t, "")
 	if !s.match(ignoreFileName) {
 		t.Error(".dsxignore must exclude itself")
@@ -191,9 +182,6 @@ func TestScanLocalHonoursDsxignore(t *testing.T) {
 }
 
 func TestFilterRemoteDropsIgnoredPaths(t *testing.T) {
-	// This is the load-bearing half. If .dsxignore hid a path from the local
-	// scan but not from the listing, `push --prune` would read "ignored here"
-	// as "deleted here" and delete it from the server.
 	ig := mustParseIgnore(t, "dist/\n")
 	remote := map[string]RemoteEntry{
 		"styles.css":  {Path: "styles.css", Etag: "1"},
@@ -212,14 +200,13 @@ func TestFilterRemoteDropsIgnoredPaths(t *testing.T) {
 }
 
 func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
-	// The whole trap, end to end and at the level where the decision is made.
 	ig := mustParseIgnore(t, "dist/\n")
 	remote := filterRemote(map[string]RemoteEntry{
 		"dist/app.js": {Path: "dist/app.js", Etag: "2"},
 	}, ig)
-	local := map[string]localFile{} // ignored, so the scan never saw it
+	local := map[string]localFile{}
 	st := State{Files: map[string]FileState{
-		"dist/app.js": {Etag: "2", SHA: "abc", Size: 3}, // pulled before it was ignored
+		"dist/app.js": {Etag: "2", SHA: "abc", Size: 3},
 	}}
 
 	d := planPush(remote, local, st, false, true)
@@ -233,7 +220,7 @@ func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
 func TestIgnoredPathIsNeverPrunedFromDisk(t *testing.T) {
 	ig := mustParseIgnore(t, "dist/\n")
 	remote := filterRemote(map[string]RemoteEntry{}, ig)
-	local := map[string]localFile{} // scanLocal already dropped dist/app.js
+	local := map[string]localFile{}
 	st := State{Files: map[string]FileState{"dist/app.js": {Etag: "2", SHA: "abc"}}}
 
 	d := planPull(remote, local, st, false, true)

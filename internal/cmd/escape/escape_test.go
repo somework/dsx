@@ -7,11 +7,6 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// escape's tests drive cmdRaw/cmdPrompt/cmdTools directly, so they must be
-// internal (package escape) tests — the wrappers are unexported on purpose.
-// The fake endpoint lives in internal/clitest, shared by every command package;
-// these aliases keep the moved tests spelled as they were in internal/cli.
-
 type fakeReply = clitest.Reply
 
 var (
@@ -20,10 +15,6 @@ var (
 )
 
 func TestRawRefusesANullArgumentInsteadOfSendingIt(t *testing.T) {
-	// json.Unmarshal("null", &map) succeeds and leaves the map nil, so the
-	// "arguments must be a JSON object" guard let `null` through and dsx sent
-	// "arguments": null. Every other non-object was refused, so this was an
-	// inconsistent boundary rather than a decision.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		t.Errorf("the tool was called despite a malformed argument: %s %v", name, args)
 		return fakeReply{Text: "{}"}
@@ -42,10 +33,6 @@ func TestRawRefusesANullArgumentInsteadOfSendingIt(t *testing.T) {
 }
 
 func TestCommandsRefuseArgumentsTheyDoNotTake(t *testing.T) {
-	// `dsx prompt <project>` — the spelling every other command uses — silently
-	// returned the generic prompt, because parseArgs discarded the positional.
-	// A plausible wrong answer with exit 0 is worse than an error: the caller
-	// never learns it asked the wrong question.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		t.Errorf("the tool was called with an argument the command does not take: %s %v", name, args)
 		return fakeReply{Text: "{}"}

@@ -7,9 +7,6 @@ import (
 	"github.com/somework/dsx/internal/clitest"
 )
 
-// These aliases keep the test body in its original spelling; every one is the
-// clitest name. See internal/cli/fake_test.go for why the adapter lives in
-// internal/clitest rather than being reimplemented here.
 type fakeReply = clitest.Reply
 
 var (
@@ -18,9 +15,6 @@ var (
 )
 
 func TestSupportJSSelfAuthorisesUsingTheServersDocumentedDefaultPath(t *testing.T) {
-	// `dsx support-js p1` — the documented form — skipped the grant recovery on
-	// the theory that there was nothing to name in a plan. The server's own
-	// schema says otherwise: path "defaults to support.js at the project root".
 	var planned []string
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch name {

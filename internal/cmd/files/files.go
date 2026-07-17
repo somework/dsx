@@ -15,7 +15,6 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// Group is the FILES section of `dsx help`.
 var Group = cmd.Group{
 	Title: "FILES",
 	Cmds: []cmd.Command{
@@ -40,7 +39,6 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 		return "list_files", a, nil
 	})
-
 }
 
 func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
@@ -115,8 +113,6 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 		return nil
 	}
 	if *asJSON {
-		// The body goes in a JSON string rather than raw on stdout: a caller
-		// that asked for JSON is running a parser, and a CSS file is not one.
 		b, err := json.Marshal(map[string]any{"path": path, "etag": etag, "content": body})
 		if err != nil {
 			return err
@@ -166,9 +162,7 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	// Self-authorise exactly the way push does. A project with no standing
-	// grant is the default, and `dsx put` used to stop dead on the 403 that
-	// `dsx push` recovers from silently.
+
 	return cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
 }
 
@@ -187,8 +181,6 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 		return dsxerr.Usage("rm <project> <path...>")
 	}
 
-	// Deletes always need a path-scoped plan_token naming every path; a
-	// project-scoped one is refused.
 	token, err := syncer.PlanToken(ctx, c, map[string]any{"project_id": project, "deletes": rest})
 	if err != nil {
 		return err
@@ -198,7 +190,6 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 		"plan_token": token,
 		"paths":      rest,
 	}, *asJSON)
-
 }
 
 func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {

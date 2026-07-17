@@ -21,17 +21,6 @@ import (
 	"github.com/somework/dsx/internal/mcptest"
 )
 
-// End-to-end cover for pull.go, push.go and tree.go against the fake endpoint.
-//
-// The fake proves nothing about the protocol -- see fake_test.go. What these
-// tests pin is dsx's own conduct around the decisions in plan.go: what reaches
-// the disk, what reaches the ledger, and what a caller is told when a run does
-// not finish. Every assertion below is on that conduct.
-
-// ---------------------------------------------------------------------------
-// helpers (all prefixed `sync` so they cannot collide with another area's)
-// ---------------------------------------------------------------------------
-
 func syncLoadState(t *testing.T, dir string) State {
 	t.Helper()
 	st, err := LoadState(dir)
@@ -63,14 +52,6 @@ func syncExists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// syncWindow renders one windowed read_file reply, framed the way the live
-// server frames one.
-//
-// A window that stops short of total_lines carries, INSIDE its body, a notice
-// saying so. That is measured, not assumed (a 316 KB live read on 2026-07-17);
-// dsx spliced that notice into reassembled files until it was caught. A fixture
-// without it would be testing a protocol that does not exist, which is exactly
-// how the bug survived being "covered" in the first place.
 func syncWindow(path, etag string, lo, hi, total int, body string) string {
 	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(body)
 	if hi < total {
@@ -83,9 +64,6 @@ func syncWindow(path, etag string, lo, hi, total int, body string) string {
 		path, etag, lo, hi, total, esc)
 }
 
-// syncArgFiles pulls the `files` array out of a recorded tool call without
-// panicking on a shape we did not send; a panic in a server goroutine takes the
-// whole test binary down and says nothing useful.
 func syncArgFiles(args map[string]any) []map[string]any {
 	raw, _ := args["files"].([]any)
 	out := make([]map[string]any, 0, len(raw))
@@ -118,10 +96,6 @@ func syncToolOrder(f *fakeMCP) []string {
 	return out
 }
 
-// syncWaitForPath blocks until path appears. It is how a fake reply orders
-// itself after another fetch has genuinely landed on disk: without it, the
-// failing fetch's cancel() could abort the succeeding one and a test meant to
-// prove "the ledger records what moved" would prove nothing.
 func syncWaitForPath(path string) bool {
 	for range 4000 {
 		if _, err := os.Stat(path); err == nil {
@@ -132,13 +106,6 @@ func syncWaitForPath(path string) bool {
 	return false
 }
 
-// syncCancelAfterRT cancels a context once n round trips have completed, each
-// reply having been buffered first.
-//
-// Cancelling from inside the fake's handler instead would abort the in-flight
-// request, which exercises the error path -- a different line from the
-// interruption path. Only a cancel that lands between two successful calls
-// reaches the parent.Err() check that invariant 3 is about.
 type syncCancelAfterRT struct {
 	base   http.RoundTripper
 	after  int64
@@ -163,14 +130,6 @@ func (rt *syncCancelAfterRT) RoundTrip(req *http.Request) (*http.Response, error
 	return resp, nil
 }
 
-// syncCancelAfter builds a client against f that cancels a fresh context once n
-// replies have been fully received, and returns both.
-//
-// This is invariant 3's injection point: cancelling mid-flight is the only way
-// to prove an interrupted walk is reported as a failure rather than as a short
-// success, which --prune would read as "deleted on the server". The transport is
-// replaced at construction because Client.http is unexported and has no setter --
-// mcp.WithHTTPClient exists for exactly this test and says so.
 func syncCancelAfter(t *testing.T, f *fakeMCP, n int64) (*mcp.Client, context.Context) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -182,10 +141,6 @@ func syncCancelAfter(t *testing.T, f *fakeMCP, n int64) (*mcp.Client, context.Co
 		}}))
 	return c, ctx
 }
-
-// ---------------------------------------------------------------------------
-// tree.go
-// ---------------------------------------------------------------------------
 
 func TestWalkTreeReturnsProjectRelativePathsFromEveryDepth(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -217,8 +172,7 @@ func TestWalkTreeReturnsProjectRelativePathsFromEveryDepth(t *testing.T) {
 	if !slices.Equal(SortedPaths(got), want) {
 		t.Errorf("paths = %v, want %v — keys must be project-relative, not basenames", SortedPaths(got), want)
 	}
-	// Directories must not survive into the file map: planPull would try to
-	// fetch one.
+
 	for p, e := range got {
 		if e.isDir() {
 			t.Errorf("%s came back as a directory entry", p)
@@ -230,10 +184,6 @@ func TestWalkTreeReturnsProjectRelativePathsFromEveryDepth(t *testing.T) {
 }
 
 func TestWalkTreeDescendsSiblingDirectoriesConcurrently(t *testing.T) {
-	// Each sibling refuses to answer until the other has arrived. A sequential
-	// walk deadlocks and the timeout turns it into a visible failure; a
-	// concurrent one sails through. This is the difference between one listing
-	// per directory costing a round trip each and costing all of them in series.
 	arrivedX := make(chan struct{})
 	arrivedY := make(chan struct{})
 
@@ -275,14 +225,8 @@ func TestWalkTreeDescendsSiblingDirectoriesConcurrently(t *testing.T) {
 	}
 }
 
-// Invariant 3. A cancel that lands between two successful listings leaves no
-// error behind, so only parent.Err() can tell that the tree was never finished.
-// Returning the map here would let `--prune` read "not enumerated" as "deleted
-// on the server" and delete live files.
 func TestWalkTreeInterruptedBetweenListingsIsAFailureNotAShortListing(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		// No directories: the walk cannot produce an error of its own, so a
-		// green result here would come strictly from the missing parent check.
 		return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 3))}
 	})
 	c, ctx := syncCancelAfter(t, f, 1)
@@ -312,8 +256,7 @@ func TestWalkTreeReturnsNoListingWhenADirectoryFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("WalkTree succeeded despite a failed directory")
 	}
-	// a.css was enumerated. Handing it back with an error would still be a
-	// short listing, and callers that check the map first would act on it.
+
 	if got != nil {
 		t.Errorf("listing = %v, want nil alongside the error", SortedPaths(got))
 	}
@@ -334,7 +277,6 @@ func TestListDirOmitsThePathForTheRootAndSendsItForASubdirectory(t *testing.T) {
 
 	calls := f.Recorded()
 	if _, ok := calls[0].Args["path"]; ok {
-		// "" is not the root; omitting the argument is.
 		t.Errorf("root listing sent path=%v, want the argument omitted", calls[0].Args["path"])
 	}
 	if calls[1].Args["path"] != "tokens" {
@@ -355,16 +297,7 @@ func TestListDirReportsAMalformedListingRatherThanAnEmptyOne(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// readFull
-// ---------------------------------------------------------------------------
-
 func TestReadFullConcatenatesEveryWindowAndAsksForTheNextByLine(t *testing.T) {
-	// The question this test used to leave open -- whether the newline between
-	// two windows rides on the end of the first or the start of the second --
-	// has since been answered live: the server ends every window at a complete
-	// line, so the newline is the first window's last byte and the pieces need
-	// no separator between them. The fixtures below reflect that measurement.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name != "read_file" {
 			return fakeReply{Text: "unexpected " + name, IsError: true}
@@ -414,9 +347,6 @@ func TestReadFullRefusesATruncatedLineRatherThanReturningIt(t *testing.T) {
 	}
 }
 
-// A file that moves between two windows cannot be stitched: the halves come
-// from different versions. Nothing downstream could detect the seam, so the
-// refusal has to happen here.
 func TestReadFullRefusesAnEtagThatChangesMidRead(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if _, windowed := args["offset"]; !windowed {
@@ -439,8 +369,6 @@ func TestReadFullRefusesAnEtagThatChangesMidRead(t *testing.T) {
 }
 
 func TestReadFullRefusesAReadThatMakesNoProgress(t *testing.T) {
-	// A server that keeps answering with the same window would otherwise spin
-	// forever, appending the same bytes each time.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta\n")}
 	})
@@ -456,14 +384,6 @@ func TestReadFullRefusesAReadThatMakesNoProgress(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// pull.go
-// ---------------------------------------------------------------------------
-
-// Invariant 1. This assertion is what caught an agent-driven pull silently
-// corrupting 2 of 100 files: a size the listing already told us disagreeing
-// with the decode means the decode is wrong, and a wrong file on disk is worse
-// than no file.
 func TestPullRefusesToWriteAFileWhoseDecodedLengthDisagreesWithTheListing(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -471,7 +391,7 @@ func TestPullRefusesToWriteAFileWhoseDecodedLengthDisagreesWithTheListing(t *tes
 		case "list_files":
 			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 100))}
 		case "read_file":
-			return fakeReply{Text: envelopeFor("a.css", "e1", "hi")} // 2 bytes, not 100
+			return fakeReply{Text: envelopeFor("a.css", "e1", "hi")}
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
@@ -491,17 +411,12 @@ func TestPullRefusesToWriteAFileWhoseDecodedLengthDisagreesWithTheListing(t *tes
 	if len(rep.Fetched) != 0 {
 		t.Errorf("fetched = %v, want none", rep.Fetched)
 	}
-	// The ledger is saved on the error path (invariant 5), but it must not
-	// claim we hold bytes we refused to write.
+
 	if _, tracked := syncLoadState(t, dir).Files["a.css"]; tracked {
 		t.Error("the ledger records a.css — the next run would call it unchanged")
 	}
 }
 
-// Invariant 5. A file whose bytes are already on disk must be in the ledger
-// even though the run failed. Without the entry, the next sync sees bytes it
-// has no record of, calls its own work a conflict, and pushes the user to
-// --force -- the opposite of safe.
 func TestPullSavesTheLedgerForAFileAlreadyWrittenWhenALaterFetchFails(t *testing.T) {
 	dir := t.TempDir()
 	const bodyA = "body{color:red}"
@@ -511,14 +426,13 @@ func TestPullSavesTheLedgerForAFileAlreadyWrittenWhenALaterFetchFails(t *testing
 		case "list_files":
 			return fakeReply{Text: listingFor(
 				fileEntry("a.css", "e1", int64(len(bodyA))),
-				fileEntry("b.css", "e2", 999), // the listing disagrees with the body
+				fileEntry("b.css", "e2", 999),
 			)}
 		case "read_file":
 			if args["path"] == "a.css" {
 				return fakeReply{Text: envelopeFor("a.css", "e1", bodyA)}
 			}
-			// Hold b.css back until a.css has landed, or b's cancel() could
-			// abort a's read and the test would prove nothing.
+
 			if !syncWaitForPath(filepath.Join(dir, "a.css")) {
 				return fakeReply{Text: "a.css never landed", IsError: true}
 			}
@@ -557,9 +471,6 @@ func TestPullSavesTheLedgerForAFileAlreadyWrittenWhenALaterFetchFails(t *testing
 	}
 }
 
-// Invariants 3 and 5 together: the fetch succeeded and the bytes are down, but
-// the user interrupted us before the run finished. That is a failure whose
-// ledger still has to record what moved.
 func TestPullInterruptedAfterAFetchIsAFailureThatStillRecordsTheFetch(t *testing.T) {
 	dir := t.TempDir()
 	const body = "a{}"
@@ -573,7 +484,7 @@ func TestPullInterruptedAfterAFetchIsAFailureThatStillRecordsTheFetch(t *testing
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
-	// Round trip 1 is the listing, 2 is the read: cancel lands after both.
+
 	c, ctx := syncCancelAfter(t, f, 2)
 
 	rep, err := Pull(ctx, c, PullOpts{ProjectID: "p1", Dir: dir, Concurrency: 4})
@@ -591,8 +502,6 @@ func TestPullInterruptedAfterAFetchIsAFailureThatStillRecordsTheFetch(t *testing
 	}
 }
 
-// The project pin. Etags belong to one project; replaying them against another
-// would compare versions that have nothing to do with each other.
 func TestPullRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	dir := t.TempDir()
 	syncSeedState(t, dir, State{ProjectID: "project-a"})
@@ -734,19 +643,14 @@ func TestPullBinaryRefusalIsRecordedAgainstItsEtagAndRetriedWhenItChanges(t *tes
 	})
 }
 
-// "Binary" is a report; everything else is a failure. Widening the refusal test
-// would turn any read_file failure into a file dsx quietly claims to know
-// about, at an etag it never verified -- and the next sync would skip it.
 func TestPullTreatsANonBinaryFetchFailureAsAnErrorNotAsABinaryFile(t *testing.T) {
 	cases := []struct {
 		name  string
 		reply fakeReply
 	}{
-		// A tool error, but not the one refusal we tolerate.
 		{"a tool error that is not the binary refusal",
 			fakeReply{Text: "a.css: no such path in this project", IsError: true}},
-		// Not a tool error at all: nothing to match on, so a fallthrough here
-		// would be an unclassified failure treated as success.
+
 		{"a reply that is not an envelope",
 			fakeReply{Text: "<html>gateway timeout</html>"}},
 	}
@@ -782,8 +686,6 @@ func TestPullTreatsANonBinaryFetchFailureAsAnErrorNotAsABinaryFile(t *testing.T)
 	}
 }
 
-// Invariant 7 in the direction that matters: the path came from the server, so
-// it is untrusted input, and the fetch happens before safeJoin sees it.
 func TestPullNeverWritesOutsideTheTargetDirectory(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "design")
@@ -861,7 +763,7 @@ func TestPullPruneRemovesATrackedUnmodifiedFileFromDiskAndLedger(t *testing.T) {
 
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name == "list_files" {
-			return fakeReply{Text: listingFor()} // the server no longer has it
+			return fakeReply{Text: listingFor()}
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
@@ -882,10 +784,6 @@ func TestPullPruneRemovesATrackedUnmodifiedFileFromDiskAndLedger(t *testing.T) {
 		t.Error("gone.css is still in the ledger — a deleted file we still claim to hold")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// push.go
-// ---------------------------------------------------------------------------
 
 func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 	dir := t.TempDir()
@@ -926,8 +824,7 @@ func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 	if decErr != nil || string(raw) != body {
 		t.Errorf("data decoded to %q (%v), want %q", raw, decErr, body)
 	}
-	// The path is new to us and absent from the listing, so the write must
-	// assert that: a blind write would clobber a file created since the listing.
+
 	if sent[0]["if_match"] != "0" {
 		t.Errorf("if_match = %v, want \"0\" — a new path must assert it does not exist", sent[0]["if_match"])
 	}
@@ -942,10 +839,6 @@ func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 	}
 }
 
-// The pin has to be written before the first byte leaves, not after the last
-// one lands. An error path that saved the ledger without it would leave
-// project_id empty, and an empty pin short-circuits the guard: the next sync
-// could aim these etags at a different project.
 func TestPushPinsTheProjectIntoTheLedgerBeforeTheFirstWrite(t *testing.T) {
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "a{}")
@@ -1009,8 +902,6 @@ func TestPushSelfAuthorisesWithAPlanTokenWhenTheServerDemandsAGrant(t *testing.T
 		t.Errorf("calls = %v, want the grant refusal answered by a plan_token and one retry", got)
 	}
 
-	// The token must authorise exactly the paths in this batch: a
-	// project-scoped one would hand the retry more reach than the write needs.
 	plan := syncFirstCall(t, f, "finalize_plan")
 	writes, _ := plan.Args["writes"].([]any)
 	if len(writes) != 1 || writes[0] != "a.css" {
@@ -1044,8 +935,7 @@ func TestPushReportsBothFailuresWhenItCannotSelfAuthorise(t *testing.T) {
 	if err == nil {
 		t.Fatal("push reported success although it was never authorised")
 	}
-	// Only the first failure would send the user to a browser they do not need;
-	// only the second would hide why authorisation was wanted at all.
+
 	for _, want := range []string{"needs_project_grant", "could not self-authorise"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to mention %q", err, want)
@@ -1083,8 +973,7 @@ func TestPushRefusesToRecordAnEtagItNeverSaw(t *testing.T) {
 			if err == nil {
 				t.Fatal("push accepted a reply it could not read")
 			}
-			// The bytes may well be up. Saying so, and naming the way out, is
-			// the difference between a recoverable state and a mystery.
+
 			if !strings.Contains(err.Error(), "etags were not recorded") {
 				t.Errorf("error = %v, want it to say the ledger is behind the bytes", err)
 			}
@@ -1171,8 +1060,7 @@ func TestPushPruneDeletesWithTheLedgersEtagAndThenForgetsThePath(t *testing.T) {
 	if len(sent) != 1 || sent[0]["path"] != "gone.css" {
 		t.Fatalf("delete_files files = %v, want gone.css", sent)
 	}
-	// Without if_match the delete is unconditional, so a file changed since our
-	// listing would be removed on the strength of a stale view.
+
 	if sent[0]["if_match"] != "e1" {
 		t.Errorf("if_match = %v, want e1 from the ledger", sent[0]["if_match"])
 	}
@@ -1181,10 +1069,6 @@ func TestPushPruneDeletesWithTheLedgersEtagAndThenForgetsThePath(t *testing.T) {
 	}
 }
 
-// The reply is server-controlled, so the paths in it are untrusted input just
-// as a listing's are. Only the paths we sent may enter the ledger: an entry for
-// anything else is a claim about a file dsx never read, and `pull --prune`
-// reads the ledger to decide what it may delete from disk.
 func TestPushIgnoresAnEtagForAPathItDidNotSend(t *testing.T) {
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "a{}")
@@ -1211,9 +1095,6 @@ func TestPushIgnoresAnEtagForAPathItDidNotSend(t *testing.T) {
 	}
 }
 
-// Invariant 5 on push's other error path. The writes really did land; a delete
-// that fails afterwards must not discard the record of them, and must not
-// pretend the file it failed to delete is gone.
 func TestPushKeepsTheLedgerWhenTheDeleteFails(t *testing.T) {
 	dir := t.TempDir()
 	const body = "a{}"
@@ -1253,8 +1134,6 @@ func TestPushKeepsTheLedgerWhenTheDeleteFails(t *testing.T) {
 	}
 }
 
-// A batch that failed must not take the ledger for the batches that succeeded
-// down with it: those files really are on the server, at the etags reported.
 func TestPushKeepsTheLedgerForBatchesThatLandedBeforeOneFailed(t *testing.T) {
 	dir := t.TempDir()
 	const total = maxBatchFiles + 1
@@ -1303,10 +1182,6 @@ func TestPushKeepsTheLedgerForBatchesThatLandedBeforeOneFailed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// reports
-// ---------------------------------------------------------------------------
-
 func TestPullReportRender(t *testing.T) {
 	full := PullReport{
 		Fetched: []string{"a.css", "b.css"}, Unchanged: 3,
@@ -1334,8 +1209,6 @@ func TestPullReportRender(t *testing.T) {
 	})
 
 	t.Run("a quiet run says only what happened", func(t *testing.T) {
-		// Counts that are zero must not appear: the summary line is a token
-		// budget, and "deleted 0" invites a reader to wonder what was deleted.
 		got := PullReport{Unchanged: 4}.Render(false)
 		if got != "pulled 0, unchanged 4 (0 B)" {
 			t.Errorf("render = %q", got)

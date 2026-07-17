@@ -13,9 +13,6 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// envMap builds a lookup with os.LookupEnv's semantics: set-but-empty and
-// unset are different answers, and Claude Code's own resolution turns on that
-// difference.
 func envMap(kv map[string]string) envLookup {
 	return func(k string) (string, bool) {
 		v, ok := kv[k]
@@ -57,8 +54,6 @@ func TestCredentialsPathSitsInTheConfigDir(t *testing.T) {
 }
 
 func TestKeychainServiceNameIsPlainOnADefaultInstall(t *testing.T) {
-	// Measured on this machine: `security find-generic-password -s
-	// "Claude Code-credentials"` resolves, with neither env var set.
 	got := KeychainServiceName(envMap(nil), "/home/u")
 	if got != "Claude Code-credentials" {
 		t.Fatalf("default service = %q, want %q", got, "Claude Code-credentials")
@@ -66,9 +61,6 @@ func TestKeychainServiceNameIsPlainOnADefaultInstall(t *testing.T) {
 }
 
 func TestKeychainServiceNameHashesANonDefaultConfigDir(t *testing.T) {
-	// Claude Code suffixes the service with sha256(dir)[:8] whenever the config
-	// dir is not the default, so one machine can hold several logins. Hardcoding
-	// the plain name makes dsx read the wrong item -- or none at all.
 	got := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
 	if got == "Claude Code-credentials" {
 		t.Fatal("a custom config dir must not reuse the default service name")
@@ -80,7 +72,7 @@ func TestKeychainServiceNameHashesANonDefaultConfigDir(t *testing.T) {
 	if len(suffix) != 8 {
 		t.Errorf("hash suffix %q is %d chars, want 8", suffix, len(suffix))
 	}
-	// Same dir must resolve to the same item on every run.
+
 	again := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
 	if again != got {
 		t.Errorf("service name is not stable: %q then %q", got, again)
@@ -204,7 +196,6 @@ func TestTokenFromClassifiesAMissingStoreAsAuth(t *testing.T) {
 }
 
 func TestTokenFromNeverPutsTheTokenInAnError(t *testing.T) {
-	// The one thing this binary must never do is print the credential.
 	const secret = "sk-ant-oat01-SECRET-VALUE"
 	_, err := tokenFrom(envMap(nil), func() (Creds, error) {
 		return Creds{AccessToken: secret, ExpiresAt: time.Now().Add(-time.Hour).UnixMilli()}, nil
@@ -218,9 +209,6 @@ func TestTokenFromNeverPutsTheTokenInAnError(t *testing.T) {
 }
 
 func TestReadCredentialsFallsBackToTheFileWhenTheKeychainHasNothing(t *testing.T) {
-	// Measured in Claude Code's own storage layer: Kac(Bwi, MBn) reads the
-	// keychain first and the plaintext file second, with no platform gate. dsx
-	// has to walk the same chain or it will not find a login claude can.
 	dir := t.TempDir()
 	writeCreds(t, dir, Creds{AccessToken: "from-file"})
 
@@ -271,9 +259,6 @@ func TestReadCredentialsSurfacesACorruptFileRatherThanReportingNoLogin(t *testin
 }
 
 func TestReadCredentialsChainStopsOnABrokenKeychainRatherThanMaskingIt(t *testing.T) {
-	// A locked keychain is not an absent login. Falling through to the file
-	// would report "not signed in" and send the user to re-run `claude`, when
-	// the real fix is to unlock.
 	dir := t.TempDir()
 	writeCreds(t, dir, Creds{AccessToken: "from-file"})
 	boom := errors.New("keychain is locked")
@@ -288,8 +273,6 @@ func TestReadCredentialsChainStopsOnABrokenKeychainRatherThanMaskingIt(t *testin
 }
 
 func TestKeychainIsOnlyConsultedOnDarwin(t *testing.T) {
-	// The build-tag split is the point: on Linux there is no security(1), and
-	// shelling out to a missing binary on every run is a bug, not a fallback.
 	_, err := readKeychain("Claude Code-credentials")
 	if runtime.GOOS != "darwin" && !errors.Is(err, ErrNoCredentials) {
 		t.Fatalf("non-darwin keychain read gave %v, want ErrNoCredentials", err)

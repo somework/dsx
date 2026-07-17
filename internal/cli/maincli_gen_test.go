@@ -17,33 +17,6 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// Cover for main.go's dispatch/wiring and util.go's argument plumbing.
-//
-// What is worth pinning here is not that the functions run, but the three
-// places where main.go can quietly mislead its caller:
-//
-//   - resolveSyncTarget invented an argument form. The old two-argument form is
-//     a compatibility guarantee, and the ledger lookup it added must not fire
-//     when the caller was explicit.
-//   - syncer.ConflictOutcome decides the exit code. Exit 0 on a real run that refused
-//     to move bytes would let a caller carry on over work that exists nowhere
-//     else.
-//   - jsonSafe backs the "--json stdout is exactly one JSON document" promise. A
-//     guarantee with exceptions is not one an agent can use.
-//
-// The fake endpoint here proves nothing about the protocol (see fake_test.go);
-// it is only a way to reach emit/emitFlagged/cmdSync without a network.
-//
-// Every helper is prefixed `maincli` so it cannot collide with another area's.
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-// maincliCaptureStderr runs fn with os.Stderr redirected and returns what it
-// wrote. It exists to prove flag's own output never reaches the real stderr;
-// like captureStdout it swaps a process-global, so callers must not run in
-// parallel.
 func maincliCaptureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -72,7 +45,6 @@ func maincliCaptureStderr(t *testing.T, fn func()) string {
 	return out
 }
 
-// maincliFake wires a client to a fake endpoint answering every tool with text.
 func maincliFake(t *testing.T, text string) (*fakeMCP, *mcp.Client) {
 	t.Helper()
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
@@ -89,10 +61,6 @@ func maincliKind(t *testing.T, err error) dsxerr.Kind {
 	return dsxerr.Classify(err).Kind
 }
 
-// ---------------------------------------------------------------------------
-// syncer.ConflictOutcome — the exit code
-// ---------------------------------------------------------------------------
-
 func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 	err := syncer.ConflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
 	if err == nil {
@@ -105,7 +73,7 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
 		t.Errorf("exit code = %d, want %d", got, dsxerr.ExitConflict)
 	}
-	// Sorted so a caller diffing two runs sees a stable list.
+
 	want := []string{"a.css", "m.css", "z.css"}
 	if !reflect.DeepEqual(de.Paths, want) {
 		t.Errorf("paths = %v, want %v (present and sorted)", de.Paths, want)
@@ -115,9 +83,6 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 	}
 }
 
-// A dry run was asked to move nothing, so refusing to move something is the
-// answer it wanted. `dsx status` runs through here on every invocation: exiting
-// 3 would make "there is a conflict" indistinguishable from "status failed".
 func TestConflictsOnADryRunAreNotAFailure(t *testing.T) {
 	if err := syncer.ConflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
 		t.Fatalf("a dry run reporting a conflict failed with %v; it did exactly what it was told", err)
@@ -135,13 +100,7 @@ func TestNoConflictsIsSuccessInEitherMode(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// jsonSafe — the one-JSON-document guarantee
-// ---------------------------------------------------------------------------
-
 func TestJSONSafePassesValidJSONThroughByteIdentical(t *testing.T) {
-	// Most tools already answer in JSON. Re-encoding would reorder keys and
-	// change numbers; a caller diffing two runs would see churn we invented.
 	for _, doc := range []string{
 		`{"files":[{"path":"a.css","size":12}]}`,
 		`[]`,
@@ -175,17 +134,14 @@ func TestJSONSafeWrapsProseSoStdoutStaysParseable(t *testing.T) {
 	}
 }
 
-// The load-bearing case. A cheaper implementation — sniffing a leading `{` or
-// `[` — passes every test above and fails this one, emitting a truncated
-// document to a caller that is about to run a parser over it.
 func TestJSONSafeWrapsAStringThatOnlyLooksLikeJSON(t *testing.T) {
 	cases := []string{
-		`{"almost": true`,        // unterminated object
-		`[1, 2,`,                 // unterminated array
-		`{'single': 'quotes'}`,   // not JSON at all
-		`{"a":1}{"b":2}`,         // two documents, not one
-		`{"trailing": "comma",}`, // trailing comma
-		"{\n  broken\n}",         // braces around prose
+		`{"almost": true`,
+		`[1, 2,`,
+		`{'single': 'quotes'}`,
+		`{"a":1}{"b":2}`,
+		`{"trailing": "comma",}`,
+		"{\n  broken\n}",
 	}
 	for _, s := range cases {
 		got := cmd.JSONSafe(s, true)
@@ -204,7 +160,7 @@ func TestJSONSafeLeavesProseAloneWhenJSONWasNotAsked(t *testing.T) {
 	if got := cmd.JSONSafe(prose, false); got != prose {
 		t.Errorf("jsonSafe(%q, false) = %q; the human lane must not be wrapped", prose, got)
 	}
-	// Even a valid JSON document is untouched in prose mode.
+
 	const doc = `{"a":1}`
 	if got := cmd.JSONSafe(doc, false); got != doc {
 		t.Errorf("jsonSafe(%q, false) = %q", doc, got)
@@ -224,13 +180,7 @@ func TestCommandNamesHasNoDuplicatesOrEmptyEntries(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// need1 / need2
-// ---------------------------------------------------------------------------
-
 func TestNeed1AndNeed2ClassifyTooFewArgumentsAsUsage(t *testing.T) {
-	// Exit 2 is the contract for "running it again will not help". A missing
-	// argument reported as a generic failure invites a retry loop.
 	if _, _, err := cmd.Need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
 		t.Errorf("need1(nil) classified %q, want %q", maincliKind(t, err), dsxerr.KindUsage)
 	}
@@ -259,13 +209,6 @@ func TestNeed1AndNeed2ReturnTheRestForTheNextParser(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// parseArgs
-// ---------------------------------------------------------------------------
-
-// Go's flag package stops at the first non-flag token. Left alone it would take
-// `dsx tree <project> --json` and silently hand the caller prose while it waited
-// for JSON — no error, no clue.
 func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -301,7 +244,6 @@ func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 }
 
 func TestParseArgsKeepsPositionalOrder(t *testing.T) {
-	// `dsx cp <src> <dst>` means something different reversed.
 	fs := cmd.NewFlagSet("cp")
 	_ = cmd.JSONFlag(fs)
 	pos, err := cmd.ParseArgs(fs, []string{"src.css", "--json", "dst.css"})
@@ -314,8 +256,6 @@ func TestParseArgsKeepsPositionalOrder(t *testing.T) {
 }
 
 func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
-	// A typo'd flag swallowed as a positional would be handed to the server as a
-	// path. Retrying it verbatim cannot help, so it is exit 2.
 	fs := cmd.NewFlagSet("tree")
 	_ = cmd.JSONFlag(fs)
 	pos, err := cmd.ParseArgs(fs, []string{"proj", "--bogus"})
@@ -330,10 +270,6 @@ func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 	}
 }
 
-// newFlagSet discards flag's own output. If it did not, flag would print its
-// error and a full usage dump straight to stderr, ahead of and around dsx's
-// single classified line — breaking the --json contract for every command that
-// mistypes a flag.
 func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	var err error
 	leaked := maincliCaptureStderr(t, func() {
@@ -348,9 +284,6 @@ func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 		t.Errorf("flag wrote to stderr despite SetOutput(io.Discard): %q", leaked)
 	}
 
-	// Control, so the assertion above cannot pass vacuously: a FlagSet built
-	// without newFlagSet does leak. (cmdSync in main.go builds its FlagSet with
-	// flag.NewFlagSet directly and is subject to exactly this.)
 	control := maincliCaptureStderr(t, func() {
 		raw := flag.NewFlagSet("raw", flag.ContinueOnError)
 		_ = raw.Bool("json", false, "")
@@ -361,18 +294,6 @@ func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// humanBytes
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// splitList
-// ---------------------------------------------------------------------------
-
-// splitList feeds `dsx plan --deletes a,b`. An empty string surviving into that
-// list is a delete request for the path "", and a stray space makes " a.css" a
-// path the project does not have — both are silent, both are the server's
-// problem by the time anyone notices.
 func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 	cases := []struct {
 		name string
@@ -414,16 +335,11 @@ func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 }
 
 func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
-	// Trimming the ends is not licence to rewrite a path the user actually has.
 	got := cmd.SplitList(" my file.css ,b.css")
 	if len(got) != 2 || got[0] != "my file.css" {
 		t.Fatalf("splitList = %v, want the inner space preserved", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// emit / emitFlagged
-// ---------------------------------------------------------------------------
 
 func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 	_, c := maincliFake(t, "Deleted 3 files.")
@@ -439,8 +355,6 @@ func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 }
 
 func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
-	// The contract an agent relies on: it must not have to learn which tools
-	// happen to answer in JSON and which answer in prose.
 	for _, text := range []string{
 		`{"projects":[]}`,
 		"Deleted 3 files.",
@@ -464,8 +378,6 @@ func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
 }
 
 func TestEmitPrintsNothingWhenTheToolFails(t *testing.T) {
-	// Half a document is worse than none: a caller parsing stdout would take the
-	// empty line as a successful empty answer.
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{Text: "project not found", IsError: true}
 	})
@@ -490,7 +402,6 @@ func TestEmitFlaggedAcceptsJSONAfterThePositionalsEveryCommandTakesIt(t *testing
 				gotPos = pos
 				return "get_project", map[string]any{"project_id": pos[0]}, nil
 			})
-
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -508,8 +419,6 @@ func TestEmitFlaggedAcceptsJSONAfterThePositionalsEveryCommandTakesIt(t *testing
 }
 
 func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
-	// build's error has to stop the call. Calling the tool anyway would send the
-	// server a request assembled from arguments we already rejected.
 	f, c := maincliFake(t, "unreachable")
 	err := cmd.EmitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
 		_, _, err := cmd.Need1(pos, "project <id>")
@@ -539,16 +448,6 @@ func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// cmdAuth — the one thing this binary must never do
-// ---------------------------------------------------------------------------
-
-// maincliFakeLogin points credential resolution at a temp dir holding a
-// Claude-Code-shaped credentials file, and returns the token it planted.
-//
-// The config dir is overridden, which makes keychainServiceName hash it into a
-// service name no keychain holds — so the chain falls through to this file and
-// the real login is never read. See auth.go.
 func maincliFakeLogin(t *testing.T, token string, scopes []string, expiresAt int64) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -557,24 +456,12 @@ func maincliFakeLogin(t *testing.T, token string, scopes []string, expiresAt int
 	return token
 }
 
-const maincliFarFuture = 1900000000000 // 2030-03-17, well past any test run
+const maincliFarFuture = 1900000000000
 
 func TestAuthNeverPrintsTheTokenInEitherMode(t *testing.T) {
-	// `dsx auth` is the command most likely to be run with a terminal being
-	// recorded. It reports the credential's metadata and must never render the
-	// credential.
 	const secret = "sk-ant-oat01-SECRET-DO-NOT-PRINT"
 	maincliFakeLogin(t, secret, []string{"user:inference", "user:profile"}, maincliFarFuture)
 
-	// DSX_TOKEN is set as a second secret that must not leak either.
-	//
-	// Note while here — KNOWN DEFECT, recorded rather than fixed: cmdAuth goes
-	// through auth.TokenInfo(), which reads the *stored* credential and never
-	// consults DSX_TOKEN. usage says "DSX_TOKEN overrides the stored
-	// credential", and every other command honours it, so with DSX_TOKEN set
-	// `dsx auth` reports the scopes and expiry of a credential the next request
-	// will not use. That misleads the exact caller who runs `dsx auth` to
-	// explain a 401.
 	t.Setenv("DSX_TOKEN", "sk-ant-oat01-ENV-SECRET")
 
 	for _, args := range [][]string{nil, {"--json"}} {
@@ -591,7 +478,7 @@ func TestAuthNeverPrintsTheTokenInEitherMode(t *testing.T) {
 		if strings.Contains(out, "sk-ant-oat01-ENV-SECRET") {
 			t.Errorf("cmdAuth(%v) printed DSX_TOKEN:\n%s", args, out)
 		}
-		// A partial leak is still a leak: no fragment of the secret may appear.
+
 		if strings.Contains(out, "sk-ant") {
 			t.Errorf("cmdAuth(%v) printed something token-shaped:\n%s", args, out)
 		}
@@ -643,7 +530,7 @@ func TestAuthProseModeReportsScopesAndExpiryWithoutJSON(t *testing.T) {
 }
 
 func TestAuthReportsAMissingLoginAsAuthNotAsSuccess(t *testing.T) {
-	dir := t.TempDir() // no credentials file written
+	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
 	out, err := captureStdout(t, func() error { return cmdAuth(nil) })
@@ -662,11 +549,6 @@ func TestAuthRejectsAnUnknownFlagWithoutReadingAnyCredential(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// run() — dispatch, and the errors that escape before a client exists
-// ---------------------------------------------------------------------------
-
-// maincliRun drives run() with a fabricated argv.
 func maincliRun(t *testing.T, argv ...string) (string, error) {
 	t.Helper()
 	saved := os.Args
@@ -686,8 +568,6 @@ func TestRunWithNoArgumentsPrintsUsageAndSucceeds(t *testing.T) {
 }
 
 func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
-	// Neither needs a login. Requiring one would make `dsx help` fail exactly
-	// when a confused user most needs it.
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	for _, spelling := range []string{"help", "-h", "--help"} {
@@ -711,17 +591,6 @@ func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
 }
 
 func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
-	// run() once called auth.LoadToken() before reaching the unknown-command check, so
-	// `dsx pulll` on a machine with no login was reported as an auth failure --
-	// dsx blaming the user's credentials for their spelling, with exit 5 inviting
-	// a re-authentication that could not possibly help.
-	//
-	// The no-login case is the entire point, so it is the case that must run. An
-	// earlier version of this test set DSX_TOKEN and stopped there, which made it
-	// pass against a binary with the ordering restored: with a token present,
-	// loadToken succeeds and the bug is invisible. CLAUDE_CONFIG_DIR at a temp dir
-	// is what makes "no login" hermetic -- the keychain service name is hashed
-	// over that path, so it matches nothing, and no credentials file exists there.
 	for _, tc := range []struct {
 		name  string
 		setup func(*testing.T)
@@ -730,7 +599,7 @@ func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
 			t.Setenv("DSX_TOKEN", "")
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		}},
-		// A token being present must not change the answer either.
+
 		{"token present", func(t *testing.T) {
 			t.Setenv("DSX_TOKEN", "test-token")
 		}},
@@ -752,7 +621,7 @@ func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
 }
 
 func TestRunCompletionAnswersForEveryShellAndRefusesOthers(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // completion must not need a login
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	for _, shell := range []string{"bash", "zsh", "fish"} {
 		out, err := maincliRun(t, "completion", shell)
@@ -771,17 +640,6 @@ func TestRunCompletionAnswersForEveryShellAndRefusesOthers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// dsxerr.ExitCodeFor / dsxerr.Render, one per kind, end to end
-// ---------------------------------------------------------------------------
-
-// wireError is the --json error envelope as a CALLER sees it, spelled out here
-// rather than borrowed from dsxerr.
-//
-// These field names are contract. A test that unmarshalled into the producer's
-// own struct would agree with it by construction: rename a json tag and both
-// sides move together, green, while every agent parsing dsx's output breaks.
-// That is the ledger's failure mode (invariant 5) in a different envelope.
 type wireError struct {
 	Error   dsxerr.Kind `json:"error"`
 	Message string      `json:"message,omitempty"`
@@ -808,13 +666,11 @@ func TestEveryKindRendersAndExitsConsistently(t *testing.T) {
 				t.Errorf("exit code = %d, want %d", got, tc.wantCode)
 			}
 
-			// Prose: readable, prefixed, never JSON.
 			prose := dsxerr.Render(tc.err, false)
 			if !strings.HasPrefix(prose, "dsx: ") {
 				t.Errorf("prose = %q, want the dsx: prefix", prose)
 			}
 
-			// JSON: one line, and the kind token is what an agent matches on.
 			line := dsxerr.Render(tc.err, true)
 			if strings.Contains(line, "\n") {
 				t.Errorf("--json error spans lines: %q", line)
@@ -833,10 +689,6 @@ func TestEveryKindRendersAndExitsConsistently(t *testing.T) {
 	}
 }
 
-// dsxerr.KindProtocol and dsxerr.KindLocal both collapse onto exit 1, so the JSON token is the
-// only thing that still tells them apart. Losing it would leave a caller unable
-// to distinguish "the server said something we cannot parse" from "the disk is
-// full" — one is worth retrying elsewhere, the other is not.
 func TestKindsSharingAnExitCodeStayDistinctInJSON(t *testing.T) {
 	seen := map[dsxerr.Kind]bool{}
 	for _, k := range []dsxerr.Kind{dsxerr.KindFailure, dsxerr.KindProtocol, dsxerr.KindLocal} {

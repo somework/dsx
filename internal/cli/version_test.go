@@ -17,8 +17,6 @@ func buildInfo(mainVersion string, settings ...debug.BuildSetting) func() (*debu
 }
 
 func TestBuildVersionPrefersLdflagsOverBuildInfo(t *testing.T) {
-	// A release binary is stamped by goreleaser; that name is the truth even
-	// though the build info also carries a module version.
 	got := buildVersion("v1.2.3", buildInfo("v0.0.9"))
 	if !strings.HasPrefix(got, "dsx v1.2.3 ") {
 		t.Fatalf("ldflags version ignored: %q", got)

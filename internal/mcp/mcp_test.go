@@ -13,8 +13,6 @@ func TestNormalizeSSE(t *testing.T) {
 		}
 	})
 
-	// A notification ahead of the response is the case that concatenation
-	// turns into invalid JSON.
 	t.Run("picks the response out of a stream carrying notifications", func(t *testing.T) {
 		in := "event: message\n" +
 			`data: {"jsonrpc":"2.0","method":"notifications/progress","params":{"n":1}}` + "\n\n" +
@@ -63,8 +61,6 @@ func TestNormalizeSSE(t *testing.T) {
 	})
 }
 
-// A retried delete_files or write_files re-executes a mutation the server may
-// already have applied.
 func TestOnlyReadOnlyToolsAreRetried(t *testing.T) {
 	mutating := []string{
 		"write_files", "delete_files", "copy_files", "create_project",

@@ -10,18 +10,7 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// Residuals the round-two audits reported but did not themselves reach. Each is
-// a case the fix it belongs to still misses.
-
 func TestPushSaysSomethingTrueAndActionableAboutABinaryConflict(t *testing.T) {
-	// Every push conflict printed "server moved ahead; `dsx pull` first, or
-	// --force". For a binary path whose etag has NOT moved, all of that is
-	// false: the server did not move, and `dsx pull` cannot resolve it —
-	// planPull classifies the path Binary, fetches nothing and leaves the ledger
-	// untouched, so push conflicts identically forever. A measured livelock
-	// whose only exit is the one unrecoverable command, reachable by guessing.
-	// Conflicts is the union; BinaryConflicts discriminates. Push builds it
-	// that way so `conflicts` keeps meaning "everything a human must look at".
 	rep := PushReport{
 		Conflicts:       []string{"assets/hero.png"},
 		BinaryConflicts: []string{"assets/hero.png"},
@@ -39,7 +28,7 @@ func TestPushSaysSomethingTrueAndActionableAboutABinaryConflict(t *testing.T) {
 	if !strings.Contains(out, "--force") {
 		t.Errorf("the only command that resolves it is not mentioned: %q", out)
 	}
-	// And it must say what --force costs, because here it is unrecoverable.
+
 	if !strings.Contains(strings.ToLower(out), "cannot") && !strings.Contains(out, "only copy") {
 		t.Errorf("the message does not say the server's copy is the only one: %q", out)
 	}
@@ -54,7 +43,7 @@ func TestBinaryConflictsStillReachTheExitCode(t *testing.T) {
 	if len(d.Write) != 0 {
 		t.Fatalf("the write was not refused: %+v", d.Write)
 	}
-	// It is still a conflict — a human must choose — just one with honest advice.
+
 	all := append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
 	if err := ConflictOutcome(all, false, "x"); err == nil {
 		t.Error("a binary conflict no longer exits 3; an agent would carry on over it")
@@ -62,8 +51,6 @@ func TestBinaryConflictsStillReachTheExitCode(t *testing.T) {
 }
 
 func TestPullReportsAPruneFailureRatherThanTheLedgerSaveThatFollowedIt(t *testing.T) {
-	// The prune error was recorded, then st.save ran, and its error was returned
-	// first — so a save failure from any cause hid the prune failure entirely.
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("permission semantics differ")
 	}
@@ -95,13 +82,6 @@ func TestPullReportsAPruneFailureRatherThanTheLedgerSaveThatFollowedIt(t *testin
 }
 
 func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
-	// The server is case-sensitive and holds both Button.css and button.css.
-	// macOS's default APFS is not, so both land in one inode: dsx reports
-	// "fetched 2", the disk holds one file, and one file's bytes are gone with
-	// no warning. Invariant 1's per-file size check passes on each write
-	// individually, so it never fires. The next push --prune then deletes one
-	// server file and overwrites the other with the wrong bytes — invariant 4's
-	// stated harm, reached through a collision rather than a deletion.
 	dir := t.TempDir()
 	if !caseInsensitiveDir(dir) {
 		t.Skip("this filesystem is case-sensitive; the collision cannot happen here")
@@ -128,7 +108,6 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 		t.Errorf("classified %q, want %q: a human must choose which file to keep", got, dsxerr.KindConflict)
 	}
 
-	// No collision, no complaint.
 	if err := checkPathCollisions(map[string]RemoteEntry{
 		"a.css": {Path: "a.css"}, "b.css": {Path: "b.css"},
 	}, map[string]localFile{}, dir); err != nil {
@@ -137,10 +116,6 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 }
 
 func TestCaseProbeLeavesNothingBehindAndIsNeverSynced(t *testing.T) {
-	// The probe writes into the directory dsx is about to sync. A run killed
-	// between the create and the remove would leave the file there, and the next
-	// push would upload it — so the name is fixed rather than random, and it is
-	// excluded like the ledger.
 	dir := t.TempDir()
 	_ = caseInsensitiveDir(dir)
 
@@ -152,7 +127,6 @@ func TestCaseProbeLeavesNothingBehindAndIsNeverSynced(t *testing.T) {
 		t.Errorf("the probe left %q behind", e.Name())
 	}
 
-	// And if a killed run did leave one, it is still never part of a sync.
 	if err := os.WriteFile(filepath.Join(dir, caseProbeName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

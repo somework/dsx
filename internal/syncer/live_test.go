@@ -1,33 +1,5 @@
 //go:build live
 
-// The live suite. Run it with:
-//
-//	go test -tags=live -run TestLive ./...
-//
-// It is behind a build tag because it talks to the real, undocumented Claude
-// Design endpoint using the real user's real credential, and writes to a real
-// project.
-//
-// WHY IT EXISTS, given the rest of the suite mocks the transport: a mock only
-// ever asserts what we already believe about the protocol. Everything dsx knows
-// about this endpoint was bought by probing it, and three of those facts were
-// guessed WRONG first --
-//
-//	write_files replies with a map, not a list
-//	needs_project_grant is an HTTP 403, not a tool error
-//	"binary" means invalid UTF-8, not a known extension
-//
-// -- and a green mock would have hidden all three. This file is the only thing
-// standing between dsx and the next server deploy that quietly changes one of
-// them. Every test here asserts a claim PROTOCOL.md makes; if one fails,
-// PROTOCOL.md is what is wrong.
-//
-// DISCIPLINE (from CLAUDE.md, and it is not optional):
-//   - There is NO delete_project tool. A throwaway project is permanent litter.
-//     Never create one. This suite refuses to.
-//   - Write only to clearly-named scratch paths, verify, then remove.
-//   - Every mutating test asserts the project's file count is back where it
-//     started before it finishes.
 package syncer
 
 import (
@@ -46,27 +18,14 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// unchangedReply is the short-circuit body read_file returns when if_none_match
-// hits the current etag.
-//
-// It lives here rather than in pull.go because dsx never sends if_none_match:
-// list_files already carries every etag, so an unchanged file costs no request
-// at all -- not even a conditional one. The reply shape is still worth pinning,
-// because that reasoning only holds while the etags in a listing mean what the
-// ones in a read mean.
 type unchangedReply struct {
 	Unchanged bool   `json:"unchanged"`
 	Etag      string `json:"etag"`
 	Path      string `json:"path"`
 }
 
-// liveProject is the project the suite exercises: Kolgarn Design System.
-// Override with DSX_LIVE_PROJECT to point at another one you own.
 const liveProject = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
-// scratchPrefix marks every path this suite writes. It is deliberately obvious:
-// if the cleanup ever fails, whoever finds the file should know instantly what
-// left it and that it is safe to delete.
 const scratchPrefix = ".dsx-selftest"
 
 func liveProjectID() string {
@@ -96,11 +55,6 @@ func liveTree(t *testing.T, c *mcp.Client, ctx context.Context) map[string]Remot
 	return files
 }
 
-// liveScratch reserves a scratch path and guarantees its removal.
-//
-// The cleanup runs even when the test fails, and it verifies the removal
-// happened rather than assuming it: a scratch file left behind in someone's
-// real project is the one outcome this suite must never produce.
 func liveScratch(t *testing.T, c *mcp.Client, ctx context.Context, suffix string) string {
 	t.Helper()
 	path := scratchPrefix + suffix
@@ -148,8 +102,6 @@ func liveRemove(c *mcp.Client, ctx context.Context, paths ...string) error {
 	return err
 }
 
-// liveWriteRaw sends one write_files with no plan_token, so a project without a
-// standing grant answers 403. Tests that want the file there use liveWrite.
 func liveWriteRaw(c *mcp.Client, ctx context.Context, path string, body []byte, extra map[string]any) (string, error) {
 	file := map[string]any{
 		"path": path, "data": base64.StdEncoding.EncodeToString(body), "encoding": "base64",
@@ -163,12 +115,6 @@ func liveWriteRaw(c *mcp.Client, ctx context.Context, path string, body []byte, 
 	})
 }
 
-// liveWrite puts a file there, self-authorising exactly the way push does.
-//
-// The test project has no standing grant, so a bare write_files is refused with
-// a 403. That is not an obstacle to route around: it is the same recovery push
-// performs, and running it on every write means the live suite exercises it
-// constantly rather than in one test.
 func liveWrite(t *testing.T, c *mcp.Client, ctx context.Context, path string, body []byte) string {
 	t.Helper()
 
@@ -198,11 +144,6 @@ func liveWrite(t *testing.T, c *mcp.Client, ctx context.Context, path string, bo
 	return res.Etags[path]
 }
 
-// liveAuthorised mints a path-scoped plan_token for these paths.
-//
-// A test asserting that the server refuses some *specific* write needs one:
-// without a standing grant the 403 arrives first and would mask the answer the
-// test is actually about.
 func liveAuthorised(t *testing.T, c *mcp.Client, ctx context.Context, paths ...string) string {
 	t.Helper()
 	token, err := planFor(ctx, c, liveProjectID(), paths)
@@ -212,12 +153,6 @@ func liveAuthorised(t *testing.T, c *mcp.Client, ctx context.Context, paths ...s
 	return token
 }
 
-// TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError pins the fact dsx got wrong
-// first, and that its whole self-authorisation path is built on.
-//
-// If the server ever moved this to a tool error, errors.As would stop matching,
-// push would surface a bare refusal, and the user would be sent to a browser for
-// something dsx can resolve itself.
 func TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, "-grant.txt")
@@ -240,7 +175,6 @@ func TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError(t *testing.T) {
 		t.Errorf("grant error names project %q, want %q", ge.ProjectID, liveProjectID())
 	}
 
-	// And the documented recovery must actually work, without a browser.
 	token, err := planFor(ctx, c, liveProjectID(), []string{path})
 	if err != nil {
 		t.Fatalf("finalize_plan could not authorise the write the 403 demanded: %v", err)
@@ -257,23 +191,12 @@ func TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError(t *testing.T) {
 	}
 }
 
-// TestLiveRefusesToCreateProjects guards the discipline itself.
-//
-// There is no delete_project tool, so a project created by a test is litter
-// forever. This asserts the suite never reaches for create_project -- a future
-// agent "helpfully" spinning up a fixture project is exactly the mistake worth
-// making impossible.
 func TestLiveRefusesToCreateProjects(t *testing.T) {
 	b, err := os.ReadFile("live_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Match the call, not the name: TestLiveToolsListCoversEveryWrappedTool
-	// legitimately lists create_project among the tools that must still exist.
-	//
-	// The needle is assembled at run time so that this line is not itself a
-	// match. Spelling it out would make the guard trip on its own source, which
-	// is how it first failed.
+
 	needle := `callTool(ctx, "` + "create" + `_project"`
 	if strings.Contains(string(b), needle) {
 		t.Fatal("the live suite creates a project; there is no delete_project, so that project is permanent litter")
@@ -283,9 +206,6 @@ func TestLiveRefusesToCreateProjects(t *testing.T) {
 	}
 }
 
-// TestLiveListFilesShape pins the claims PROTOCOL.md makes about list_files:
-// not recursive, project-relative paths, per-file etag, directories with none.
-// The whole cheap-sync design rests on that etag being there.
 func TestLiveListFilesShape(t *testing.T) {
 	c, ctx := liveClient(t)
 
@@ -322,10 +242,6 @@ func TestLiveListFilesShape(t *testing.T) {
 	}
 }
 
-// TestLiveReadFileEnvelopeAndSizeAgree is invariant 1 against the real server:
-// the decoded body length must equal the size list_files reported. A mismatch
-// means the envelope framing or the entity decoding is wrong, and that is a
-// silent one-byte corruption -- exactly what once damaged 2 of 100 files.
 func TestLiveReadFileEnvelopeAndSizeAgree(t *testing.T) {
 	c, ctx := liveClient(t)
 	files := liveTree(t, c, ctx)
@@ -334,7 +250,7 @@ func TestLiveReadFileEnvelopeAndSizeAgree(t *testing.T) {
 	for _, path := range SortedPaths(files) {
 		e := files[path]
 		if e.Size == 0 || e.Size > 200<<10 {
-			continue // stay under the 256 KiB read cap
+			continue
 		}
 		body, etag, err := c.ReadFull(ctx, liveProjectID(), path)
 		if err != nil {
@@ -359,15 +275,10 @@ func TestLiveReadFileEnvelopeAndSizeAgree(t *testing.T) {
 	}
 }
 
-// TestLiveIfNoneMatchShortCircuits pins the reply shape that makes a warm sync
-// free.
 func TestLiveIfNoneMatchShortCircuits(t *testing.T) {
 	c, ctx := liveClient(t)
 	files := liveTree(t, c, ctx)
 
-	// The file has to be one read_file will actually serve. Size alone is not
-	// enough: "binary" here means invalid UTF-8, and the project holds such
-	// files under innocent names.
 	var path, etag string
 	for _, p := range SortedPaths(files) {
 		e := files[p]
@@ -399,8 +310,6 @@ func TestLiveIfNoneMatchShortCircuits(t *testing.T) {
 	}
 }
 
-// TestLiveWriteReplyIsAMapNotAList is the fact a mock could never have found.
-// It was guessed wrong first, and the shape is what push records etags from.
 func TestLiveWriteReplyIsAMapNotAList(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, ".txt")
@@ -431,15 +340,11 @@ func TestLiveWriteReplyIsAMapNotAList(t *testing.T) {
 	}
 }
 
-// TestLiveWriteThenReadIsByteExact is the round trip the whole tool rests on.
 func TestLiveWriteThenReadIsByteExact(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
 	path := liveScratch(t, c, ctx, "-roundtrip.txt")
 
-	// Deliberately carries every character the server escapes, plus a trailing
-	// newline: a file ending in one shows a blank line before the close tag,
-	// and getting that wrong is a silent one-byte error.
 	body := []byte("a & b < c > d\n&amp; stays literal\nunicode: привет ✓\n")
 
 	etag := liveWrite(t, c, ctx, path, body)
@@ -466,8 +371,6 @@ func TestLiveWriteThenReadIsByteExact(t *testing.T) {
 	}
 }
 
-// TestLiveBinaryIsDecidedByContentNotExtension pins the most counter-intuitive
-// fact in PROTOCOL.md, in both directions. Each row killed a plausible theory.
 func TestLiveBinaryIsDecidedByContentNotExtension(t *testing.T) {
 	c, ctx := liveClient(t)
 
@@ -512,27 +415,11 @@ func TestLiveBinaryIsDecidedByContentNotExtension(t *testing.T) {
 	})
 }
 
-// TestLiveWindowedReadReassemblesByteExactly settles a known unknown.
-//
-// readFull walks windows and concatenates their bodies with no separator, so it
-// is correct only if each window's body carries the newline that ends its last
-// line. parseEnvelope strips exactly one newline before the close tag, so if the
-// server frames a window as "l1\nl2" rather than "l1\nl2\n", one byte is lost at
-// every window boundary.
-//
-// PROTOCOL.md never recorded which side that newline falls on, and the two
-// consumers differ in what it costs: Pull is saved by invariant 1 (the
-// decoded length would disagree with list_files' size and the write is refused),
-// but `dsx cat` has no such check and would emit a corrupted file in silence.
-//
-// The file has to exceed the 256 KiB read cap for the server to window at all.
 func TestLiveWindowedReadReassemblesByteExactly(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
 	path := liveScratch(t, c, ctx, "-windowed.txt")
 
-	// Comfortably past the 256 KiB cap, with numbered lines so a lost newline
-	// shows up as two line numbers run together rather than as a vague mismatch.
 	var sb strings.Builder
 	for i := 0; sb.Len() < 300<<10; i++ {
 		fmt.Fprintf(&sb, "line %06d — dsx live self-test, safe to delete, padding padding\n", i)
@@ -541,7 +428,6 @@ func TestLiveWindowedReadReassemblesByteExactly(t *testing.T) {
 
 	liveWrite(t, c, ctx, path, []byte(body))
 
-	// One raw read first: it must come back windowed, or this test proves nothing.
 	text, err := c.CallTool(ctx, "read_file", map[string]any{
 		"project_id": liveProjectID(), "path": path,
 	})
@@ -571,8 +457,6 @@ func TestLiveWindowedReadReassemblesByteExactly(t *testing.T) {
 		return
 	}
 
-	// Report precisely where it diverged: the byte offset localises the fault to
-	// a window boundary if that is what it is.
 	n := min(len(got), len(body))
 	at := n
 	for i := range n {
@@ -589,9 +473,6 @@ func TestLiveWindowedReadReassemblesByteExactly(t *testing.T) {
 		got[max(0, at-40):min(len(got), at+40)])
 }
 
-// TestLiveDeleteRefusesAProjectScopedToken pins why deletePaths always mints a
-// path-scoped token. If the server ever relaxes this, the comment in push.go
-// becomes a lie.
 func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, "-scope.txt")
@@ -605,7 +486,7 @@ func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 	}
 	var plan struct {
 		PlanToken string `json:"plan_token"`
-		// Unix seconds, not a string: measured 2026-07-17.
+
 		ExpiresAt int64  `json:"expires_at"`
 		Scope     string `json:"scope"`
 	}
@@ -618,9 +499,7 @@ func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 	if plan.Scope != "project" {
 		t.Errorf("scope = %q, want project", plan.Scope)
 	}
-	// PROTOCOL.md records ~4 h. Assert the order of magnitude only: the exact
-	// number is the server's to choose, but a token that expired on arrival or
-	// lasted a week would both be worth noticing.
+
 	if life := time.Until(time.Unix(plan.ExpiresAt, 0)); life < time.Hour || life > 8*time.Hour {
 		t.Errorf("a project-scoped token lives %s; PROTOCOL.md records about 4h", life.Round(time.Minute))
 	}
@@ -635,9 +514,6 @@ func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 	}
 }
 
-// TestLiveIfMatchGuardsAgainstABlindOverwrite. Every push carries if_match, so
-// a server that stopped honouring it would turn checked writes into blind ones
-// without a single test going red.
 func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, "-ifmatch.txt")
@@ -657,11 +533,6 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 		t.Fatal("write_files accepted a stale if_match; dsx's whole conflict guard runs through this")
 	}
 
-	// The refusal is not prose: it is JSON naming the paths, which is what lets
-	// dsx exit 3 rather than degrading the one race if_match exists to catch
-	// into a generic failure. If the server ever reworded this into prose,
-	// conflictFromToolError would stop matching and every server-detected
-	// conflict would silently become exit 1 again.
 	paths, ok := mcp.ConflictFromToolError(err)
 	if !ok {
 		t.Fatalf("a stale if_match no longer parses as {\"conflicts\":[…]}; server-detected "+
@@ -682,7 +553,6 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 		}
 	}
 
-	// The correct etag must still work, or dsx would be unable to push at all.
 	if _, err := c.CallTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
 		"plan_token": token,
@@ -695,8 +565,6 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 	}
 }
 
-// TestLiveIfMatchZeroAssertsThePathIsNew pins the "0" sentinel, which planPush
-// uses for every file it believes does not exist yet.
 func TestLiveIfMatchZeroAssertsThePathIsNew(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, "-new.txt")
@@ -727,8 +595,6 @@ func TestLiveIfMatchZeroAssertsThePathIsNew(t *testing.T) {
 	}
 }
 
-// TestLiveUnsupportedContentTypeIsRefused pins the write allowlist. dsx reports
-// this refusal verbatim, so the wording matters to whoever reads it.
 func TestLiveUnsupportedContentTypeIsRefused(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, ".bin")
@@ -748,9 +614,6 @@ func TestLiveUnsupportedContentTypeIsRefused(t *testing.T) {
 	}
 }
 
-// TestLiveToolsListCoversEveryWrappedTool. dsx wraps tools by name; a rename on
-// the server turns every one of those into a runtime failure the user meets
-// first.
 func TestLiveToolsListCoversEveryWrappedTool(t *testing.T) {
 	c, ctx := liveClient(t)
 
@@ -784,7 +647,6 @@ func TestLiveToolsListCoversEveryWrappedTool(t *testing.T) {
 		}
 	}
 
-	// Every tool dsx will retry must still exist and still be read-only.
 	for _, name := range mcp.ReadOnlyToolNames() {
 		if !have[name] {
 			t.Errorf("readOnlyTools names %q, which the server no longer lists", name)
@@ -792,9 +654,6 @@ func TestLiveToolsListCoversEveryWrappedTool(t *testing.T) {
 	}
 }
 
-// TestLiveResourcesAreStillUnsupported. It is why an unreadable file has no
-// second retrieval path; if that ever changes, the binary lane opens up and
-// README's claim stops being true.
 func TestLiveResourcesAreStillUnsupported(t *testing.T) {
 	c, ctx := liveClient(t)
 
@@ -808,9 +667,6 @@ func TestLiveResourcesAreStillUnsupported(t *testing.T) {
 	}
 }
 
-// TestLiveEndToEndPullPushRoundTrip drives the actual sync engine, ledger and
-// all, against a scratch directory. It is the only test that exercises
-// Pull/Push over the real protocol.
 func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
@@ -820,7 +676,6 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	body := ".dsx-selftest { color: red }\n"
 	mkfile(t, dir, path, body)
 
-	// Never pull into design/. A scratch temp dir, per CLAUDE.md.
 	rep, err := Push(ctx, c, PushOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
 		t.Fatalf("Push: %v", err)
@@ -840,7 +695,6 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 		t.Error("the ledger did not record the bytes it pushed; the next sync would call this a conflict")
 	}
 
-	// A second push must move nothing: the ledger and the etag agree.
 	rep2, err := Push(ctx, c, PushOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
 		t.Fatalf("second Push: %v", err)
@@ -849,7 +703,6 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 		t.Errorf("a warm push rewrote %v; unchanged files are supposed to cost nothing", rep2.Written)
 	}
 
-	// Pull the same file into a fresh directory and compare bytes.
 	dir2 := t.TempDir()
 	pullRep, err := Pull(ctx, c, PullOpts{ProjectID: liveProjectID(), Dir: dir2, Concurrency: 8})
 	if err != nil {

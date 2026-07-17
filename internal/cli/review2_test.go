@@ -6,20 +6,7 @@ import (
 	"testing"
 )
 
-// Round two's CLI half. The sync half moved to internal/syncer with the code
-// it guards; the preamble there explains what round two was.
-//
-// TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken moved to
-// internal/cmd/files with cmdPut, which it drives directly.
-
-// ---------------------------------------------------------------------------
-// transport
-// ---------------------------------------------------------------------------
-
 func TestHelpAndCompletionHonourJSONLikeEveryOtherCommand(t *testing.T) {
-	// README promises --json on every command with no carve-out. help and
-	// completion were dispatched before any FlagSet and printed prose at exit 0,
-	// so a caller that pipes stdout into a parser got a broken pipe of text.
 	for _, tc := range []struct {
 		name string
 		run  func() error
@@ -38,7 +25,6 @@ func TestHelpAndCompletionHonourJSONLikeEveryOtherCommand(t *testing.T) {
 		})
 	}
 
-	// Prose still works: `eval "$(dsx completion bash)"` is the point of it.
 	out, err := captureStdout(t, func() error { return cmdCompletion([]string{"bash"}) })
 	if err != nil {
 		t.Fatal(err)

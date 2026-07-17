@@ -6,13 +6,6 @@ import (
 	"github.com/somework/dsx/internal/clitest"
 )
 
-// The adapter itself now lives in internal/clitest, because every command
-// package needs it and each is tested by its own internal tests. Its doc carries
-// the reasoning, including why internal/syncer's copy stays a duplicate.
-//
-// These aliases exist so that this package's tests keep their old spellings.
-// They are not a second implementation: every one is the clitest name.
-
 type (
 	fakeMCP   = clitest.Server
 	fakeReply = clitest.Reply

@@ -252,8 +252,6 @@ func TestPlanPush(t *testing.T) {
 		}
 	})
 
-	// A binary is tracked to record that read_file will not serve it, so it is
-	// never on disk. Prune must not read that absence as "the user deleted it".
 	t.Run("prune must never delete a binary the server would not serve", func(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "assets/og.png", Etag: "1"}),

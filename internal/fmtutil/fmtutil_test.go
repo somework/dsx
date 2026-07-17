@@ -1,11 +1,3 @@
-// Tests for the two helpers that outgrew their old homes.
-//
-// They arrive with their comments verbatim: each records a defect that shipped,
-// and that record is the load-bearing part -- the assertion only re-proves what
-// the comment explains. Truncate's tests came from the transport's suite and
-// humanBytes' from the CLI's, which is exactly why both functions are here now:
-// each was reached from more than one layer.
-
 package fmtutil
 
 import (
@@ -15,17 +7,13 @@ import (
 )
 
 func TestHumanBytesSurvivesASizeItCannotName(t *testing.T) {
-	// humanBytes indexed "KMGT" with an exponent it never clamped, so anything
-	// at or past 1 PiB panicked. rep.Bytes flows through here on every summary
-	// line: a sync that moved a petabyte would take the process down while
-	// printing how well it had gone.
 	for _, n := range []int64{1 << 50, 1 << 60, 1<<63 - 1} {
-		got := Bytes(n) // must not panic
+		got := Bytes(n)
 		if got == "" {
 			t.Errorf("Bytes(%d) = %q", n, got)
 		}
 	}
-	// The units it does have must keep their old spelling exactly.
+
 	for _, tc := range []struct {
 		in   int64
 		want string
@@ -40,10 +28,7 @@ func TestHumanBytesSurvivesASizeItCannotName(t *testing.T) {
 }
 
 func TestTruncateNeverEmitsAHalfRune(t *testing.T) {
-	// truncate cuts server text for display. Slicing by byte can land inside a
-	// multi-byte rune, and the endpoint's own error prose is full of them
-	// (it uses — and …). The cut must stay on a rune boundary.
-	s := strings.Repeat("é", 50) // 100 bytes, 50 runes
+	s := strings.Repeat("é", 50)
 	for n := 1; n < 100; n++ {
 		got := Truncate(s, n)
 		if !utf8.ValidString(got) {
@@ -66,8 +51,8 @@ func TestHumanBytesAcrossEveryUnitBoundary(t *testing.T) {
 		{0, "0 B"},
 		{1, "1 B"},
 		{512, "512 B"},
-		{1023, "1023 B"}, // last value before the unit switches
-		{1024, "1.0 KB"}, // first value after it
+		{1023, "1023 B"},
+		{1024, "1.0 KB"},
 		{1536, "1.5 KB"},
 		{1024 * 1024, "1.0 MB"},
 		{1024 * 1024 * 3 / 2, "1.5 MB"},
@@ -81,14 +66,6 @@ func TestHumanBytesAcrossEveryUnitBoundary(t *testing.T) {
 	}
 }
 
-// humanBytes saturates at TB rather than indexing past its unit table. The
-// exponent is clamped at util.go's loop bound, so every int64 names something.
-//
-// This comment used to say the clamp was missing and that 1<<50 panicked. It
-// was added in the meantime and the note was left behind, which is worse than
-// no note: it tells the next reader to fix what is already fixed. The range
-// below now runs past the old ceiling, exactly as the stale note instructed.
-// TestHumanBytesSurvivesASizeItCannotName covers the extremes.
 func TestHumanBytesStaysWithinItsUnitTableForEveryReachableTotal(t *testing.T) {
 	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1, 1 << 50, 1 << 55} {
 		got := Bytes(n)
@@ -125,8 +102,6 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-// The boundary is the one that matters: at exactly n nothing is appended, so a
-// caller cannot mistake a whole message for a cut one.
 func TestTruncateDoesNotMarkAMessageItDidNotCut(t *testing.T) {
 	t.Parallel()
 	s := strings.Repeat("x", 200)

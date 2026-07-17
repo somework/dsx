@@ -7,7 +7,6 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// Group is the PROJECTS section of `dsx help`.
 var Group = cmd.Group{
 	Title: "PROJECTS",
 	Cmds: []cmd.Command{

@@ -9,8 +9,6 @@ import (
 )
 
 func TestExitCodesAreDistinctPerKind(t *testing.T) {
-	// An agent branches on these numbers. Two kinds sharing a code would make
-	// "retry" and "fetch a human" indistinguishable.
 	seen := map[int]Kind{}
 	for _, k := range []Kind{KindUsage, KindConflict, KindTransport, KindAuth} {
 		code := k.ExitCode()
@@ -25,8 +23,6 @@ func TestExitCodesAreDistinctPerKind(t *testing.T) {
 }
 
 func TestClassifyFindsKindThroughWrapping(t *testing.T) {
-	// Every error site wraps with %w on the way up. A classification that only
-	// works on a bare error would silently degrade to the generic code.
 	base := &Error{Kind: KindAuth, Msg: "token expired"}
 	wrapped := fmt.Errorf("read_file: %w", fmt.Errorf("rpc: %w", base))
 
@@ -100,8 +96,6 @@ func TestRenderErrorJSONNeverEmitsBarePathsKeyWhenThereAreNone(t *testing.T) {
 }
 
 func TestJSONRequestedScansArgsBeforeFlagParsing(t *testing.T) {
-	// The error renderer runs outside any FlagSet, so it has to see --json
-	// wherever it landed among the positional arguments.
 	cases := []struct {
 		args []string
 		want bool
@@ -112,8 +106,7 @@ func TestJSONRequestedScansArgsBeforeFlagParsing(t *testing.T) {
 		{[]string{"pull", "p", "d"}, false},
 		{[]string{"put", "p", "--json=true"}, true},
 		{[]string{"put", "p", "notes-about--json.txt"}, false},
-		// The flag package honours an explicit false; so must the renderer, or
-		// a caller who disabled JSON still gets a JSON failure.
+
 		{[]string{"pull", "p", "d", "--json=false"}, false},
 		{[]string{"pull", "p", "d", "-json=0"}, false},
 	}

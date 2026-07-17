@@ -1,21 +1,3 @@
-// Package clitest is the fake endpoint adapter that every command package tests
-// against: how to build a client, the domain shapes, and captureStdout.
-//
-// It is not a _test.go file, and that is the point. internal/cli and every
-// internal/cmd/<group> need this same adapter, and each is tested by its own
-// internal tests -- so without a real package they would each carry a copy. Only
-// _test.go files import it, so it never reaches the binary.
-//
-// internal/syncer's fake_test.go stays a duplicate and cannot use this: syncer's
-// tests are internal ones (they drive planPull), so they cannot import anything
-// that imports syncer -- and this package does. That is the cycle its header
-// describes, and it is still real. This package is the third option for
-// everything above syncer, not for syncer itself.
-//
-// What stays out of internal/mcptest is what mcptest deliberately does not know:
-// how to build a client (mcptest never imports mcp, so mcp's own internal tests
-// can use it), the domain shapes (a listing is []syncer.RemoteEntry, which
-// belongs to the sync side and not the transport), and this process's os.Stdout.
 package clitest
 
 import (
@@ -42,14 +24,10 @@ func New(t *testing.T, tool func(name string, args map[string]any) Reply) *Serve
 
 var EnvelopeFor = mcptest.EnvelopeFor
 
-// Client points a real client at the fake. WithEndpoint is the only legal way
-// in: Client.endpoint is unexported and stays that way.
 func Client(f *Server) *mcp.Client {
 	return mcp.New("test-token", mcp.WithEndpoint(f.URL()))
 }
 
-// ListingFor renders a list_files reply: project-relative paths, one directory
-// deep, with directories carrying no etag.
 func ListingFor(entries ...syncer.RemoteEntry) string {
 	b, err := json.Marshal(entries)
 	if err != nil {
@@ -66,9 +44,6 @@ func DirEntry(path string) syncer.RemoteEntry {
 	return syncer.RemoteEntry{Path: path, Type: "directory"}
 }
 
-// CaptureStdout runs fn with os.Stdout redirected and returns what it printed.
-// Commands print through fmt.Println directly, so this is the only way to assert
-// on their output without restructuring every one of them.
 func CaptureStdout(t *testing.T, fn func() error) (string, error) {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -97,8 +72,6 @@ func CaptureStdout(t *testing.T, fn func() error) (string, error) {
 	return out, fnErr
 }
 
-// Mkfile writes a file, creating its parents. Its twin is in internal/syncer's
-// ignore_test.go, for the same reason as everything above.
 func Mkfile(t *testing.T, dir, rel, body string) {
 	t.Helper()
 	full := filepath.Join(dir, filepath.FromSlash(rel))
@@ -110,7 +83,6 @@ func Mkfile(t *testing.T, dir, rel, body string) {
 	}
 }
 
-// FirstCall returns the first call to tool, or fails.
 func FirstCall(t *testing.T, f *Server, tool string) Call {
 	t.Helper()
 	for _, c := range f.Recorded() {
@@ -122,14 +94,6 @@ func FirstCall(t *testing.T, f *Server, tool string) Call {
 	return Call{}
 }
 
-// SeedState writes a ledger for a test to find.
-//
-// It marshals syncer.State rather than calling the ledger's own writer: save is
-// unexported and stays that way, because writing the ledger is the sync's job
-// and the CLI has no business doing it. The on-disk shape this depends on is
-// pinned by internal/syncer's ledger_golden_test.go against hand-written bytes,
-// which is the only thing that can catch a renamed json tag -- a round trip
-// through these structs would only prove the code equals itself.
 func SeedState(t *testing.T, dir string, st syncer.State) {
 	t.Helper()
 	if st.Files == nil {

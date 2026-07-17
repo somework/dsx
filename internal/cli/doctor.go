@@ -15,14 +15,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-// The scope the design endpoint actually enforces. The 401 it hands back
-// advertises `user:design:read user:design:write`, which no Claude Code token
-// carries; the check is on user:mcp_servers. See PROTOCOL.md.
 const enforcedScope = "user:mcp_servers"
 
-// Clock thresholds. dsx judges the token's expiresAt against the local clock,
-// so skew turns into auth failures the user cannot explain. A second or two is
-// noise; a minute is worth saying; five minutes will produce those failures.
 const (
 	clockSkewWarn = time.Minute
 	clockSkewFail = 5 * time.Minute
@@ -81,19 +75,10 @@ func cmdDoctor(ctx context.Context, c *mcp.Client, args []string) error {
 func runDoctor(ctx context.Context, c *mcp.Client) doctorReport {
 	var rep doctorReport
 
-	// Diagnose the credential dsx will actually send, not the one it has stored.
-	//
-	// DSX_TOKEN overrides the store for every request, so reading the store here
-	// reported "fail credentials" for a perfectly working install -- on the same
-	// run whose endpoint check had just authenticated with that very token.
-	// doctor is what people run to find out why something is broken; it must not
-	// invent the breakage.
 	if t, _ := os.LookupEnv("DSX_TOKEN"); t != "" {
 		rep.Checks = append(rep.Checks, newCheck("credentials", checkOK,
 			"DSX_TOKEN (scopes and expiry are not knowable from a bare token)"))
 	} else {
-		// Naming the store is the single most useful thing dsx can say to
-		// someone whose login it cannot see.
 		creds, src, err := auth.ReadCredentials()
 		if err != nil {
 			rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
@@ -109,8 +94,6 @@ func runDoctor(ctx context.Context, c *mcp.Client) doctorReport {
 		}
 	}
 
-	// Endpoint. tools/list is read-only and cheap, and a reply proves the
-	// token, the URL and the network in one call.
 	started := time.Now()
 	raw, err := c.ToolsList(ctx)
 	latency := time.Since(started)
@@ -166,16 +149,11 @@ func scopeCheck(scopes []string) check {
 			return newCheck("scopes", checkOK, "%s", enforcedScope)
 		}
 	}
-	// Not fatal: the enforced scope was established by probing, and the server
-	// is free to change its mind. Refusing to run over a scope list dsx does
-	// not recognise would be dsx guessing on the server's behalf.
+
 	return newCheck("scopes", checkWarn, "%s absent (have: %s) — writes may be refused",
 		enforcedScope, strings.Join(scopes, " "))
 }
 
-// credentialsModeCheck reports a plaintext store readable by anyone but its
-// owner. Claude Code writes it 0600; anything looser is worth saying out loud
-// about a file holding a bearer token.
 func credentialsModeCheck(path string) check {
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -207,8 +185,6 @@ func clockCheck(serverNanos int64, now time.Time) check {
 	case mag >= clockSkewWarn:
 		return newCheck("clock", checkWarn, "local clock is %s from the server's", roundDur(skew))
 	default:
-		// The Date header carries one-second resolution, so a tighter number
-		// here would be invented.
 		return newCheck("clock", checkOK, "within %s of the server", clockSkewWarn)
 	}
 }

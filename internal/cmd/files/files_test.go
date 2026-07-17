@@ -12,11 +12,6 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// These tests drive cmdTree/cmdPut directly, so they must be internal (package
-// files) tests — the wrappers are unexported on purpose. The fake endpoint lives
-// in internal/clitest, shared by every command package; these aliases keep the
-// moved tests spelled as they were in internal/cli. See internal/cli/fake_test.go
-// for why the adapter lives in internal/clitest rather than being reimplemented.
 type fakeReply = clitest.Reply
 
 var (
@@ -28,18 +23,10 @@ var (
 	mkfile        = clitest.Mkfile
 )
 
-// cmdsReplyJSON answers every tool with one fixed JSON document.
 func cmdsReplyJSON(text string) func(string, map[string]any) fakeReply {
 	return func(string, map[string]any) fakeReply { return fakeReply{Text: text} }
 }
 
-// TestCmdTreeClampsConcurrencyBelowOneToOne.
-//
-// Not cosmetic: syncer.WalkTree sizes its semaphore from this number, and a zero-sized
-// buffered channel is an unbuffered one, on which the first send blocks forever.
-// Without the clamp `-j 0` hangs until the context dies rather than listing
-// anything, so the deadline below is what makes the regression visible as a
-// failure instead of a stall.
 func TestCmdTreeClampsConcurrencyBelowOneToOne(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(listingFor(fileEntry("a.css", "e1", 1))))
 
@@ -63,10 +50,6 @@ func TestCmdTreeClampsConcurrencyBelowOneToOne(t *testing.T) {
 }
 
 func TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken(t *testing.T) {
-	// emitWrite short-circuited to emit() when the caller passed --plan, and
-	// emit() never classifies. Same tool, same reply, opposite exit code: 3
-	// without --plan, 1 with it. The live test that "pinned" this called
-	// conflictFromToolError directly and never went through cmdPut, so it passed.
 	body := `{"conflicts":[{"path":"a.css","etag":"999"}],"message":"write_files: refused — … Nothing was written."}`
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: body, IsError: true}
@@ -87,11 +70,6 @@ func TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken(t *testing.T) {
 }
 
 func TestPutSelfAuthorisesLikePushDoes(t *testing.T) {
-	// push recovers from needs_project_grant by minting a path-scoped
-	// plan_token. put, cp and support-js went through emit and did not, so the
-	// same write that push completes left `dsx put` at exit 1 with
-	// {"error":"error"} and no next step — on a project that has no standing
-	// grant, which is the default.
 	var sawPlan bool
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch name {

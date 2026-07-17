@@ -13,25 +13,19 @@ const (
 	closeTag      = "</untrusted-project-content>"
 )
 
-// envelope is a decoded read_file reply.
 type Envelope struct {
 	Path       string
 	Etag       string
 	Body       string
-	Lines      [2]int // first,last line returned; zero when the read was complete
-	TotalLines int    // zero when the read was complete
-	Truncated  bool   // a single line exceeded the 256 KiB cap
+	Lines      [2]int
+	TotalLines int
+	Truncated  bool
 }
 
-// Complete reports whether the envelope carries the whole file.
 func (e Envelope) Complete() bool {
 	return e.TotalLines == 0 || e.Lines[1] >= e.TotalLines
 }
 
-// ParseEnvelope decodes the read_file wrapper.
-//
-// The server entity-escapes the body, so no raw '<' or '>' can occur inside it.
-// That is what makes the closing tag an unambiguous terminator.
 func ParseEnvelope(raw string) (Envelope, error) {
 	var e Envelope
 
@@ -45,8 +39,7 @@ func ParseEnvelope(raw string) (Envelope, error) {
 	attrs := parseAttrs(raw[len(openTagPrefix):gt])
 
 	rest := raw[gt+1:]
-	// The wrapper puts the body on its own lines: one newline after the open
-	// tag, one before the close tag. Neither belongs to the file.
+
 	rest = strings.TrimPrefix(rest, "\n")
 
 	end := strings.LastIndex(rest, "\n"+closeTag)
@@ -80,21 +73,6 @@ func ParseEnvelope(raw string) (Envelope, error) {
 
 	e.Body = decodeEntities(rest[:end])
 
-	// A windowed reply carries, inside the body, a line in which the server
-	// explains that it stopped early:
-	//
-	//	…[+54400 bytes truncated at read_file's 256 KiB cap — the body ends at
-	//	a complete line; continue with offset=3856]
-	//
-	// That is the server talking, not the file. readFull concatenates window
-	// bodies, so a notice left in place is spliced into the middle of the
-	// user's file, and nothing downstream can tell it from content. It did
-	// exactly that until a live read of a 316 KB file caught it.
-	//
-	// Measured (2026-07-17): present on every window that stops short of
-	// total_lines, absent from the final one, and the content it follows always
-	// ends at a complete line -- which is why concatenating windows needs no
-	// separator once the notice is gone.
 	if !e.Complete() && !e.Truncated {
 		body, ok := stripTruncationNotice(e.Body)
 		if !ok {
@@ -103,12 +81,7 @@ func ParseEnvelope(raw string) (Envelope, error) {
 					"refusing to reassemble it rather than splice server prose into the file",
 				e.Path, e.Lines[0], e.Lines[1], e.TotalLines)
 		}
-		// The server's own words: "the body ends at a complete line". readFull
-		// joins windows with no separator on the strength of that, so check it
-		// rather than trust it. Without this, a server that kept the notice but
-		// dropped the blank line before it would have the cut eat the content's
-		// own final newline -- welding two windows mid-line, one byte short per
-		// boundary, in silence.
+
 		if !strings.HasSuffix(body, "\n") {
 			return e, fmt.Errorf(
 				"%s: a windowed read (lines %d-%d of %d) does not end at a complete line, which is what "+
@@ -120,27 +93,8 @@ func ParseEnvelope(raw string) (Envelope, error) {
 	return e, nil
 }
 
-// truncationNotice matches the server's trailer, and nothing else.
-//
-// It is anchored at both ends and tested against the body's LAST LINE ONLY.
-// Both of those matter. An unanchored search would find the LEFTMOST match, and
-// the notice carries exactly one ']' -- its final character -- so `[^\]]*`
-// would happily span from a line of the user's own content that merely looks
-// like a notice, straight through the server's real trailer, taking everything
-// between them with it. A file describing read_file's own windowing is enough
-// to trigger that; PROTOCOL.md is such a file.
-//
-// It is also deliberately narrow. If the server rewords the notice this stops
-// matching and ParseEnvelope refuses the read: dsx failing loudly on files over
-// 256 KiB is recoverable, dsx quietly rewriting one is not.
 var truncationNotice = regexp.MustCompile(`^…\[\+\d+ bytes truncated[^\]]*\]$`)
 
-// stripTruncationNotice removes the server's trailer and the newline before it.
-//
-// The trailer is always the final line, and the content it follows always ends
-// at a complete line of its own -- both measured. So cutting at the last newline
-// yields exactly the content, and the strip can never reach further back than
-// one line however strange the file is.
 func stripTruncationNotice(body string) (string, bool) {
 	nl := strings.LastIndexByte(body, '\n')
 	if nl < 0 {
@@ -152,8 +106,6 @@ func stripTruncationNotice(body string) (string, bool) {
 	return body[:nl], true
 }
 
-// parseAttrs reads name="value" pairs. Attribute values are server-generated
-// and never contain quotes.
 func parseAttrs(s string) map[string]string {
 	out := map[string]string{}
 	for rest := s; ; {
@@ -176,13 +128,6 @@ func parseAttrs(s string) map[string]string {
 	}
 }
 
-// decodeEntities reverses the server's escaping, which covers exactly
-// &amp; &lt; &gt; and nothing else.
-//
-// A single left-to-right pass is required for correctness: an ampersand
-// produced by &amp; must not be reconsidered as the start of another entity,
-// or a file that literally contains "&lt;" (escaped to "&amp;lt;") would
-// decode to "<" instead of "&lt;".
 func decodeEntities(s string) string {
 	if !strings.ContainsRune(s, '&') {
 		return s
@@ -213,8 +158,6 @@ func decodeEntities(s string) string {
 	return b.String()
 }
 
-// readFull retrieves a complete file, walking windows when the server's
-// 256 KiB per-read cap truncates it.
 func (c *Client) ReadFull(ctx context.Context, projectID, path string) (body string, etag string, err error) {
 	var (
 		sb     strings.Builder

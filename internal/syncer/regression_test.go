@@ -7,13 +7,10 @@ import (
 	"testing"
 )
 
-// The canonical conflict: both sides moved since the last sync. Every other
-// conflict guard keys off prev.Etag == r.Etag, which is precisely the case
-// this one is not.
 func TestPlanPullBothSidesChangedIsAConflict(t *testing.T) {
 	d := planPull(
-		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),  // server moved
-		localOf(localFile{Path: "a.css", SHA: "edited"}), // and we edited
+		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
+		localOf(localFile{Path: "a.css", SHA: "edited"}),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		false, false)
 
@@ -37,7 +34,6 @@ func TestPlanPullBothSidesChangedFetchesUnderForce(t *testing.T) {
 	}
 }
 
-// A clean fast-forward: server moved, we did not touch the file.
 func TestPlanPullRemoteOnlyChangeStillFetches(t *testing.T) {
 	d := planPull(
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
@@ -53,7 +49,6 @@ func TestPlanPullRemoteOnlyChangeStillFetches(t *testing.T) {
 	}
 }
 
-// Deleted on the server, edited locally: --prune would unlink the only copy.
 func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 	d := planPull(
 		remoteOf(),
@@ -64,9 +59,7 @@ func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 	if len(d.Delete) != 0 {
 		t.Errorf("delete=%v, want none — the local edit is the only copy left", d.Delete)
 	}
-	// Reported apart from an ordinary conflict, because --force resolves this
-	// one by DELETING rather than by overwriting, and the bytes it destroys
-	// exist nowhere else. Same refusal, honest advice.
+
 	if !slices.Equal(d.PruneConflicts, []string{"gone.css"}) {
 		t.Errorf("pruneConflicts=%v, want [gone.css]", d.PruneConflicts)
 	}
@@ -81,14 +74,12 @@ func TestPlanPushPruneKeepsLocallyEditedFile(t *testing.T) {
 		localOf(),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 		false, true)
-	// Absent locally and unchanged remotely: this one really is a delete.
+
 	if !slices.Equal(d.Delete, []string{"a.css"}) {
 		t.Errorf("delete=%v, want [a.css]", d.Delete)
 	}
 }
 
-// A symlink planted inside the target directory redirects a write outside it.
-// filepath.Clean and filepath.Abs are lexical and cannot see it.
 func TestSafeJoinRefusesSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -116,9 +107,6 @@ func TestSafeJoinRefusesSymlinkedLeaf(t *testing.T) {
 	}
 }
 
-// A remote project must not be able to reach into local VCS metadata or
-// overwrite dsx's own ledger. Neither path escapes the root, so safeJoin
-// alone cannot refuse them.
 func TestRemotePathsCannotTouchVCSOrLedger(t *testing.T) {
 	for _, p := range []string{
 		".git/config",

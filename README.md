@@ -165,7 +165,6 @@ go vet ./... && gofmt -l .
 - [CLAUDE.md](CLAUDE.md) — orientation, invariants, testing discipline. Read before changing
   sync logic.
 - [PROTOCOL.md](PROTOCOL.md) — the undocumented MCP contract, as measured.
-- [ROADMAP.md](ROADMAP.md) — gaps, and the open question of whether this gets published.
 - `reference/mcp-tools.json` — the server's own `tools/list` output, verbatim.
 
 ## Licence

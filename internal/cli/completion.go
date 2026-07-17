@@ -26,8 +26,6 @@ func cmdCompletion(args []string) error {
 		return err
 	}
 	if *asJSON {
-		// A shell script is not JSON, so under --json it is carried inside one.
-		// `eval "$(dsx completion bash)"` is the prose form and stays the point.
 		b, mErr := json.Marshal(map[string]any{"shell": shell, "script": script})
 		if mErr != nil {
 			return mErr

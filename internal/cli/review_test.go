@@ -9,17 +9,7 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// The half of the adversarial review that is about the CLI surface rather
-// than the sync decisions. Its siblings moved to internal/syncer with the
-// code they guard; the preamble there explains where all of them came from.
-
-// ---------------------------------------------------------------------------
-// the contract with an agent
-// ---------------------------------------------------------------------------
-
 func TestUnclassifiedErrorRendersItsMessageOnce(t *testing.T) {
-	// dsxerr.Classify() set Msg AND Err to the same error, and both renderers
-	// concatenate the two, so every unclassified failure said everything twice.
 	err := dsxerr.Classify(errNoCredentialsSentinel{})
 	if got := err.Error(); strings.Count(got, "boom") != 1 {
 		t.Errorf("prose says it %d times: %q", strings.Count(got, "boom"), got)
@@ -38,13 +28,8 @@ type errNoCredentialsSentinel struct{}
 func (errNoCredentialsSentinel) Error() string { return "boom" }
 
 func TestDoctorDiagnosesTheCredentialDsxWillActuallySend(t *testing.T) {
-	// runDoctor read the stored credential while every request uses DSX_TOKEN,
-	// so a working install was reported "fail credentials" and exited 1 — on the
-	// same run whose endpoint check had just authenticated with that very token.
-	// doctor is the command people run to find out why something is broken; it
-	// must not invent the breakage.
 	t.Setenv("DSX_TOKEN", "sk-ant-oat01-SENTINEL")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // no stored login at all
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: "{}"}
@@ -67,13 +52,7 @@ func TestDoctorDiagnosesTheCredentialDsxWillActuallySend(t *testing.T) {
 	}
 }
 
-// TestPutSelfAuthorisesLikePushDoes moved to internal/cmd/files with cmdPut,
-// which it drives directly.
-
 func TestVersionHonoursJSON(t *testing.T) {
-	// --json is documented as making stdout one JSON document, with no carve-out.
-	// version was dispatched before any FlagSet and printed prose, so a caller
-	// discovering the binary's version had to special-case it.
 	out, err := captureStdout(t, func() error { return cmdVersion([]string{"--json"}) })
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +76,6 @@ func TestVersionHonoursJSON(t *testing.T) {
 		t.Errorf("version JSON is missing fields: %+v", got)
 	}
 
-	// Prose still works and stays one line.
 	prose, err := captureStdout(t, func() error { return cmdVersion(nil) })
 	if err != nil {
 		t.Fatal(err)

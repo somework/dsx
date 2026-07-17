@@ -18,15 +18,6 @@ import (
 	"github.com/somework/dsx/internal/mcptest"
 )
 
-// Transport tests for mcp.go.
-//
-// The fake here is not evidence about the server -- see fake_test.go. What it
-// can prove is dsx's own conduct in front of a server: how many times a request
-// reaches the wire, and what classification a caller ends up branching on.
-// Both are things a mistake in mcp.go breaks silently.
-
-// mcpGenRawServer returns a Client pointed at a bare handler, for the cases
-// mcptest.Server cannot express: an exact Date header, a suppressed one, a raw status.
 func mcpGenRawServer(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
@@ -36,8 +27,6 @@ func mcpGenRawServer(t *testing.T, h http.HandlerFunc) *Client {
 	return c
 }
 
-// mcpGenManifest is the shape of reference/mcp-tools.json, which is the
-// server's own tools/list output recorded verbatim.
 type mcpGenManifest struct {
 	Tools []struct {
 		Name        string `json:"name"`
@@ -63,15 +52,6 @@ func mcpGenLoadManifest(t *testing.T) mcpGenManifest {
 	return m
 }
 
-// ---------------------------------------------------------------------------
-// readOnlyTools must not drift (invariant 6)
-// ---------------------------------------------------------------------------
-
-// reference/mcp-tools.json is the server's verbatim reply, so its readOnlyHint
-// is the one statement about retry safety dsx did not have to guess. Drift in
-// either direction is a defect, and they are not symmetric: a name missing from
-// readOnlyTools only costs a retry dsx could have had, while an extra name
-// re-executes a mutation after a transport fault.
 func TestReadOnlyToolsMatchesTheServersOwnReadOnlyHint(t *testing.T) {
 	t.Parallel()
 	m := mcpGenLoadManifest(t)
@@ -92,9 +72,6 @@ func TestReadOnlyToolsMatchesTheServersOwnReadOnlyHint(t *testing.T) {
 	}
 }
 
-// A second, independent guard: the reference file only knows the tools that
-// existed when it was recorded. A tool added later and marked read-only by
-// hand, whose name says otherwise, should still be caught.
 func TestNoToolWhoseNameImpliesMutationIsMarkedReadOnly(t *testing.T) {
 	t.Parallel()
 	mutatingVerbs := []string{
@@ -110,12 +87,6 @@ func TestNoToolWhoseNameImpliesMutationIsMarkedReadOnly(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Retry: who may be replayed, and who may not
-// ---------------------------------------------------------------------------
-
-// A 500 says nothing about whether the server ran the call, so a read-only tool
-// is the only kind dsx may put back on the wire.
 func TestReadOnlyToolIsRetriedAfterA500(t *testing.T) {
 	t.Parallel()
 	var seen atomic.Int32
@@ -139,12 +110,6 @@ func TestReadOnlyToolIsRetriedAfterA500(t *testing.T) {
 	}
 }
 
-// THE test in this file. write_files may already have been applied when the 500
-// surfaced, so exactly one attempt may reach the server.
-//
-// Falsification: flipping readOnlyTools["write_files"] to true makes rpc treat
-// the 500 as retryable and the count becomes maxAttempts. If this test ever
-// stops failing under that edit, it has stopped testing anything.
 func TestMutatingToolIsNotRetriedAfterA500(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -165,9 +130,6 @@ func TestMutatingToolIsNotRetriedAfterA500(t *testing.T) {
 	}
 }
 
-// 429 is the one status that is safe for any method: the server rejected the
-// call before running it. Retrying is what keeps a large push from dying on
-// rate limiting.
 func TestMutatingToolIsRetriedAfterA429(t *testing.T) {
 	t.Parallel()
 	var seen atomic.Int32
@@ -191,10 +153,6 @@ func TestMutatingToolIsRetriedAfterA429(t *testing.T) {
 	}
 }
 
-// The wrap at the end of rpc ("after N attempts: %w") is the last thing between
-// the transport label and the caller. With %v instead of %w the label is lost
-// and a run that should exit 4 (retryable) exits 1 (generic failure) -- an
-// agent branching on the kind would stop retrying a fault that was retryable.
 func TestRetryExhaustionKeepsTheTransportClassification(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -216,8 +174,6 @@ func TestRetryExhaustionKeepsTheTransportClassification(t *testing.T) {
 	}
 }
 
-// A 400 is deterministic: replaying it burns attempts and, worse, classifying
-// it as transport tells a caller to retry something that can never succeed.
 func TestBadRequestIsProtocolAndIsNotRetried(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -236,12 +192,6 @@ func TestBadRequestIsProtocolAndIsNotRetried(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Error classification a caller acts on
-// ---------------------------------------------------------------------------
-
-// Auth is the one failure with a specific remedy, and mcp.go is the only place
-// that knows a 401 happened. Retrying it would just spend the backoff.
 func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -262,17 +212,12 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	if code := dsxerr.ExitCodeFor(err); code != dsxerr.ExitAuth {
 		t.Errorf("dsxerr.ExitCodeFor(err) = %d, want %d", code, dsxerr.ExitAuth)
 	}
-	// Errors say what to do next. Without the remedy the user has a dead token
-	// and no way to learn that re-running claude fixes it.
+
 	if !strings.Contains(de.Msg, "claude") {
 		t.Errorf("401 message = %q, want it to name the `claude` command as the fix", de.Msg)
 	}
 }
 
-// The grant refusal is recoverable and push.go recovers from it by name --
-// `errors.As(err, &ge)` at push.go:185, through callTool's %w wrap. If it
-// arrived as a plain dsxerr.Error or a ToolError, push would surface the 403 to the
-// user instead of self-authorising with a plan_token.
 func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -296,8 +241,6 @@ func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 		t.Errorf("GrantError.ProjectID = %q, want %q; finalize_plan needs the id", ge.ProjectID, "proj-42")
 	}
 
-	// It is a transport-layer refusal, not a tool result, and conflating the two
-	// would send push down the wrong recovery path.
 	var te *ToolError
 	if errors.As(err, &te) {
 		t.Errorf("the grant refusal also matched *ToolError (%v)", te)
@@ -307,9 +250,6 @@ func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	}
 }
 
-// isError is the server refusing the call, not the transport failing. Callers
-// match on the type rather than on message text, and the text must arrive whole
-// because it is the only description of what went wrong.
 func TestToolErrorSurvivesTheCallToolWrap(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -332,7 +272,7 @@ func TestToolErrorSurvivesTheCallToolWrap(t *testing.T) {
 	if te.Text != "file not found: nope.txt" {
 		t.Errorf("ToolError.Text = %q, want the server's text trimmed and otherwise intact", te.Text)
 	}
-	// A tool error is the server's considered answer; replaying it changes nothing.
+
 	if n := f.CountTool("read_file"); n != 1 {
 		t.Errorf("read_file reached the server %d times, want 1", n)
 	}
@@ -351,8 +291,7 @@ func TestRPCErrorObjectIsProtocolAndIsNotRetried(t *testing.T) {
 	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
 		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q", k, dsxerr.KindProtocol)
 	}
-	// list_files is read-only, so nothing but the classification stops a replay
-	// of a call the server has already judged malformed.
+
 	if n := f.CountTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1", n)
 	}
@@ -380,10 +319,6 @@ func TestMalformedBodyIsProtocolNotTransport(t *testing.T) {
 	}
 }
 
-// A server that splits text across content parts must not lose the tail:
-// read_file's envelope is parsed as one string, and a truncated envelope is a
-// corrupt file. Invariant 1's size check would catch it, but only after the
-// decode had already gone wrong.
 func TestCallToolConcatenatesEveryTextPart(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -401,10 +336,6 @@ func TestCallToolConcatenatesEveryTextPart(t *testing.T) {
 	}
 }
 
-// rpc succeeded but the result is not a tool result at all. The property worth
-// pinning is the negative one: callTool must not hand back ("", nil). An empty
-// string that looks like success is a read_file that writes an empty file and a
-// write_files whose etags are quietly never recorded.
 func TestCallToolRefusesAResultShapeItCannotParse(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
@@ -424,13 +355,7 @@ func TestCallToolRefusesAResultShapeItCannotParse(t *testing.T) {
 	}
 }
 
-// DSX_ENDPOINT is how the live suite and anyone debugging points dsx somewhere
-// other than production. If it were ignored, a test run aimed at a scratch
-// endpoint would silently touch the real service instead.
 func TestNewClientPrefersTheEndpointFromTheEnvironment(t *testing.T) {
-	// Not parallel: t.Setenv mutates process-wide state. Setting it empty first
-	// makes the default case deterministic even if the developer running the
-	// suite has DSX_ENDPOINT exported.
 	t.Setenv("DSX_ENDPOINT", "")
 	if got := New("tok").endpoint; got != defaultEndpoint {
 		t.Errorf("endpoint = %q, want the default %q when the env is empty", got, defaultEndpoint)
@@ -441,20 +366,11 @@ func TestNewClientPrefersTheEndpointFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Backoff
-// ---------------------------------------------------------------------------
-
-// The backoff sleeps for seconds. A plain time.Sleep there would make Ctrl-C
-// take up to the full remaining backoff to be noticed, and the derived contexts
-// used by the concurrent tree walk would keep working after the walk gave up.
 func TestBackoffHonoursContextCancellationInsteadOfSleepingThroughIt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
-		// Cancel while the first attempt is in flight, so the loop meets a done
-		// context exactly when it reaches its first backoff.
 		cancel()
 		return mcptest.Reply{HTTPStatus: http.StatusInternalServerError}
 	})
@@ -466,16 +382,11 @@ func TestBackoffHonoursContextCancellationInsteadOfSleepingThroughIt(t *testing.
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want it to carry context.Canceled", err)
 	}
-	// The first backoff is 2<<0... i.e. 500ms plus jitter, and there are three
-	// of them. Returning inside that window is the whole assertion.
+
 	if elapsed >= 400*time.Millisecond {
 		t.Errorf("cancelled call took %v, want well under the 500ms first backoff", elapsed)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// The Date header (doctor's clock check reads it)
-// ---------------------------------------------------------------------------
 
 func TestServerDateLandsInLastServerDate(t *testing.T) {
 	t.Parallel()
@@ -494,8 +405,6 @@ func TestServerDateLandsInLastServerDate(t *testing.T) {
 	}
 }
 
-// An unparseable Date must not be stored either -- a garbage value is worse
-// than none, because doctor would report a decades-wide skew as a hard failure.
 func TestUnparseableDateLeavesLastServerDateZero(t *testing.T) {
 	t.Parallel()
 	c := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -511,12 +420,6 @@ func TestUnparseableDateLeavesLastServerDateZero(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// normalizeSSE: the branches mcp_test.go leaves uncovered
-// ---------------------------------------------------------------------------
-
-// A frame that does not parse must be skipped, not treated as the answer and
-// not allowed to end the search: the response may well be behind it.
 func TestNormalizeSSESkipsAnUnparseableFrameAheadOfTheResponse(t *testing.T) {
 	t.Parallel()
 	in := "event: message\n" +
@@ -533,9 +436,6 @@ func TestNormalizeSSESkipsAnUnparseableFrameAheadOfTheResponse(t *testing.T) {
 	}
 }
 
-// When nothing carries result or error there is no right answer; returning the
-// last frame at least hands the caller something the protocol layer can report
-// as malformed, rather than a silent empty success.
 func TestNormalizeSSEFallsBackToTheLastFrameWhenNoneCarriesResultOrError(t *testing.T) {
 	t.Parallel()
 	last := `{"jsonrpc":"2.0","method":"notifications/message","params":{"n":2}}`
@@ -548,9 +448,6 @@ func TestNormalizeSSEFallsBackToTheLastFrameWhenNoneCarriesResultOrError(t *test
 	}
 }
 
-// An SSE-looking body with no data: lines yields no frames at all. Returning
-// the body unchanged keeps the decision with the caller, which reports it as
-// malformed; returning empty would look like a well-formed nothing.
 func TestNormalizeSSEReturnsTheBodyWhenNoDataLinesArePresent(t *testing.T) {
 	t.Parallel()
 	in := []byte("event: ping\n\nevent: ping\n\n")
@@ -559,7 +456,6 @@ func TestNormalizeSSEReturnsTheBodyWhenNoDataLinesArePresent(t *testing.T) {
 	}
 }
 
-// A stream may open with data: and never send an event: line.
 func TestNormalizeSSEHandlesAStreamThatOpensWithData(t *testing.T) {
 	t.Parallel()
 	in := `data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n\n"
@@ -571,7 +467,3 @@ func TestNormalizeSSEHandlesAStreamThatOpensWithData(t *testing.T) {
 		t.Errorf("result = %s", out.Result)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// truncate
-// ---------------------------------------------------------------------------
