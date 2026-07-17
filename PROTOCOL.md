@@ -181,6 +181,24 @@ after that, writes need no token. `local_path` exists in the schema but is
 `"Not yet implemented for server-side callers"` — useless here; send `data` + `encoding:
 "base64"` instead.
 
+A **stale `if_match`** comes back as a *tool error* whose text is JSON — not prose, unlike
+every other tool error. Measured 2026-07-17:
+
+```json
+{"conflicts":[{"path":"a.css","etag":"1784268009093847",
+               "current_content":"<untrusted-project-content path=\"a.css\" etag=\"…\">\nhello\n\n</untrusted-project-content>"}],
+ "message":"write_files: refused — the user (or another writer) changed one or more of these files since your if_match etag. Nothing was written. Re-base on current_content (wrapped the same way read_file wraps …) and retry with the new etag as if_match."}
+```
+
+Three things matter here:
+
+- **"Nothing was written."** The refusal is atomic across the batch, so dsx can report it as a
+  plain conflict rather than as a partial write.
+- `conflicts[].path` and `.etag` are structured, so dsx can name the files and exit 3 instead
+  of degrading the one race every `if_match` exists to catch into a generic failure.
+- `current_content` arrives wrapped exactly as `read_file` wraps a body — same escaping, same
+  framing — so a rebase needs the same decoder.
+
 `needs_project_grant` arrives as **HTTP 403 with a JSON body**, not as a tool error:
 
 ```json

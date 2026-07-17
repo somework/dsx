@@ -80,7 +80,15 @@ func parseIgnore(text string) (*ignoreSet, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.rules = append(s.rules, ignoreRule{re: re, source: p})
+		// Built-ins match case-insensitively because the filesystem does:
+		// macOS's default APFS makes ".GIT" and ".git" the same directory, so a
+		// case-sensitive rule would leave the real one exposed. User rules stay
+		// case-sensitive, as gitignore's are.
+		ci, err := regexp.Compile("(?i)" + re.String())
+		if err != nil {
+			return nil, err
+		}
+		s.rules = append(s.rules, ignoreRule{re: ci, source: p})
 	}
 	builtinCount := len(s.rules)
 

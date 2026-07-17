@@ -174,7 +174,28 @@ func cmdPut(ctx context.Context, c *client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return emit(ctx, c, "write_files", a, *asJSON)
+	// Self-authorise exactly the way push does. A project with no standing
+	// grant is the default, and `dsx put` used to stop dead on the 403 that
+	// `dsx push` recovers from silently.
+	return emitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
+}
+
+// emitWrite is emit for a tool that writes: it recovers from the server's
+// demand for a standing project grant before printing.
+func emitWrite(ctx context.Context, c *client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
+	if _, given := args["plan_token"]; given {
+		// The caller brought their own authority; do not second-guess it.
+		return emit(ctx, c, tool, args, asJSON)
+	}
+	text, err := c.callWithGrant(ctx, tool, args, projectID, paths)
+	if err != nil {
+		if conflicts, ok := conflictFromToolError(err); ok {
+			return conflictError(conflicts, "the server changed since dsx read it; nothing was written")
+		}
+		return err
+	}
+	fmt.Println(jsonSafe(text, asJSON))
+	return nil
 }
 
 func cmdRm(ctx context.Context, c *client, args []string) error {
@@ -236,7 +257,7 @@ func cmdCp(ctx context.Context, c *client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return emit(ctx, c, "copy_files", a, *asJSON)
+	return emitWrite(ctx, c, "copy_files", a, project, []string{rest[0]}, *asJSON)
 }
 
 func cmdPlan(ctx context.Context, c *client, args []string) error {
@@ -315,7 +336,13 @@ func cmdSupportJS(ctx context.Context, c *client, args []string) error {
 			a[k] = v
 		}
 	}
-	return emit(ctx, c, "create_support_js", a, *asJSON)
+	dest := *path
+	if dest == "" {
+		// The server picks the path when we do not. There is nothing to name in
+		// a plan, so a grant refusal here cannot be self-authorised.
+		return emit(ctx, c, "create_support_js", a, *asJSON)
+	}
+	return emitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON)
 }
 
 func cmdConv(ctx context.Context, c *client, args []string) error {

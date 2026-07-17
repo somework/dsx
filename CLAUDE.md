@@ -59,7 +59,14 @@ reading why it exists.
 
 4. **`--prune` deletes only what we can prove was ours and unmodified.** Untracked → not
    ours. Locally edited → the only copy left, so it is a conflict. `binary: true` entries are
-   tracked but were never on disk; their absence is not a deletion.
+   tracked but were never on disk; their absence is not a deletion. **A path that exists but
+   is not a regular file is not proof of anything** — dropping symlinks from the scan made
+   them indistinguishable from a deletion, and `push --prune` deleted the server's copy with
+   a matching `if_match`, so the server complied. `localFile.Irregular` exists for that.
+
+   And when `--prune` *does* refuse, say which kind of refusal it is: `--force` resolves an
+   ordinary conflict by overwriting (the bytes survive on the server) and a prune-conflict by
+   **deleting** (they survive nowhere). Both once printed "--force to overwrite".
 
 5. **The ledger is saved whenever bytes moved**, including on error paths. Files on disk with
    no ledger entry become conflicts on the next run, which pushes the user toward `--force` —
@@ -74,7 +81,13 @@ reading why it exists.
 7. **Remote paths are untrusted input.** `safeJoin` refuses escapes *including through
    symlinks* (lexical `Clean`/`Abs` cannot see them); `checkRemotePath` refuses names that
    stay inside the root but must never be written — `.git`, `node_modules`, the ledger itself.
-   `.dsxignore`'s built-ins are built from the same list, so the two cannot drift.
+   `.dsxignore`'s built-ins are built from the same list, so the two cannot drift. **Both
+   compare case-insensitively, because the filesystem does**: macOS ships case-insensitive
+   APFS, so `.GIT/config` *is* `.git/config` and a case-sensitive guard is no guard.
+
+   The bytes are untrusted too, not just the paths. A file's own content can look like the
+   server's framing: see the truncation notice in invariant 1's neighbourhood, where an
+   unanchored strip let a file that merely *described* the notice delete its own tail.
 
 8. **The token is read, never written, never printed.** Refreshing it here would rotate the
    refresh token out from under Claude Code and break its login. An expired token is
@@ -88,7 +101,7 @@ reading why it exists.
 ## Testing
 
 ```bash
-go test -race ./...     # 509 tests
+go test -race ./...     # 532 tests
 go vet ./... && gofmt -l .
 ```
 

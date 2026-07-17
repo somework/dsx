@@ -544,7 +544,7 @@ func TestNormalizeSSESkipsAnUnparseableFrameAheadOfTheResponse(t *testing.T) {
 		`data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n\n"
 
 	var out rpcResponse
-	if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+	if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 		t.Fatalf("the response did not survive an unparseable frame ahead of it: %v", err)
 	}
 	if string(out.Result) != `{"ok":true}` {
@@ -562,7 +562,7 @@ func TestNormalizeSSEFallsBackToTheLastFrameWhenNoneCarriesResultOrError(t *test
 		`data: {"jsonrpc":"2.0","method":"notifications/message","params":{"n":1}}` + "\n\n" +
 		"event: message\ndata: " + last + "\n\n"
 
-	if got := string(normalizeSSE([]byte(in))); got != last {
+	if got := string(normalizeSSE([]byte(in), "text/event-stream")); got != last {
 		t.Errorf("normalizeSSE = %q, want the last frame %q", got, last)
 	}
 }
@@ -573,7 +573,7 @@ func TestNormalizeSSEFallsBackToTheLastFrameWhenNoneCarriesResultOrError(t *test
 func TestNormalizeSSEReturnsTheBodyWhenNoDataLinesArePresent(t *testing.T) {
 	t.Parallel()
 	in := []byte("event: ping\n\nevent: ping\n\n")
-	if got := normalizeSSE(in); !bytes.Equal(got, in) {
+	if got := normalizeSSE(in, "text/event-stream"); !bytes.Equal(got, in) {
 		t.Errorf("normalizeSSE = %q, want the body unchanged", got)
 	}
 }
@@ -583,7 +583,7 @@ func TestNormalizeSSEHandlesAStreamThatOpensWithData(t *testing.T) {
 	t.Parallel()
 	in := `data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n\n"
 	var out rpcResponse
-	if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+	if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 		t.Fatalf("event-less stream failed: %v", err)
 	}
 	if string(out.Result) != `{"ok":true}` {

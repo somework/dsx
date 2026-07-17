@@ -64,8 +64,14 @@ func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 	if len(d.Delete) != 0 {
 		t.Errorf("delete=%v, want none — the local edit is the only copy left", d.Delete)
 	}
-	if !slices.Equal(d.Conflicts, []string{"gone.css"}) {
-		t.Errorf("conflicts=%v, want [gone.css]", d.Conflicts)
+	// Reported apart from an ordinary conflict, because --force resolves this
+	// one by DELETING rather than by overwriting, and the bytes it destroys
+	// exist nowhere else. Same refusal, honest advice.
+	if !slices.Equal(d.PruneConflicts, []string{"gone.css"}) {
+		t.Errorf("pruneConflicts=%v, want [gone.css]", d.PruneConflicts)
+	}
+	if len(d.Conflicts) != 0 {
+		t.Errorf("conflicts=%v — this is a delete-conflict, not an overwrite-conflict", d.Conflicts)
 	}
 }
 

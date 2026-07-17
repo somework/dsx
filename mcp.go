@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
@@ -82,6 +83,47 @@ type toolError struct {
 }
 
 func (e *toolError) Error() string { return e.Tool + ": " + e.Text }
+
+// serverConflict is write_files' answer to a stale if_match, measured on
+// 2026-07-17:
+//
+//	{"conflicts":[{"path":"a.css","etag":"1784268009093847","current_content":"…"}],
+//	 "message":"write_files: refused — the user (or another writer) changed one or
+//	            more of these files since your if_match etag. Nothing was written. …"}
+//
+// It arrives as a tool error, so nothing about it is structured until it is
+// parsed. That mattered: the race this reply reports is the exact one every
+// if_match exists to catch, and dsx used to hand it back as a generic failure —
+// exit 1 — so an agent watching for exit 3 sailed past the one case that needs
+// a human.
+//
+// "Nothing was written" is the server's own word, and it is why this is safe to
+// report as a plain conflict rather than as a partial write.
+type serverConflict struct {
+	Conflicts []struct {
+		Path string `json:"path"`
+		Etag string `json:"etag"`
+	} `json:"conflicts"`
+	Message string `json:"message"`
+}
+
+// conflictFromToolError recovers the conflicting paths from a write refusal, or
+// reports false for any other failure.
+func conflictFromToolError(err error) ([]string, bool) {
+	var te *toolError
+	if !errors.As(err, &te) {
+		return nil, false
+	}
+	var sc serverConflict
+	if json.Unmarshal([]byte(te.Text), &sc) != nil || len(sc.Conflicts) == 0 {
+		return nil, false
+	}
+	paths := make([]string, 0, len(sc.Conflicts))
+	for _, c := range sc.Conflicts {
+		paths = append(paths, c.Path)
+	}
+	return paths, true
+}
 
 // grantError is the server's 403 demanding a standing write grant for a
 // project. It is recoverable: a plan_token from finalize_plan authorises the
@@ -191,7 +233,7 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 	}
 
 	var out rpcResponse
-	if err := json.Unmarshal(normalizeSSE(payload), &out); err != nil {
+	if err := json.Unmarshal(normalizeSSE(payload, resp.Header.Get("Content-Type")), &out); err != nil {
 		return nil, false, &dsxError{Kind: kindProtocol, Msg: "malformed response", Err: err}
 	}
 	if out.Error != nil {
@@ -207,9 +249,14 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 // Frames must not simply be concatenated: a stream may carry notifications
 // ahead of the response, and gluing two JSON documents together yields neither.
 // Only the frame bearing result or error answers our call.
-func normalizeSSE(b []byte) []byte {
-	trimmed := bytes.TrimSpace(b)
-	if !bytes.HasPrefix(trimmed, []byte("event:")) && !bytes.HasPrefix(trimmed, []byte("data:")) {
+//
+// The decision is made on the Content-Type, not on the body's first bytes. The
+// old sniff demanded the body open with event: or data:, which is stricter than
+// the grammar this function's own loop implements: SSE permits a comment, an
+// id: or a retry: first, and servers send `: ping` as a keepalive. Such a
+// stream was handed back raw and died as an unretryable "malformed response".
+func normalizeSSE(b []byte, contentType string) []byte {
+	if !isEventStream(contentType) {
 		return b
 	}
 
@@ -252,6 +299,13 @@ func normalizeSSE(b []byte) []byte {
 		return frames[len(frames)-1]
 	}
 	return b
+}
+
+// isEventStream reports an SSE Content-Type, ignoring any parameters the header
+// carries (charset, boundary).
+func isEventStream(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return strings.EqualFold(strings.TrimSpace(mediaType), "text/event-stream")
 }
 
 // callTool invokes an MCP tool and returns its concatenated text content.

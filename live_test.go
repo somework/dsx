@@ -650,7 +650,32 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 		}},
 	})
 	if err == nil {
-		t.Error("write_files accepted a stale if_match; dsx's whole conflict guard runs through this")
+		t.Fatal("write_files accepted a stale if_match; dsx's whole conflict guard runs through this")
+	}
+
+	// The refusal is not prose: it is JSON naming the paths, which is what lets
+	// dsx exit 3 rather than degrading the one race if_match exists to catch
+	// into a generic failure. If the server ever reworded this into prose,
+	// conflictFromToolError would stop matching and every server-detected
+	// conflict would silently become exit 1 again.
+	paths, ok := conflictFromToolError(err)
+	if !ok {
+		t.Fatalf("a stale if_match no longer parses as {\"conflicts\":[…]}; server-detected "+
+			"conflicts would exit 1 instead of 3: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != path {
+		t.Errorf("conflict names %v, want [%s]", paths, path)
+	}
+	var sc serverConflict
+	var te *toolError
+	if errors.As(err, &te) && json.Unmarshal([]byte(te.Text), &sc) == nil {
+		if !strings.Contains(sc.Message, "Nothing was written") {
+			t.Errorf("the server no longer promises atomicity; dsx reports this as a plain "+
+				"conflict on the strength of that promise: %q", sc.Message)
+		}
+		if sc.Conflicts[0].Etag == "" || sc.Conflicts[0].Etag == "1" {
+			t.Errorf("the reply did not carry the current etag: %+v", sc.Conflicts[0])
+		}
 	}
 
 	// The correct etag must still work, or dsx would be unable to push at all.

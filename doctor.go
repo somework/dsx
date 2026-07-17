@@ -76,20 +76,32 @@ func cmdDoctor(ctx context.Context, c *client, args []string) error {
 func runDoctor(ctx context.Context, c *client) doctorReport {
 	var rep doctorReport
 
-	// Credentials. Naming the store is the single most useful thing dsx can
-	// say to someone whose login it cannot see.
-	creds, src, err := readCredentials()
-	if err != nil {
-		rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
+	// Diagnose the credential dsx will actually send, not the one it has stored.
+	//
+	// DSX_TOKEN overrides the store for every request, so reading the store here
+	// reported "fail credentials" for a perfectly working install -- on the same
+	// run whose endpoint check had just authenticated with that very token.
+	// doctor is what people run to find out why something is broken; it must not
+	// invent the breakage.
+	if t, _ := os.LookupEnv("DSX_TOKEN"); t != "" {
+		rep.Checks = append(rep.Checks, newCheck("credentials", checkOK,
+			"DSX_TOKEN (scopes and expiry are not knowable from a bare token)"))
 	} else {
-		rep.Checks = append(rep.Checks,
-			newCheck("credentials", checkOK, "%s", describeSource(src)),
-			tokenExpiryCheck(creds.ExpiresAt),
-			scopeCheck(creds.Scopes),
-		)
-	}
-	if src == srcFile {
-		rep.Checks = append(rep.Checks, credentialsModeCheck(credentialsPath(os.LookupEnv, homeDir())))
+		// Naming the store is the single most useful thing dsx can say to
+		// someone whose login it cannot see.
+		creds, src, err := readCredentials()
+		if err != nil {
+			rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
+		} else {
+			rep.Checks = append(rep.Checks,
+				newCheck("credentials", checkOK, "%s", describeSource(src)),
+				tokenExpiryCheck(creds.ExpiresAt),
+				scopeCheck(creds.Scopes),
+			)
+		}
+		if src == srcFile {
+			rep.Checks = append(rep.Checks, credentialsModeCheck(credentialsPath(os.LookupEnv, homeDir())))
+		}
 	}
 
 	// Endpoint. tools/list is read-only and cheap, and a reply proves the

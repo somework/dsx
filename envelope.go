@@ -107,21 +107,36 @@ func parseEnvelope(raw string) (envelope, error) {
 	return e, nil
 }
 
-// truncationNotice matches the server's own trailer at the very end of a
-// windowed body, together with the newline that separates it from the content.
+// truncationNotice matches the server's trailer, and nothing else.
 //
-// It is anchored to the end and deliberately narrow. If the server rewords the
-// notice this stops matching, and parseEnvelope then refuses the read: dsx
-// failing loudly on files over 256 KiB is recoverable, dsx quietly writing the
-// server's prose into the middle of one is not.
-var truncationNotice = regexp.MustCompile(`\n…\[\+\d+ bytes truncated[^\]]*\]$`)
+// It is anchored at both ends and tested against the body's LAST LINE ONLY.
+// Both of those matter. An unanchored search would find the LEFTMOST match, and
+// the notice carries exactly one ']' -- its final character -- so `[^\]]*`
+// would happily span from a line of the user's own content that merely looks
+// like a notice, straight through the server's real trailer, taking everything
+// between them with it. A file describing read_file's own windowing is enough
+// to trigger that; PROTOCOL.md is such a file.
+//
+// It is also deliberately narrow. If the server rewords the notice this stops
+// matching and parseEnvelope refuses the read: dsx failing loudly on files over
+// 256 KiB is recoverable, dsx quietly rewriting one is not.
+var truncationNotice = regexp.MustCompile(`^…\[\+\d+ bytes truncated[^\]]*\]$`)
 
+// stripTruncationNotice removes the server's trailer and the newline before it.
+//
+// The trailer is always the final line, and the content it follows always ends
+// at a complete line of its own -- both measured. So cutting at the last newline
+// yields exactly the content, and the strip can never reach further back than
+// one line however strange the file is.
 func stripTruncationNotice(body string) (string, bool) {
-	loc := truncationNotice.FindStringIndex(body)
-	if loc == nil {
+	nl := strings.LastIndexByte(body, '\n')
+	if nl < 0 {
 		return body, false
 	}
-	return body[:loc[0]], true
+	if !truncationNotice.MatchString(body[nl+1:]) {
+		return body, false
+	}
+	return body[:nl], true
 }
 
 // parseAttrs reads name="value" pairs. Attribute values are server-generated

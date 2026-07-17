@@ -96,7 +96,10 @@ func classify(err error) *dsxError {
 	if errors.As(err, &de) {
 		return de
 	}
-	return &dsxError{Kind: kindFailure, Msg: err.Error(), Err: err}
+	// Msg is left empty on purpose. Both renderers join Msg and Err, so setting
+	// both to the same error made every unclassified failure say everything
+	// twice -- in prose and in --json alike.
+	return &dsxError{Kind: kindFailure, Err: err}
 }
 
 func exitCodeFor(err error) int {

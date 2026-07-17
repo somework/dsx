@@ -96,8 +96,7 @@ func run() error {
 		fmt.Println(usage)
 		return nil
 	case "-v", "--version", "version":
-		fmt.Println(versionString())
-		return nil
+		return cmdVersion(args)
 	case "completion":
 		return cmdCompletion(args)
 	}
@@ -413,8 +412,8 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 		if !*quiet {
 			fmt.Println(pullRep.render(*asJSON))
 		}
-		return conflictOutcome(pullRep.Conflicts, dryRun,
-			"local differs from the server; --force to overwrite")
+		return conflictOutcome(pullRep.allConflicts(), dryRun,
+			"local differs from the server, or was deleted there and edited here")
 	}
 
 	// `status` is the only mode that reports both directions. Neither side

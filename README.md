@@ -151,7 +151,7 @@ certain exists.
 ## Development
 
 ```bash
-go test -race ./...              # 509 tests
+go test -race ./...              # 532 tests
 go test -tags=live -run TestLive ./...   # 20 more, against the real endpoint
 go vet ./... && gofmt -l .
 ```

@@ -10,6 +10,13 @@ type pullDecision struct {
 	Binary    []string
 	Conflicts []string
 	Delete    []string
+
+	// PruneConflicts are paths gone from the server and edited here. They are
+	// conflicts too, but --force resolves them by DELETING rather than by
+	// overwriting, and the bytes it destroys exist nowhere else. Reporting them
+	// in the same breath as an overwrite told the user --force would do the one
+	// thing it would not do.
+	PruneConflicts []string
 }
 
 // planPull decides, without touching the network, what a pull would do.
@@ -28,6 +35,11 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 		localDirty := present && (!tracked || onDisk.SHA != prev.SHA)
 
 		switch {
+		case present && onDisk.Irregular:
+			// A symlink, a fifo, something the user put there deliberately.
+			// Writing would go through it to wherever it points -- safeJoin
+			// refuses that outright -- and dsx cannot judge what it is for.
+			d.Conflicts = append(d.Conflicts, path)
 		case tracked && prev.Etag == r.Etag && prev.Binary:
 			// Known-unreadable and unchanged since we learned that.
 			d.Binary = append(d.Binary, path)
@@ -50,10 +62,15 @@ func planPull(remote map[string]remoteEntry, local map[string]localFile, st sync
 			if !tracked {
 				continue // never ours; leave it alone
 			}
+			if local[path].Irregular {
+				continue // not ours to remove; we never held its bytes
+			}
 			if !force && local[path].SHA != prev.SHA {
 				// Gone from the server, edited here: the local copy is the
-				// only one left. Deleting it would be unrecoverable.
-				d.Conflicts = append(d.Conflicts, path)
+				// only one left. Deleting it would be unrecoverable -- and
+				// --force resolves this by deleting, not by overwriting, so it
+				// is reported apart from the conflicts that --force overwrites.
+				d.PruneConflicts = append(d.PruneConflicts, path)
 				continue
 			}
 			d.Delete = append(d.Delete, path)
@@ -87,6 +104,14 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 		remoteMoved := onServer && tracked && r.Etag != prev.Etag
 
 		switch {
+		case lf.Irregular:
+			// Not a regular file, so there are no bytes to send. It must still
+			// be named: dropping it silently is what let prune read it as a
+			// deletion and remove the server's copy.
+			if onServer {
+				d.Conflicts = append(d.Conflicts, path)
+			}
+			continue
 		case tracked && !localChanged && onServer && !remoteMoved:
 			d.Unchanged++
 			continue
@@ -98,6 +123,15 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 			d.Conflicts = append(d.Conflicts, path)
 			continue
 		case !force && !tracked && onServer:
+			d.Conflicts = append(d.Conflicts, path)
+			continue
+		case !force && tracked && prev.Binary && onServer:
+			// read_file will not serve these bytes, so dsx never held them and
+			// has no sha to compare: it cannot tell a deliberate replacement
+			// from an accident. Worse, the server's copy is the only copy --
+			// there is no `resources` capability and no encoding parameter, so
+			// an overwrite here is unrecoverable. That makes it the one write
+			// most worth refusing.
 			d.Conflicts = append(d.Conflicts, path)
 			continue
 		}
@@ -118,6 +152,9 @@ func planPush(remote map[string]remoteEntry, local map[string]localFile, st sync
 
 	if prune {
 		for _, path := range sortedPaths(remote) {
+			// An irregular path is still in `local`, so it counts as present
+			// here and is never pruned. That is the whole reason scanLocal
+			// records it instead of dropping it.
 			if _, stillLocal := local[path]; stillLocal {
 				continue
 			}

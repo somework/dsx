@@ -91,11 +91,22 @@ func sha256hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// localFile is one file found on disk.
+// localFile is one path found on disk.
 type localFile struct {
 	Path string // project-relative, slash-separated
 	Size int64
 	SHA  string
+
+	// Irregular marks a path that exists but is not a regular file -- a
+	// symlink, a fifo, a device. dsx holds no bytes for it: Size and SHA stay
+	// zero.
+	//
+	// Such a path is still recorded, and that is the point. Dropping it from the
+	// scan entirely made it indistinguishable from a file the user deleted, and
+	// `push --prune` deleted it from the server -- with a matching if_match, so
+	// the server complied. A symlink is not proof of a deletion; it is proof of
+	// nothing, and invariant 4 says dsx deletes only what it can prove.
+	Irregular bool
 }
 
 // scanLocal walks dir and returns every file keyed by project-relative path,
@@ -127,9 +138,11 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 		if ig.match(rel) {
 			return nil
 		}
-		// Symlinks are reported by WalkDir without following; refuse to
-		// upload whatever they point at.
+		// Symlinks are reported by WalkDir without following. dsx must not
+		// upload whatever they point at -- but it must not forget them either,
+		// or prune reads their absence as a deletion. Record, do not read.
 		if !d.Type().IsRegular() {
+			out[rel] = localFile{Path: rel, Irregular: true}
 			return nil
 		}
 		b, err := os.ReadFile(p)
@@ -150,7 +163,7 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 // VCS metadata, dependency trees, and dsx's own ledger. A project we do not
 // control decides these names.
 func checkRemotePath(rel string) error {
-	if rel == stateFileName {
+	if strings.EqualFold(rel, stateFileName) {
 		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
@@ -164,9 +177,15 @@ func checkRemotePath(rel string) error {
 // isBuiltinIgnoredName reports a path segment that is never the project's, no
 // matter what the server calls it. Reading the list the ignore rules are built
 // from is what keeps this guard and those rules from drifting apart.
+//
+// The comparison is case-insensitive because the filesystem is. macOS ships
+// case-insensitive APFS by default, so ".GIT/config" IS ".git/config" and
+// ".DSX-STATE.JSON" IS the ledger -- a case-sensitive guard would let a project
+// we do not control walk straight past invariant 7. Refusing a genuine `.GIT`
+// on a case-sensitive volume costs nothing: nobody ships one.
 func isBuiltinIgnoredName(name string) bool {
 	for _, b := range builtinIgnores {
-		if b == name {
+		if strings.EqualFold(b, name) {
 			return true
 		}
 	}

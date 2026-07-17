@@ -63,8 +63,22 @@ type pullReport struct {
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
 	Conflicts []string `json:"conflicts"`
-	Binary    []string `json:"binary"`
-	Bytes     int64    `json:"bytes"`
+	// PruneConflicts are conflicts --force resolves by DELETING, not by
+	// overwriting. They are reported apart so the advice can tell the truth.
+	PruneConflicts []string `json:"prune_conflicts,omitempty"`
+	Binary         []string `json:"binary"`
+	Bytes          int64    `json:"bytes"`
+}
+
+// allConflicts is what the exit code and the --json error envelope are built
+// from: both kinds need a human, whatever --force would do to them.
+func (r pullReport) allConflicts() []string {
+	if len(r.PruneConflicts) == 0 {
+		return r.Conflicts
+	}
+	out := append(append([]string(nil), r.Conflicts...), r.PruneConflicts...)
+	sortStrings(out)
+	return out
 }
 
 // isBinaryRefusal reports the server's refusal to return a binary file.
@@ -114,6 +128,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	rep.Unchanged = d.Unchanged
 	rep.Binary = d.Binary
 	rep.Conflicts = d.Conflicts
+	rep.PruneConflicts = d.PruneConflicts
 	rep.Deleted = d.Delete
 
 	if o.dryRun {
@@ -229,13 +244,22 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		return rep, fmt.Errorf("pull interrupted: %w", err)
 	}
 
+	// The delete loop must not return before the ledger is saved. Every file
+	// this run fetched is already on disk, and a bare return here throws away
+	// the etag and sha for all of them -- so the next pull sees bytes it has no
+	// record of, calls its own download a conflict, and demands --force for
+	// every one. That is invariant 5's stated harm, and it arrived through this
+	// loop: one unwritable directory was enough.
+	var pruneErr error
 	for _, path := range rep.Deleted {
 		full, err := safeJoin(o.dir, path)
 		if err != nil {
-			return rep, err
+			pruneErr = err
+			break
 		}
 		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
-			return rep, err
+			pruneErr = err
+			break
 		}
 		delete(st.Files, path)
 	}
@@ -243,10 +267,14 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	if err := st.save(o.dir); err != nil {
 		return rep, err
 	}
+	if pruneErr != nil {
+		return rep, pruneErr
+	}
 
 	sortStrings(rep.Fetched)
 	sortStrings(rep.Deleted)
 	sortStrings(rep.Conflicts)
+	sortStrings(rep.PruneConflicts)
 	sortStrings(rep.Binary)
 	return rep, nil
 }
@@ -261,8 +289,8 @@ func (r pullReport) render(asJSON bool) string {
 	if len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, ", deleted %d", len(r.Deleted))
 	}
-	if len(r.Conflicts) > 0 {
-		fmt.Fprintf(&sb, ", conflicts %d", len(r.Conflicts))
+	if n := len(r.Conflicts) + len(r.PruneConflicts); n > 0 {
+		fmt.Fprintf(&sb, ", conflicts %d", n)
 	}
 	if len(r.Binary) > 0 {
 		fmt.Fprintf(&sb, ", binary %d", len(r.Binary))
@@ -270,6 +298,12 @@ func (r pullReport) render(asJSON bool) string {
 	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
 	for _, p := range r.Conflicts {
 		fmt.Fprintf(&sb, "\n  ! %s — local differs; --force to overwrite", p)
+	}
+	// Say what --force would actually do here. It deletes, and what it deletes
+	// is the only copy: the server no longer has it. Advertising an overwrite
+	// is how a user reaching for --force to fix some other file loses this one.
+	for _, p := range r.PruneConflicts {
+		fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)
 	}
 	if len(r.Binary) > 0 {
 		fmt.Fprintf(&sb, "\n  ~ %d binary file(s) skipped — read_file serves text only: %s",

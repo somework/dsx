@@ -8,7 +8,7 @@ import (
 func TestNormalizeSSE(t *testing.T) {
 	t.Run("plain json passes through", func(t *testing.T) {
 		in := `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`
-		if got := string(normalizeSSE([]byte(in))); got != in {
+		if got := string(normalizeSSE([]byte(in), "application/json")); got != in {
 			t.Errorf("got %q, want it untouched", got)
 		}
 	})
@@ -22,7 +22,7 @@ func TestNormalizeSSE(t *testing.T) {
 			`data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\n\n"
 
 		var out rpcResponse
-		if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+		if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 			t.Fatalf("result did not survive the stream: %v", err)
 		}
 		if string(out.Result) != `{"ok":true}` {
@@ -34,7 +34,7 @@ func TestNormalizeSSE(t *testing.T) {
 		in := "event: message\n" + `data: {"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad"}}` + "\n\n"
 
 		var out rpcResponse
-		if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+		if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		if out.Error == nil || out.Error.Code != -32602 {
@@ -46,7 +46,7 @@ func TestNormalizeSSE(t *testing.T) {
 		in := "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\ndata: \"result\":{\"ok\":true}}\n\n"
 
 		var out rpcResponse
-		if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+		if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 			t.Fatalf("multi-line data frame did not reassemble: %v", err)
 		}
 		if string(out.Result) != `{"ok":true}` {
@@ -57,7 +57,7 @@ func TestNormalizeSSE(t *testing.T) {
 	t.Run("tolerates CRLF", func(t *testing.T) {
 		in := "event: message\r\n" + `data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}` + "\r\n\r\n"
 		var out rpcResponse
-		if err := json.Unmarshal(normalizeSSE([]byte(in)), &out); err != nil {
+		if err := json.Unmarshal(normalizeSSE([]byte(in), "text/event-stream"), &out); err != nil {
 			t.Fatalf("CRLF stream failed: %v", err)
 		}
 	})
