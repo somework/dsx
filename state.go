@@ -14,6 +14,11 @@ import (
 
 const stateFileName = ".dsx-state.json"
 
+// caseProbeName is the file caseInsensitiveDir creates to ask the filesystem
+// whether it folds case. It is in builtinIgnores so that a probe left behind by
+// a killed run is never synced.
+const caseProbeName = ".dsx-case-probe"
+
 // fileState records what we last agreed on with the server for one path:
 // the server's etag, and the bytes we held at that etag.
 //
@@ -258,20 +263,20 @@ func safeJoin(root, rel string) (string, error) {
 // wrong guess either lets a collision destroy a file or refuses a listing that
 // is perfectly fine, so dsx asks the filesystem instead.
 func caseInsensitiveDir(dir string) bool {
-	f, err := os.CreateTemp(dir, ".dsx-case-probe-a*")
+	// The name is fixed, not random, and it is in builtinIgnores. The probe
+	// writes into the directory dsx is about to sync, so a run killed between
+	// the create and the remove would otherwise leave a file behind -- and the
+	// next push would upload it. A deterministic name can be excluded; a random
+	// one cannot.
+	name := filepath.Join(dir, caseProbeName)
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return false // cannot tell; assume the safer-to-allow answer
+		return false // cannot tell; assume the answer that refuses nothing
 	}
-	name := f.Name()
 	f.Close()
 	defer os.Remove(name)
 
-	base := filepath.Base(name)
-	folded := filepath.Join(dir, strings.ToUpper(base))
-	if folded == name {
-		return false
-	}
-	_, err = os.Stat(folded)
+	_, err = os.Stat(filepath.Join(dir, strings.ToUpper(caseProbeName)))
 	return err == nil
 }
 

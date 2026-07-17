@@ -21,7 +21,7 @@ const ignoreFileName = ".dsxignore"
 // path -- talk dsx into uploading a .git directory or clobbering its own state.
 var builtinIgnores = []string{
 	".git", ".svn", ".hg", "node_modules", ".DS_Store",
-	stateFileName, ignoreFileName,
+	stateFileName, ignoreFileName, caseProbeName,
 }
 
 // ignoreRule is one line of .dsxignore, compiled.

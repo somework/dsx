@@ -167,3 +167,42 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 		t.Errorf("a clean listing was refused: %v", err)
 	}
 }
+
+func TestCaseProbeLeavesNothingBehindAndIsNeverSynced(t *testing.T) {
+	// The probe writes into the directory dsx is about to sync. A run killed
+	// between the create and the remove would leave the file there, and the next
+	// push would upload it — so the name is fixed rather than random, and it is
+	// excluded like the ledger.
+	dir := t.TempDir()
+	_ = caseInsensitiveDir(dir)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		t.Errorf("the probe left %q behind", e.Name())
+	}
+
+	// And if a killed run did leave one, it is still never part of a sync.
+	if err := os.WriteFile(filepath.Join(dir, caseProbeName), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ig, err := loadIgnore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ig.match(caseProbeName) {
+		t.Error("a leftover probe is not excluded from the sync; push would upload it")
+	}
+	local, err := scanLocal(dir, ig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := local[caseProbeName]; ok {
+		t.Error("scanLocal picked the probe up")
+	}
+	if err := checkRemotePath(caseProbeName); err == nil {
+		t.Error("a remote path named like the probe is accepted; pulling it would be pointless at best")
+	}
+}
