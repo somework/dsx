@@ -10,6 +10,13 @@ import (
 	"github.com/somework/dsx/internal/cmd/members"
 	"github.com/somework/dsx/internal/cmd/plans"
 	"github.com/somework/dsx/internal/cmd/projects"
+	// The package under internal/cmd/sync is named synccmd, not sync, so a file
+	// there can `import "sync"` for a Mutex without shadowing it — the collision
+	// that forced internal/syncer's name. The alias reads it back as `sync` here
+	// so the slice below still names the section after its directory, which is
+	// what TestEveryDeclaredGroupIsRegistered checks. The alias only binds this
+	// file's scope; registry.go needs no stdlib sync.
+	sync "github.com/somework/dsx/internal/cmd/sync"
 )
 
 // groups is the one list dsx dispatches, documents and completes from.
@@ -25,7 +32,7 @@ import (
 // explicit slice rather than init() appends: init() order across files is
 // invisible, and a human reads this output.
 var groups = []cmd.Group{
-	syncGroup, projects.Group, files.Group, plans.Group,
+	sync.Group, projects.Group, files.Group, plans.Group,
 	conv.Group, members.Group, escape.Group, diagGroup,
 }
 

@@ -27,9 +27,6 @@ var (
 	dirEntry      = clitest.DirEntry
 	captureStdout = clitest.CaptureStdout
 	mkfile        = clitest.Mkfile
-	syncSeedState = clitest.SeedState
-
-	syncLedgerExists = clitest.LedgerExists
 )
 
 func syncFirstCall(t *testing.T, f *fakeMCP, tool string) clitest.Call {

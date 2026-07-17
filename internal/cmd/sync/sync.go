@@ -1,4 +1,12 @@
-package cli
+// Package synccmd holds the pull/push/status commands.
+//
+// The directory is internal/cmd/sync, but the package is synccmd, not sync:
+// pull.go and tree.go over in internal/syncer use the stdlib's sync (Mutex,
+// WaitGroup), and a package named sync sitting next to `import "sync"` compiles
+// while quietly shadowing it — the exact collision that forced the engine to be
+// internal/syncer rather than internal/sync. Naming this leaf `sync` would set
+// the same trap for the first file here that reaches for a Mutex.
+package synccmd
 
 import (
 	"context"
@@ -13,7 +21,8 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-var syncGroup = cmd.Group{
+// Group is the SYNC section of `dsx help`.
+var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
 	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.`,
