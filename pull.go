@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -87,7 +88,7 @@ type pullReport struct {
 // asymmetry is the service's, not ours -- pull reports them and moves on.
 func isBinaryRefusal(err error) bool {
 	var te *toolError
-	if !asToolError(err, &te) {
+	if !errors.As(err, &te) {
 		return false
 	}
 	return strings.Contains(te.Text, "is a binary file")
@@ -105,19 +106,14 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 			filepath.Join(o.dir, stateFileName), st.ProjectID, o.projectID)
 	}
 
-	ig, err := loadIgnore(o.dir)
-	if err != nil {
-		return rep, err
-	}
 	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
-	// Both sides are filtered, never just one. An ignored path that stayed in
-	// the listing but vanished from the scan is indistinguishable from a local
+	// survey filters both sides or neither: an ignored path that stayed in the
+	// listing but vanished from the scan is indistinguishable from a local
 	// delete, and --prune acts on that difference.
-	remote = filterRemote(remote, ig)
-	local, err := scanLocal(o.dir, ig)
+	remote, local, err := survey(o.dir, remote)
 	if err != nil {
 		return rep, err
 	}
@@ -138,7 +134,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	// so identical state rendered in two different orders depending on the mode,
 	// while every sibling field was sorted.
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
-	sortStrings(rep.Conflicts)
+	slices.Sort(rep.Conflicts)
 	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
 	rep.Deleted = d.Delete
@@ -159,9 +155,11 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	}
 
 	var (
-		mu   sync.Mutex
-		wg   sync.WaitGroup
-		sem  = make(chan struct{}, o.concurrency)
+		mu sync.Mutex
+		wg sync.WaitGroup
+		// Clamped beside the semaphore for the same reason as walkTree's: zero
+		// deadlocks the fetch, negative panics make, and neither says so.
+		sem  = make(chan struct{}, max(o.concurrency, 1))
 		errs []error
 	)
 	// The caller's context stays separate: the derived one is cancelled by our
@@ -287,12 +285,12 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 		return rep, saveErr
 	}
 
-	sortStrings(rep.Fetched)
-	sortStrings(rep.Deleted)
-	sortStrings(rep.Conflicts)
-	sortStrings(rep.PruneConflicts)
-	sortStrings(rep.Irregular)
-	sortStrings(rep.Binary)
+	slices.Sort(rep.Fetched)
+	slices.Sort(rep.Deleted)
+	slices.Sort(rep.Conflicts)
+	slices.Sort(rep.PruneConflicts)
+	slices.Sort(rep.Irregular)
+	slices.Sort(rep.Binary)
 	return rep, nil
 }
 

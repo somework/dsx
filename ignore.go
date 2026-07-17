@@ -276,3 +276,30 @@ func filterRemote(remote map[string]remoteEntry, ig *ignoreSet) map[string]remot
 	}
 	return out
 }
+
+// survey applies dir's .dsxignore to both sides at once and returns what is
+// left: the listing the server gave us, and the files on disk.
+//
+// It exists so that filtering one side and not the other is unconstructible
+// rather than merely discouraged. runPull and runPush each used to spell this
+// out -- loadIgnore, filterRemote, scanLocal -- which made the pairing a rule
+// two callers had to remember, with two chances to forget and no way to notice:
+// an ignored path left in the listing but gone from the scan reads exactly like
+// a local delete, and `push --prune` acts on that difference by deleting the
+// file from the server.
+//
+// It takes no *ignoreSet for the same reason: a caller holding one could still
+// hand a different set to each side. Loading it here means the caller never
+// holds one at all. The listing is passed in rather than walked here because
+// fetching it needs a client, and this stays off the network.
+func survey(dir string, remote map[string]remoteEntry) (map[string]remoteEntry, map[string]localFile, error) {
+	ig, err := loadIgnore(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	local, err := scanLocal(dir, ig)
+	if err != nil {
+		return nil, nil, err
+	}
+	return filterRemote(remote, ig), local, nil
+}

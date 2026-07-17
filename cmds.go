@@ -62,9 +62,6 @@ func cmdTree(ctx context.Context, c *client, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *jobs < 1 {
-		*jobs = 1
-	}
 	files, err := c.walkTree(ctx, project, *jobs)
 	if err != nil {
 		return err
@@ -594,25 +591,6 @@ func cmdRaw(ctx context.Context, c *client, args []string) error {
 		}
 	}
 	return emit(ctx, c, tool, a, *asJSON)
-}
-
-// planToken mints a plan_token for exactly the writes or deletes described.
-//
-// Shared by `dsx rm` and push's delete path so the two cannot disagree about
-// what a missing token means.
-func planToken(ctx context.Context, c *client, args map[string]any) (string, error) {
-	text, err := c.callTool(ctx, "finalize_plan", args)
-	if err != nil {
-		return "", fmt.Errorf("finalize_plan: %w", err)
-	}
-	var plan struct {
-		PlanToken string `json:"plan_token"`
-	}
-	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return "", &dsxError{Kind: kindProtocol,
-			Msg: "finalize_plan returned no plan_token: " + truncate(text, 200)}
-	}
-	return plan.PlanToken, nil
 }
 
 func firstLine(s string) string {

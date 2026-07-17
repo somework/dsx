@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -454,7 +455,7 @@ func maincliDispatchedCommands(t *testing.T) []string {
 	for k := range seen {
 		out = append(out, k)
 	}
-	sortStrings(out)
+	slices.Sort(out)
 	return out
 }
 
@@ -662,17 +663,16 @@ func TestHumanBytesAcrossEveryUnitBoundary(t *testing.T) {
 	}
 }
 
-// KNOWN DEFECT, recorded rather than fixed (source is out of scope here):
-// humanBytes indexes "KMGT" with an exponent it never clamps, so any total of
-// 1 PiB or more (n >= 1<<50) panics with "index out of range [4] with length 4".
-// 1<<50 - 1 is the last safe value. It is not reachable from a Design project's
-// file sizes today, which is the only reason this is not urgent — but the guard
-// is missing, not unnecessary, and rep.Bytes flows here on every sync summary.
+// humanBytes saturates at TB rather than indexing past its unit table. The
+// exponent is clamped at util.go's loop bound, so every int64 names something.
 //
-// This test pins the range that does work, up to and including that ceiling. If
-// a clamp is added, extend it past 1<<50 and drop this comment.
+// This comment used to say the clamp was missing and that 1<<50 panicked. It
+// was added in the meantime and the note was left behind, which is worse than
+// no note: it tells the next reader to fix what is already fixed. The range
+// below now runs past the old ceiling, exactly as the stale note instructed.
+// TestHumanBytesSurvivesASizeItCannotName covers the extremes.
 func TestHumanBytesStaysWithinItsUnitTableForEveryReachableTotal(t *testing.T) {
-	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1} {
+	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1, 1 << 50, 1 << 55} {
 		got := humanBytes(n)
 		if got == "" {
 			t.Errorf("humanBytes(%d) returned nothing", n)
@@ -1293,25 +1293,43 @@ func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
 }
 
 func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
-	// DSX_TOKEN is set only to get past loadToken(), which run() calls before it
-	// reaches the switch's default case.
+	// run() once called loadToken() before reaching the unknown-command check, so
+	// `dsx pulll` on a machine with no login was reported as an auth failure --
+	// dsx blaming the user's credentials for their spelling, with exit 5 inviting
+	// a re-authentication that could not possibly help.
 	//
-	// KNOWN DEFECT, recorded rather than fixed (source is out of scope here):
-	// that ordering means `dsx pulll` on a machine with no login reports exit 5
-	// "no Claude Code login found" instead of exit 2 "unknown command pulll" —
-	// dsx blames the user's credentials for their typo. Measured, not inferred.
-	// Once the default case is reachable without a token, drop this Setenv and
-	// the test still passes.
-	t.Setenv("DSX_TOKEN", "test-token")
-	_, err := maincliRun(t, "pulll")
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Fatalf("unknown command classified %q, want %q", got, kindUsage)
-	}
-	if !strings.Contains(err.Error(), "pulll") {
-		t.Errorf("the message does not name the command: %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), "dsx help") {
-		t.Errorf("errors say what to do next: %q", err.Error())
+	// The no-login case is the entire point, so it is the case that must run. An
+	// earlier version of this test set DSX_TOKEN and stopped there, which made it
+	// pass against a binary with the ordering restored: with a token present,
+	// loadToken succeeds and the bug is invisible. CLAUDE_CONFIG_DIR at a temp dir
+	// is what makes "no login" hermetic -- the keychain service name is hashed
+	// over that path, so it matches nothing, and no credentials file exists there.
+	for _, tc := range []struct {
+		name  string
+		setup func(*testing.T)
+	}{
+		{"no login available", func(t *testing.T) {
+			t.Setenv("DSX_TOKEN", "")
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		}},
+		// A token being present must not change the answer either.
+		{"token present", func(t *testing.T) {
+			t.Setenv("DSX_TOKEN", "test-token")
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.setup(t)
+			_, err := maincliRun(t, "pulll")
+			if got := maincliKind(t, err); got != kindUsage {
+				t.Fatalf("unknown command classified %q, want %q: %v", got, kindUsage, err)
+			}
+			if !strings.Contains(err.Error(), "pulll") {
+				t.Errorf("the message does not name the command: %q", err.Error())
+			}
+			if !strings.Contains(err.Error(), "dsx help") {
+				t.Errorf("errors say what to do next: %q", err.Error())
+			}
+		})
 	}
 }
 

@@ -1,15 +1,11 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 )
-
-func sortStrings(s []string) { sort.Strings(s) }
 
 // noPositionals refuses arguments a command does not take.
 //
@@ -56,15 +52,6 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 		positional = append(positional, rest[0])
 		args = rest[1:]
 	}
-}
-
-func asToolError(err error, target **toolError) bool {
-	var te *toolError
-	if errors.As(err, &te) {
-		*target = te
-		return true
-	}
-	return false
 }
 
 func humanBytes(n int64) string {

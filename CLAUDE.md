@@ -15,17 +15,18 @@ counter-intuitive enough that guessing reliably produces wrong code.
 |---|---|
 | `main.go` | CLI dispatch, `usage`, sync command wiring, `emit` |
 | `cmds.go` | one thin function per MCP tool; `raw` is the escape hatch |
+| `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
 | `exit.go` | the error taxonomy and exit codes — the contract with an agent |
 | `auth.go` | credential resolution. **Never writes, never prints the token** |
 | `auth_darwin.go` / `auth_other.go` | the Keychain lane, and its absence elsewhere |
 | `mcp.go` | JSON-RPC transport, retry, SSE unwrapping, error types |
 | `envelope.go` | `read_file` wrapper parsing, entity decoding, window reassembly |
-| `tree.go` | concurrent recursive listing |
-| `ignore.go` | `.dsxignore`, and the built-ins no rule may negate |
+| `tree.go` | concurrent recursive listing; clamps its own concurrency |
+| `ignore.go` | `.dsxignore`, the built-ins no rule may negate, and `survey` — the only way to filter |
 | `plan.go` | **the sync decisions, pure functions** — where a mistake costs data |
 | `pull.go` / `push.go` | I/O around those decisions |
 | `state.go` | `.dsx-state.json` ledger, path safety, filesystem fold identity |
-| `util.go` | flag parsing across positionals, error conversion, formatting |
+| `util.go` | flag parsing across positionals, formatting |
 | `doctor.go` | `dsx doctor` — the first thing to run when something is wrong |
 | `completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
 | `version.go` | `--version`, ldflags-stamped or build-info-derived |
@@ -73,6 +74,14 @@ reading why it exists.
    no ledger entry become conflicts on the next run, which pushes the user toward `--force` —
    the opposite of safe.
 
+   **Its on-disk shape is a compatibility contract**, and `loadState`/`save` cannot police it:
+   they agree with each other by construction, so a renamed json tag passes both. It was
+   measured — mutating `json:"sha256"` to `json:"sha"` left all 581 tests green, while in the
+   field every entry would decode to `SHA=""`, which `plan.go`'s `localDirty` reads as "every
+   tracked file is modified": every path a conflict, exit 3, `--force` the apparent way out.
+   `ledger_golden_test.go` holds the bytes. Its fixture is hand-written on purpose — one
+   regenerated from the structs would only prove the code equals itself.
+
 6. **Only read-only tools may be retried on a transport fault.** A network error can land
    after the server applied a mutation. `429` is always safe (rejected before it ran); `5xx`
    and connection errors are not. See `readOnlyTools`, which matches `readOnlyHint` in
@@ -97,12 +106,39 @@ reading why it exists.
 9. **`.dsxignore` filters both sides, never one.** A path hidden from the local scan but left
    in the server's listing is indistinguishable from a file the user deleted, so `push
    --prune` would delete it from the server. An ignored path is not dsx's business in either
-   direction. See `TestIgnoredPathIsNeverPrunedFromTheServer`.
+   direction.
+
+   **`survey` is the only way to filter, and it takes no `*ignoreSet` on purpose**: a caller
+   holding one could still hand a different set to each side. `runPull` and `runPush` used to
+   spell out `loadIgnore` → `filterRemote` → `scanLocal` by hand — a rule two callers had to
+   remember, with two chances to forget.
+
+   Note which test guards what, because three of them are named for this invariant and only
+   one drives it. `TestIgnoredPathIsNeverPrunedFromTheServer` and `...FromDisk` call
+   `filterRemote` and `planPush`/`planPull` directly and hand-assemble the correct pairing
+   themselves, so they guard **the decision, not the wiring** — they stay green when `survey`
+   filters only one side. Their comment says "end to end"; it is not.
+
+   The wiring is guarded by `prune_ignore_test.go`, which drives `runPush`/`runPull` against a
+   real `.dsxignore` and asks the only shape-blind question there is: did an ignored path reach
+   `delete_files`? Two traps live there — push's delete sends **`files`** (maps of
+   `{path, if_match}`) while `dsx rm` sends `paths`, so a probe reading `paths` passes
+   vacuously; and `--prune` is only exposed by a ledger that tracked the path **before** it was
+   ignored, since an empty ledger makes prune a correct no-op via invariant 4 and hides
+   everything.
+
+   `TestSyncCallersCannotFilterOneSide` is the structural half: nothing but `survey` may name
+   `loadIgnore`, `filterRemote` or `scanLocal`. It scans every non-test file and fails if it
+   cannot find `survey` — an earlier version parsed a hardcoded list of callers by name, and
+   moving the function to another file, renaming it, or hoisting the calls into a helper each
+   made it match nothing and pass while a live one-sided filter shipped. **Syntax cannot see
+   `_, local, err := survey(...)`**, which names nothing forbidden and still breaks the
+   invariant; only the behavioural test catches that.
 
 ## Testing
 
 ```bash
-go test -race ./...     # 581 tests
+go test -race ./...     # 604 tests
 go vet ./... && gofmt -l .
 ```
 
