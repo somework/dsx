@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 	"os"
 	"slices"
 	"strings"
@@ -194,7 +195,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 		// The bytes may be up but the ledger is not. Say so rather than
 		// recording an etag we never saw.
 		return fmt.Errorf("write reply was unrecognised, so etags were not recorded; "+
-			"run `dsx pull` to resynchronise. reply: %s", truncate(text, 300))
+			"run `dsx pull` to resynchronise. reply: %s", fmtutil.Truncate(text, 300))
 	}
 
 	byPath := make(map[string]writeSpec, len(batch))
@@ -274,7 +275,7 @@ func (r pushReport) render(asJSON bool) string {
 	if len(r.Conflicts) > 0 {
 		fmt.Fprintf(&sb, ", conflicts %d", len(r.Conflicts))
 	}
-	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
+	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
 	for _, p := range r.Conflicts {
 		if slices.Contains(r.BinaryConflicts, p) {
 			// Not "server moved ahead": for these it usually has not. And not

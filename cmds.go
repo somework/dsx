@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 	"io"
 	"os"
 
@@ -84,9 +85,9 @@ func cmdTree(ctx context.Context, c *client, args []string) error {
 	for _, p := range sortedPaths(files) {
 		e := files[p]
 		total += e.Size
-		fmt.Printf("%-10s %16s  %s\n", humanBytes(e.Size), e.Etag, p)
+		fmt.Printf("%-10s %16s  %s\n", fmtutil.Bytes(e.Size), e.Etag, p)
 	}
-	fmt.Printf("%d files, %s\n", len(files), humanBytes(total))
+	fmt.Printf("%d files, %s\n", len(files), fmtutil.Bytes(total))
 	return nil
 }
 
@@ -563,7 +564,7 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 		return &dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: "tools/list was not the shape dsx expects", Err: err}
 	}
 	for _, t := range list.Tools {
-		fmt.Printf("%-26s %s\n", t.Name, truncate(firstLine(t.Description), 90))
+		fmt.Printf("%-26s %s\n", t.Name, fmtutil.Truncate(firstLine(t.Description), 90))
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 	"os"
 	"path/filepath"
 	"slices"
@@ -310,7 +311,7 @@ func (r pullReport) render(asJSON bool) string {
 	if len(r.Binary) > 0 {
 		fmt.Fprintf(&sb, ", binary %d", len(r.Binary))
 	}
-	fmt.Fprintf(&sb, " (%s)", humanBytes(r.Bytes))
+	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
 	// One line per path, each carrying the advice its class deserves. --force
 	// overwrites the first kind (the bytes survive on the server) and DELETES
 	// the second (they survive nowhere) -- advertising an overwrite for both is

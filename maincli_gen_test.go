@@ -643,49 +643,6 @@ func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 // humanBytes
 // ---------------------------------------------------------------------------
 
-func TestHumanBytesAcrossEveryUnitBoundary(t *testing.T) {
-	cases := []struct {
-		n    int64
-		want string
-	}{
-		{0, "0 B"},
-		{1, "1 B"},
-		{512, "512 B"},
-		{1023, "1023 B"}, // last value before the unit switches
-		{1024, "1.0 KB"}, // first value after it
-		{1536, "1.5 KB"},
-		{1024 * 1024, "1.0 MB"},
-		{1024 * 1024 * 3 / 2, "1.5 MB"},
-		{1024 * 1024 * 1024, "1.0 GB"},
-		{1024 * 1024 * 1024 * 1024, "1.0 TB"},
-	}
-	for _, tc := range cases {
-		if got := humanBytes(tc.n); got != tc.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tc.n, got, tc.want)
-		}
-	}
-}
-
-// humanBytes saturates at TB rather than indexing past its unit table. The
-// exponent is clamped at util.go's loop bound, so every int64 names something.
-//
-// This comment used to say the clamp was missing and that 1<<50 panicked. It
-// was added in the meantime and the note was left behind, which is worse than
-// no note: it tells the next reader to fix what is already fixed. The range
-// below now runs past the old ceiling, exactly as the stale note instructed.
-// TestHumanBytesSurvivesASizeItCannotName covers the extremes.
-func TestHumanBytesStaysWithinItsUnitTableForEveryReachableTotal(t *testing.T) {
-	for _, n := range []int64{1 << 40, 1 << 45, 1<<50 - 1, 1 << 50, 1 << 55} {
-		got := humanBytes(n)
-		if got == "" {
-			t.Errorf("humanBytes(%d) returned nothing", n)
-		}
-		if !strings.HasSuffix(got, "B") {
-			t.Errorf("humanBytes(%d) = %q, want a unit suffix", n, got)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------------
 // splitList
 // ---------------------------------------------------------------------------

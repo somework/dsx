@@ -36,6 +36,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 	"os"
 	"strings"
 	"testing"
@@ -191,7 +192,7 @@ func liveWrite(t *testing.T, c *client, ctx context.Context, path string, body [
 
 	var res writeResult
 	if err := json.Unmarshal([]byte(text), &res); err != nil {
-		t.Fatalf("write_files reply is not the documented shape: %v\n%s", err, truncate(text, 300))
+		t.Fatalf("write_files reply is not the documented shape: %v\n%s", err, fmtutil.Truncate(text, 300))
 	}
 	return res.Etags[path]
 }
@@ -390,10 +391,10 @@ func TestLiveIfNoneMatchShortCircuits(t *testing.T) {
 	}
 	var un unchangedReply
 	if err := json.Unmarshal([]byte(text), &un); err != nil {
-		t.Fatalf("if_none_match reply is not the documented shape: %v\n%s", err, truncate(text, 200))
+		t.Fatalf("if_none_match reply is not the documented shape: %v\n%s", err, fmtutil.Truncate(text, 200))
 	}
 	if !un.Unchanged {
-		t.Errorf("if_none_match against the current etag did not report unchanged: %s", truncate(text, 200))
+		t.Errorf("if_none_match against the current etag did not report unchanged: %s", fmtutil.Truncate(text, 200))
 	}
 }
 
@@ -418,11 +419,11 @@ func TestLiveWriteReplyIsAMapNotAList(t *testing.T) {
 	var asMap writeResult
 	if err := json.Unmarshal([]byte(text), &asMap); err != nil {
 		t.Fatalf("write_files reply no longer parses as {etags:{path:etag},written,url}: %v\n%s",
-			err, truncate(text, 300))
+			err, fmtutil.Truncate(text, 300))
 	}
 	if asMap.Etags[path] == "" {
 		t.Fatalf("no etag for %s in the write reply; push would have nothing to record: %s",
-			path, truncate(text, 300))
+			path, fmtutil.Truncate(text, 300))
 	}
 	if asMap.Written != 1 {
 		t.Errorf("written = %d, want 1", asMap.Written)
@@ -608,7 +609,7 @@ func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 		Scope     string `json:"scope"`
 	}
 	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		t.Fatalf("project-scoped finalize_plan returned no plan_token: %v\n%s", err, truncate(text, 300))
+		t.Fatalf("project-scoped finalize_plan returned no plan_token: %v\n%s", err, fmtutil.Truncate(text, 300))
 	}
 	if plan.ExpiresAt == 0 {
 		t.Error("PROTOCOL.md says a project-scoped plan reports expires_at")

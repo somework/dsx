@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/somework/dsx/internal/dsxerr"
 )
@@ -225,13 +225,13 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 	case resp.StatusCode == http.StatusTooManyRequests:
 		// Rejected before it ran; safe to retry whatever the method.
 		return nil, true, &dsxerr.Error{Kind: dsxerr.KindTransport,
-			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, fmtutil.Truncate(string(payload), 200))}
 	case resp.StatusCode >= 500:
 		return nil, idempotent, &dsxerr.Error{Kind: dsxerr.KindTransport,
-			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, fmtutil.Truncate(string(payload), 200))}
 	case resp.StatusCode != http.StatusOK:
 		return nil, false, &dsxerr.Error{Kind: dsxerr.KindProtocol,
-			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 400))}
+			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, fmtutil.Truncate(string(payload), 400))}
 	}
 
 	var out rpcResponse
@@ -352,17 +352,3 @@ func (c *client) callTool(ctx context.Context, name string, args map[string]any)
 
 // truncate bounds server text for display, cutting on a rune boundary.
 //
-// The bound is in bytes because the callers are bounding a payload, but the
-// cut cannot land inside a rune: the endpoint's own prose is full of multi-byte
-// characters (it writes — and …), and half of one is invalid UTF-8 in an error
-// message that is about to be marshalled into --json.
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
-}

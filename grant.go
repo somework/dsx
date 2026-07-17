@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/somework/dsx/internal/fmtutil"
 
 	"github.com/somework/dsx/internal/dsxerr"
 )
@@ -34,7 +35,7 @@ func planToken(ctx context.Context, c *client, args map[string]any) (string, err
 	}
 	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
 		return "", &dsxerr.Error{Kind: dsxerr.KindProtocol,
-			Msg: "finalize_plan returned no plan_token: " + truncate(text, 200)}
+			Msg: "finalize_plan returned no plan_token: " + fmtutil.Truncate(text, 200)}
 	}
 	return plan.PlanToken, nil
 }

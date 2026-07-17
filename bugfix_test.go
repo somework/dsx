@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/somework/dsx/internal/dsxerr"
 )
@@ -26,31 +25,6 @@ func TestPutIsOfferedByTheShells(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("`put` is dispatched but not in commandNames; it is invisible to every shell")
-	}
-}
-
-func TestHumanBytesSurvivesASizeItCannotName(t *testing.T) {
-	// humanBytes indexed "KMGT" with an exponent it never clamped, so anything
-	// at or past 1 PiB panicked. rep.Bytes flows through here on every summary
-	// line: a sync that moved a petabyte would take the process down while
-	// printing how well it had gone.
-	for _, n := range []int64{1 << 50, 1 << 60, 1<<63 - 1} {
-		got := humanBytes(n) // must not panic
-		if got == "" {
-			t.Errorf("humanBytes(%d) = %q", n, got)
-		}
-	}
-	// The units it does have must keep their old spelling exactly.
-	for _, tc := range []struct {
-		in   int64
-		want string
-	}{
-		{0, "0 B"}, {512, "512 B"}, {1024, "1.0 KB"},
-		{1 << 20, "1.0 MB"}, {1 << 30, "1.0 GB"}, {1 << 40, "1.0 TB"},
-	} {
-		if got := humanBytes(tc.in); got != tc.want {
-			t.Errorf("humanBytes(%d) = %q, want %q", tc.in, got, tc.want)
-		}
 	}
 }
 
@@ -148,25 +122,6 @@ func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
 	}
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindProtocol {
 		t.Errorf("malformed tool result classified %q, want %q", got, dsxerr.KindProtocol)
-	}
-}
-
-func TestTruncateNeverEmitsAHalfRune(t *testing.T) {
-	// truncate cuts server text for display. Slicing by byte can land inside a
-	// multi-byte rune, and the endpoint's own error prose is full of them
-	// (it uses — and …). The cut must stay on a rune boundary.
-	s := strings.Repeat("é", 50) // 100 bytes, 50 runes
-	for n := 1; n < 100; n++ {
-		got := truncate(s, n)
-		if !utf8.ValidString(got) {
-			t.Fatalf("truncate(%d) produced invalid UTF-8: %q", n, got)
-		}
-	}
-	if got := truncate("abc", 10); got != "abc" {
-		t.Errorf("truncate must leave a short string alone, got %q", got)
-	}
-	if got := truncate("abc", 3); got != "abc" {
-		t.Errorf("truncate at exactly n must not cut, got %q", got)
 	}
 }
 
