@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/somework/dsx/internal/cmd"
+	"github.com/somework/dsx/internal/cmd/conv"
 	"github.com/somework/dsx/internal/cmd/members"
 	"github.com/somework/dsx/internal/cmd/projects"
 )
@@ -22,7 +23,7 @@ import (
 // invisible, and a human reads this output.
 var groups = []cmd.Group{
 	syncGroup, projects.Group, filesGroup, plansGroup,
-	convGroup, members.Group, escapeGroup, diagGroup,
+	conv.Group, members.Group, escapeGroup, diagGroup,
 }
 
 // commandIndex is every dispatchable spelling, aliases included. commandNames

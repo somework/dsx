@@ -1,4 +1,4 @@
-package cli
+package conv
 
 import (
 	"context"
@@ -11,7 +11,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var convGroup = cmd.Group{
+// Group is the CONVERSATION section of `dsx help`.
+var Group = cmd.Group{
 	Title: "CONVERSATION",
 	Cmds: []cmd.Command{
 		{Name: "conv", Form: "conv <project> [--chat id]", Run: cmdConv},
