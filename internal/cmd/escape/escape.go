@@ -1,4 +1,4 @@
-package cli
+package escape
 
 import (
 	"context"
@@ -11,7 +11,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var escapeGroup = cmd.Group{
+// Group is the ESCAPE HATCH section of `dsx help`.
+var Group = cmd.Group{
 	Title: "ESCAPE HATCH",
 	Cmds: []cmd.Command{
 		{Name: "prompt", Form: "prompt [--project id] [--ds id]", Desc: "the server's own Claude Design prompt", Run: cmdPrompt},

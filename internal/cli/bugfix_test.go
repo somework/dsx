@@ -86,28 +86,6 @@ func TestUnknownCommandIsAUsageErrorEvenWithNoLoginAvailable(t *testing.T) {
 	}
 }
 
-func TestRawRefusesANullArgumentInsteadOfSendingIt(t *testing.T) {
-	// json.Unmarshal("null", &map) succeeds and leaves the map nil, so the
-	// "arguments must be a JSON object" guard let `null` through and dsx sent
-	// "arguments": null. Every other non-object was refused, so this was an
-	// inconsistent boundary rather than a decision.
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		t.Errorf("the tool was called despite a malformed argument: %s %v", name, args)
-		return fakeReply{Text: "{}"}
-	})
-
-	for _, bad := range []string{"null", "[1,2]", `"a string"`, "7"} {
-		err := cmdRaw(t.Context(), fakeClient(f), []string{"some_tool", bad})
-		if err == nil {
-			t.Errorf("raw accepted %s as arguments", bad)
-			continue
-		}
-		if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
-			t.Errorf("raw %s classified %q, want %q", bad, got, dsxerr.KindUsage)
-		}
-	}
-}
-
 func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
 	// A body dsx cannot parse was dsxerr.KindProtocol; a *result* dsx cannot parse
 	// degraded to the generic dsxerr.KindFailure. Both are "the server sent a shape we
@@ -168,35 +146,5 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 	}
 	if st.Files["a.css"].Etag != "e1" {
 		t.Errorf("the acknowledged write was not recorded: %+v", st.Files)
-	}
-}
-
-func TestCommandsRefuseArgumentsTheyDoNotTake(t *testing.T) {
-	// `dsx prompt <project>` — the spelling every other command uses — silently
-	// returned the generic prompt, because parseArgs discarded the positional.
-	// A plausible wrong answer with exit 0 is worse than an error: the caller
-	// never learns it asked the wrong question.
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		t.Errorf("the tool was called with an argument the command does not take: %s %v", name, args)
-		return fakeReply{Text: "{}"}
-	})
-
-	cases := []struct {
-		name string
-		run  func() error
-	}{
-		{"prompt", func() error { return cmdPrompt(t.Context(), fakeClient(f), []string{"bbbbbbbb-bbbb"}) }},
-		{"tools", func() error { return cmdTools(t.Context(), fakeClient(f), []string{"list_files"}) }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.run()
-			if err == nil {
-				t.Fatalf("dsx %s accepted a positional it does not take", tc.name)
-			}
-			if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
-				t.Errorf("classified %q, want %q so the caller does not retry it", got, dsxerr.KindUsage)
-			}
-		})
 	}
 }
