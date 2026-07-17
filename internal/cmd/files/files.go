@@ -1,4 +1,4 @@
-package cli
+package files
 
 import (
 	"context"
@@ -15,7 +15,8 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-var filesGroup = cmd.Group{
+// Group is the FILES section of `dsx help`.
+var Group = cmd.Group{
 	Title: "FILES",
 	Cmds: []cmd.Command{
 		{Name: "ls", Form: "ls <project> [path]", Desc: "list one directory", Run: cmdLs},

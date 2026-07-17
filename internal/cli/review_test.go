@@ -2,7 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -68,40 +67,8 @@ func TestDoctorDiagnosesTheCredentialDsxWillActuallySend(t *testing.T) {
 	}
 }
 
-func TestPutSelfAuthorisesLikePushDoes(t *testing.T) {
-	// push recovers from needs_project_grant by minting a path-scoped
-	// plan_token. put, cp and support-js went through emit and did not, so the
-	// same write that push completes left `dsx put` at exit 1 with
-	// {"error":"error"} and no next step — on a project that has no standing
-	// grant, which is the default.
-	var sawPlan bool
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		switch name {
-		case "write_files":
-			if _, ok := args["plan_token"]; !ok {
-				return fakeReply{
-					HTTPStatus: 403,
-					HTTPBody:   `{"error":"needs_project_grant","project_id":"p1","prompt":"Allow Claude to edit this project?"}`,
-				}
-			}
-			return fakeReply{Text: `{"etags":{"a.css":"e9"},"written":1}`}
-		case "finalize_plan":
-			sawPlan = true
-			return fakeReply{Text: `{"plan_token":"plan_abc"}`}
-		}
-		return fakeReply{Text: "unexpected " + name, IsError: true}
-	})
-
-	dir := t.TempDir()
-	mkfile(t, dir, "a.css", "body{}")
-	err := cmdPut(t.Context(), fakeClient(f), []string{"p1", "a.css", filepath.Join(dir, "a.css")})
-	if err != nil {
-		t.Fatalf("put did not recover from needs_project_grant the way push does: %v", err)
-	}
-	if !sawPlan {
-		t.Error("put never called finalize_plan")
-	}
-}
+// TestPutSelfAuthorisesLikePushDoes moved to internal/cmd/files with cmdPut,
+// which it drives directly.
 
 func TestVersionHonoursJSON(t *testing.T) {
 	// --json is documented as making stdout one JSON document, with no carve-out.

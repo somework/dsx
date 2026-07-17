@@ -2,43 +2,15 @@ package cli
 
 import (
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Round two's CLI half. The sync half moved to internal/syncer with the code
 // it guards; the preamble there explains what round two was.
-
-// ---------------------------------------------------------------------------
-// the write path
-// ---------------------------------------------------------------------------
-
-func TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken(t *testing.T) {
-	// emitWrite short-circuited to emit() when the caller passed --plan, and
-	// emit() never classifies. Same tool, same reply, opposite exit code: 3
-	// without --plan, 1 with it. The live test that "pinned" this called
-	// conflictFromToolError directly and never went through cmdPut, so it passed.
-	body := `{"conflicts":[{"path":"a.css","etag":"999"}],"message":"write_files: refused — … Nothing was written."}`
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{Text: body, IsError: true}
-	})
-
-	dir := t.TempDir()
-	mkfile(t, dir, "a.css", "x")
-	err := cmdPut(t.Context(), fakeClient(f), []string{
-		"p1", "a.css", filepath.Join(dir, "a.css"), "--plan", "tok", "--if-match", "stale",
-	})
-	if err == nil {
-		t.Fatal("the server refused the write and put reported success")
-	}
-	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindConflict {
-		t.Fatalf("put --plan classified a conflict as %q (exit %d); without --plan it is %q (exit %d). "+
-			"Same tool, same reply, opposite answer.", got, got.ExitCode(), dsxerr.KindConflict, dsxerr.ExitConflict)
-	}
-}
+//
+// TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken moved to
+// internal/cmd/files with cmdPut, which it drives directly.
 
 // ---------------------------------------------------------------------------
 // transport

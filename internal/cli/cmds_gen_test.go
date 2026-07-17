@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
@@ -947,34 +946,9 @@ func TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree(t *testing.T)
 	}
 }
 
-// TestCmdTreeClampsConcurrencyBelowOneToOne.
-//
-// Not cosmetic: syncer.WalkTree sizes its semaphore from this number, and a zero-sized
-// buffered channel is an unbuffered one, on which the first send blocks forever.
-// Without the clamp `-j 0` hangs until the context dies rather than listing
-// anything, so the deadline below is what makes the regression visible as a
-// failure instead of a stall.
-func TestCmdTreeClampsConcurrencyBelowOneToOne(t *testing.T) {
-	f := newFakeMCP(t, cmdsReplyJSON(listingFor(fileEntry("a.css", "e1", 1))))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	out, err := captureStdout(t, func() error {
-		return cmdTree(ctx, fakeClient(f), []string{"p1", "-j", "0", "--json"})
-	})
-	if err != nil {
-		t.Fatalf("tree -j 0 failed: %v", err)
-	}
-
-	var got []syncer.RemoteEntry
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatalf("stdout did not parse: %v (%q)", err, out)
-	}
-	if len(got) != 1 || got[0].Path != "a.css" {
-		t.Errorf("tree = %#v, want the one file", got)
-	}
-}
+// TestCmdTreeClampsConcurrencyBelowOneToOne now lives in internal/cmd/files,
+// with cmdTree: it drives the wrapper directly, and the wrapper is unexported
+// there. The tree tests above that dispatch by name stay here.
 
 // ---------------------------------------------------------------------------
 // tools.

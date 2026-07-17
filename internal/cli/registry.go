@@ -6,6 +6,7 @@ import (
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/cmd/conv"
 	"github.com/somework/dsx/internal/cmd/escape"
+	"github.com/somework/dsx/internal/cmd/files"
 	"github.com/somework/dsx/internal/cmd/members"
 	"github.com/somework/dsx/internal/cmd/plans"
 	"github.com/somework/dsx/internal/cmd/projects"
@@ -24,7 +25,7 @@ import (
 // explicit slice rather than init() appends: init() order across files is
 // invisible, and a human reads this output.
 var groups = []cmd.Group{
-	syncGroup, projects.Group, filesGroup, plans.Group,
+	syncGroup, projects.Group, files.Group, plans.Group,
 	conv.Group, members.Group, escape.Group, diagGroup,
 }
 
