@@ -2,22 +2,31 @@ package syncer
 
 import (
 	"encoding/json"
-	"io"
-	"os"
 	"testing"
 
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/mcptest"
 )
 
-// The fake endpoint moved to internal/mcptest so that every package's tests can
-// reach it. What stays here is what mcptest deliberately does not know:
+// This file has a near-twin in internal/cli, and that is deliberate.
+//
+// The fake endpoint itself lives in internal/mcptest, which every package can
+// reach. What cannot be shared is this thin adapter: these tests are internal
+// ones (package syncer, because they drive planPull and friends), so they cannot
+// import anything that imports syncer -- and any package holding listingFor
+// would have to. Go's test rules leave no third option; ~30 duplicated lines is
+// the price. If you are about to merge the two, that cycle is why you cannot.
+//
+// The twins are not identical, and staticcheck is why: cli's carries
+// captureStdout and mkfile, which nothing here uses. Copy across only what the
+// side you are on actually calls, or U1000 fails the build.
+//
+// What stays out of mcptest is what mcptest deliberately does not know:
 //
 //   - how to build a client (mcptest does not import mcp, so mcp's own internal
 //     tests can import mcptest without a cycle)
 //   - the domain shapes: a listing is []RemoteEntry, and RemoteEntry belongs to
 //     the sync side, not to the transport
-//   - captureStdout, which is about this process's os.Stdout
 //
 // mcptest's own doc records what a fake is and is not for; that argument has not
 // changed by moving.
@@ -53,35 +62,4 @@ func fileEntry(path, etag string, size int64) RemoteEntry {
 
 func dirEntry(path string) RemoteEntry {
 	return RemoteEntry{Path: path, Type: "directory"}
-}
-
-// captureStdout runs fn with os.Stdout redirected and returns what it printed.
-// Commands print through fmt.Println directly, so this is the only way to
-// assert on their output without restructuring every one of them.
-func captureStdout(t *testing.T, fn func() error) (string, error) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved := os.Stdout
-	os.Stdout = w
-
-	done := make(chan string, 1)
-	go func() {
-		b, _ := io.ReadAll(r)
-		done <- string(b)
-	}()
-
-	fnErr := fn()
-
-	os.Stdout = saved
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	out := <-done
-	if err := r.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return out, fnErr
 }

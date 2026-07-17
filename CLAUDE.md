@@ -11,8 +11,9 @@ counter-intuitive enough that guessing reliably produces wrong code.
 
 ## Orientation
 
-**A split into packages is in progress**; see ROADMAP. Layers, leaves first — each may
-import only what is above it:
+**Start at `main.go`. It is the only `.go` file in the root, and that is on purpose** — it
+holds nothing but `func main` and `var version`. Everything else is a layer below, leaves
+first; each may import only what is above it:
 
 | Package | Holds |
 |---|---|
@@ -21,28 +22,39 @@ import only what is above it:
 | `internal/auth` | credential resolution. **Never writes, never prints the token** — there is no setter for `Client.token` anywhere. Includes the Keychain lane (`auth_darwin.go`) and its absence elsewhere |
 | `internal/mcp` | JSON-RPC transport, retry, SSE unwrapping, error types; `read_file` wrapper parsing and window reassembly (`envelope.go`, with `ReadFull` — they are one concern) |
 | `internal/mcptest` | the fake endpoint. **Imports `mcp` never**, so `mcp`'s own internal tests can import it without a cycle |
+| `internal/syncer` | the sync engine — see its own table below. Exports 17 top-level names plus the two reports' `Render`; `go doc -short` is the list. Everything a mistake could cost data through stays unexported — `planPull`, `planPush`, `localFile`, `safeJoin`, `checkRemotePath`, `writeBatch`, `deletePaths`, `save` |
+| `internal/cli` | dispatch, `usage`, flags, one thin function per MCP tool, `doctor`, completions, `--version`. **Exports exactly one name: `Main`** |
 
-Still `package main` at the root, and moving next (`sync`, then `cli`):
+Not `internal/sync`: `pull.go` and `tree.go` import the stdlib's `sync` for `Mutex` and
+`WaitGroup`. `package sync` beside `import "sync"` compiles and neither vet nor gofmt says
+a word, which is precisely the kind of ripple this split existed to remove.
+
+Inside `internal/syncer`:
 
 | File | Holds |
 |---|---|
-| `main.go` | CLI dispatch, `usage`, sync command wiring, `emit`. `var version` must stay here: it is `-X main.version`'s target |
-| `cmds.go` | one thin function per MCP tool; `raw` is the escape hatch |
-| `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
-| `tree.go` | concurrent recursive listing; clamps its own concurrency |
-| `ignore.go` | `.dsxignore`, the built-ins no rule may negate, and `survey` — the only way to filter |
 | `plan.go` | **the sync decisions, pure functions** — where a mistake costs data. Has no import block at all; that is the point |
 | `pull.go` / `push.go` | I/O around those decisions |
 | `state.go` | `.dsx-state.json` ledger, path safety, filesystem fold identity |
-| `util.go` | flag parsing across positionals |
-| `doctor.go` | `dsx doctor` — the first thing to run when something is wrong |
-| `completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
-| `version.go` | `--version`, ldflags-stamped or build-info-derived |
-| `fake_test.go` | what `mcptest` cannot know: how to build a client, the domain shapes, `captureStdout` |
+| `ignore.go` | `.dsxignore`, the built-ins no rule may negate, and `survey` — the only way to filter |
+| `tree.go` | concurrent recursive listing; clamps its own concurrency |
+| `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
+| `outcome.go` | `ConflictOutcome`: a report's conflicts → the exit status. Here, not in `cli`, so that "this classification reaches exit 3" stays assertable beside the classification. Not in `plan.go`: it needs `dsxerr` |
+
+Elsewhere:
+
+| | |
+|---|---|
+| `main.go` | `func main` and `var version` — **`-X main.version`'s target, and it can live nowhere else.** See invariant 10 |
+| `internal/cli/cli.go` | `Main`, `run` and its dispatch, `usage`, `emit`, sync command wiring |
+| `internal/cli/completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
+| `fake_test.go` | **exists twice, in `cli` and in `syncer`, deliberately** — what `mcptest` cannot know: how to build a client, the domain shapes, `captureStdout`. It cannot be shared: `syncer`'s tests are internal ones (they drive `planPull`), so they cannot import anything that imports `syncer` — and any package holding `listingFor` would have to. Go's test rules leave no third option; the file says so at the top |
 | `reference/mcp-tools.json` | the server's own `tools/list` output, verbatim. `internal/mcp`'s tests reach it at `../../reference` |
 
 `plan.go` is deliberately pure and separate. Decisions there are testable without a network;
 keep it that way. If you find yourself needing a client inside it, the design is drifting.
+`RemoteEntry`, `localFile`, `State` and `FileState` live beside it for exactly this reason —
+that is why `RemoteEntry` did **not** move into `mcp` with the rest of the listing shapes.
 
 ## Invariants
 
@@ -118,9 +130,15 @@ reading why it exists.
    direction.
 
    **`survey` is the only way to filter, and it takes no `*ignoreSet` on purpose**: a caller
-   holding one could still hand a different set to each side. `runPull` and `runPush` used to
+   holding one could still hand a different set to each side. `Pull` and `Push` used to
    spell out `loadIgnore` → `filterRemote` → `scanLocal` by hand — a rule two callers had to
    remember, with two chances to forget.
+
+   **Outside `internal/syncer` the compiler now enforces this**, because `survey`,
+   `loadIgnore`, `filterRemote` and `scanLocal` are all unexported: a one-sided filter in
+   `cli` is not a rule to remember, it is a name that does not resolve. Keep them that way —
+   exporting any one of them silently demotes this half of the invariant back to a
+   convention. The tests below still matter: inside `syncer` the compiler sees nothing.
 
    Note which test guards what, because three of them are named for this invariant and only
    one drives it. `TestIgnoredPathIsNeverPrunedFromTheServer` and `...FromDisk` call
@@ -128,7 +146,7 @@ reading why it exists.
    themselves, so they guard **the decision, not the wiring** — they stay green when `survey`
    filters only one side. Their comment says "end to end"; it is not.
 
-   The wiring is guarded by `prune_ignore_test.go`, which drives `runPush`/`runPull` against a
+   The wiring is guarded by `prune_ignore_test.go`, which drives `Push`/`Pull` against a
    real `.dsxignore` and asks the only shape-blind question there is: did an ignored path reach
    `delete_files`? Two traps live there — push's delete sends **`files`** (maps of
    `{path, if_match}`) while `dsx rm` sends `paths`, so a probe reading `paths` passes
@@ -144,16 +162,37 @@ reading why it exists.
    `_, local, err := survey(...)`**, which names nothing forbidden and still breaks the
    invariant; only the behavioural test catches that.
 
+10. **`var version` stays in `main.go`, named `version`, and reaches `cli.Main`.** It is
+    `-X main.version`'s target: `-X` names a symbol by its full path, and one aimed at a
+    symbol that no longer exists **builds with no error and no warning**. Rename it, move it
+    into `cli`, or stop threading it, and the release binary ships reporting `(unknown)`.
+
+    Nothing in the test suite can catch this, and that is the point: `version_test.go` hands
+    `stamped` to `buildVersion` itself rather than reading the var, so it stays green through
+    all three mutations. Measured, not assumed — renaming `version` to `release` leaves
+    `go build` clean and all six packages green while the binary goes silent.
+
+    A link-time property needs a link-time check, so CI builds with
+    `-X main.version=v0.0.0-cistamp` and greps for it. That step is the only guard; do not
+    delete it as redundant. Before the split this could not break — `var version` and
+    `cmdVersion` were in one file — so the invariant is younger than the code it protects.
+
 ## Testing
 
 ```bash
-go test -race ./...     # 624 tests
-go vet ./... && gofmt -l .
+go test -race ./...     # 624 tests (324 top-level)
+go vet ./... && go vet -tags=live ./... && gofmt -l .
 ```
 
-**Unit tests cover `plan.go`, `envelope.go`, `state.go`, `ignore.go`, `exit.go` and `mcp.go`'s
-parsing** — the pure logic. Aim high there; that is where data loss lives. CI enforces 80%
-overall and 95% on `plan.go` and `envelope.go`.
+**Unit tests cover `plan.go`, `envelope.go`, `state.go`, `ignore.go`, `dsxerr.go` and
+`mcp.go`'s parsing** — the pure logic. Aim high there; that is where data loss lives. CI
+enforces 80% overall and 95% on `plan.go` and `envelope.go`.
+
+**The floor matches by filename substring, so it followed `plan.go` into `internal/syncer`
+for free — and it is gameable in a way worth knowing.** Moving a function out of a held file
+raises that file's number without covering anything: a one-line wrapper once dropped
+`envelope.go` from 100% to 85.7%, and the reverse trick works too. If a function is hard to
+cover where it is, export it and test it; do not relocate it past the ratchet.
 
 **`fake_test.go` is a fake endpoint for dsx's own handling — never for protocol facts.**
 Retry, batching, ledger bookkeeping, error classification: all fair game. But a mock can only
