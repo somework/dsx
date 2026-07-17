@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // One thin function per MCP tool. They exist to spell the arguments out, not to
@@ -194,7 +196,7 @@ func emitWrite(ctx context.Context, c *client, tool string, args map[string]any,
 	}
 	if err != nil {
 		if conflicts, ok := conflictFromToolError(err); ok {
-			return conflictError(conflicts, "the server changed since dsx read it; nothing was written")
+			return dsxerr.Conflict(conflicts, "the server changed since dsx read it; nothing was written")
 		}
 		return err
 	}
@@ -214,7 +216,7 @@ func cmdRm(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return usageError("rm <project> <path...>")
+		return dsxerr.Usage("rm <project> <path...>")
 	}
 
 	// Deletes always need a path-scoped plan_token naming every path; a
@@ -247,7 +249,7 @@ func cmdCp(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return usageError("cp <project> <src> <dst> [--from <project>]")
+		return dsxerr.Usage("cp <project> <src> <dst> [--from <project>]")
 	}
 
 	file := map[string]any{"src": src, "dest": rest[0]}
@@ -394,7 +396,7 @@ func cmdConvPut(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if *msgFile == "" {
-		return usageError("conv-put <project> --messages <file.json>")
+		return dsxerr.Usage("conv-put <project> --messages <file.json>")
 	}
 	b, err := os.ReadFile(*msgFile)
 	if err != nil {
@@ -438,10 +440,10 @@ func cmdMemberAdd(ctx context.Context, c *client, args []string) error {
 		return err
 	}
 	if *role == "" {
-		return usageError("member-add <project> --role <r> [--email e] [--uuid u]")
+		return dsxerr.Usage("member-add <project> --role <r> [--email e] [--uuid u]")
 	}
 	if *email == "" && *uuid == "" {
-		return &dsxError{Kind: kindUsage, Msg: "give --email or --uuid"}
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "give --email or --uuid"}
 	}
 	a := map[string]any{"project_id": project, "role": *role}
 	if *email != "" {
@@ -470,7 +472,7 @@ func cmdMemberRole(ctx context.Context, c *client, args []string) error {
 			return "", nil, err
 		}
 		if len(rest) == 0 {
-			return "", nil, usageError("member-role <project> <uuid> <role>")
+			return "", nil, dsxerr.Usage("member-role <project> <uuid> <role>")
 		}
 		return "update_member_role", map[string]any{
 			"project_id": project, "account_uuid": uuid, "role": rest[0],
@@ -558,7 +560,7 @@ func cmdTools(ctx context.Context, c *client, args []string) error {
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(raw, &list); err != nil {
-		return &dsxError{Kind: kindProtocol, Msg: "tools/list was not the shape dsx expects", Err: err}
+		return &dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: "tools/list was not the shape dsx expects", Err: err}
 	}
 	for _, t := range list.Tools {
 		fmt.Printf("%-26s %s\n", t.Name, truncate(firstLine(t.Description), 90))
@@ -580,14 +582,14 @@ func cmdRaw(ctx context.Context, c *client, args []string) error {
 	a := map[string]any{}
 	if len(rest) > 0 && rest[0] != "" {
 		if err := json.Unmarshal([]byte(rest[0]), &a); err != nil {
-			return &dsxError{Kind: kindUsage, Msg: "arguments must be a JSON object", Err: err}
+			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "arguments must be a JSON object", Err: err}
 		}
 		// The literal `null` unmarshals into a map without error and leaves it
 		// nil, so the guard above waves it through and dsx sends
 		// "arguments": null. Every other non-object is refused; this one was an
 		// inconsistent boundary, not a decision.
 		if a == nil {
-			return &dsxError{Kind: kindUsage, Msg: "arguments must be a JSON object, not null"}
+			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "arguments must be a JSON object, not null"}
 		}
 	}
 	return emit(ctx, c, tool, a, *asJSON)

@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Defects found by the adversarial review, each reproduced by three independent
@@ -320,18 +322,18 @@ func TestBuiltinIgnoresAreCaseInsensitiveToo(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUnclassifiedErrorRendersItsMessageOnce(t *testing.T) {
-	// classify() set Msg AND Err to the same error, and both renderers
+	// dsxerr.Classify() set Msg AND Err to the same error, and both renderers
 	// concatenate the two, so every unclassified failure said everything twice.
-	err := classify(errNoCredentialsSentinel{})
+	err := dsxerr.Classify(errNoCredentialsSentinel{})
 	if got := err.Error(); strings.Count(got, "boom") != 1 {
 		t.Errorf("prose says it %d times: %q", strings.Count(got, "boom"), got)
 	}
-	line := renderError(errNoCredentialsSentinel{}, true)
+	line := dsxerr.Render(errNoCredentialsSentinel{}, true)
 	if strings.Count(line, "boom") != 1 {
 		t.Errorf("--json says it %d times: %q", strings.Count(line, "boom"), line)
 	}
-	if strings.Count(renderError(errNoCredentialsSentinel{}, false), "boom") != 1 {
-		t.Errorf("prose renderer doubled it: %q", renderError(errNoCredentialsSentinel{}, false))
+	if strings.Count(dsxerr.Render(errNoCredentialsSentinel{}, false), "boom") != 1 {
+		t.Errorf("prose renderer doubled it: %q", dsxerr.Render(errNoCredentialsSentinel{}, false))
 	}
 }
 
@@ -400,10 +402,10 @@ func TestServerDetectedConflictExitsThreeLikeALocallyDetectedOne(t *testing.T) {
 	if err == nil {
 		t.Fatal("the server refused the write and dsx reported success")
 	}
-	de := classify(err)
-	if de.Kind != kindConflict {
+	de := dsxerr.Classify(err)
+	if de.Kind != dsxerr.KindConflict {
 		t.Fatalf("a server-detected conflict classified %q (exit %d), want %q (exit %d)",
-			de.Kind, de.Kind.exitCode(), kindConflict, exitConflict)
+			de.Kind, de.Kind.ExitCode(), dsxerr.KindConflict, dsxerr.ExitConflict)
 	}
 	if len(de.Paths) != 1 || de.Paths[0] != "a.css" {
 		t.Errorf("paths = %v, want the conflicting path so --json can name it", de.Paths)

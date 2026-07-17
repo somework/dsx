@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Tests for doctor.go and completion.go -- the two commands a user runs when
@@ -669,8 +671,8 @@ func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 	if err == nil {
 		t.Fatalf("doctor found a problem and still exited 0:\n%s", out)
 	}
-	if got := exitCodeFor(err); got != exitFailure {
-		t.Errorf("doctor exit = %d, want %d", got, exitFailure)
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitFailure {
+		t.Errorf("doctor exit = %d, want %d", got, dsxerr.ExitFailure)
 	}
 	// The report is the point of the command; it must be printed even when the
 	// command then reports failure, or the user learns only that "something" is
@@ -687,8 +689,8 @@ func TestCmdDoctorRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown flag was accepted")
 	}
-	if got := classify(err).Kind; got != kindUsage {
-		t.Errorf("unknown flag classified %q, want %q", got, kindUsage)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("unknown flag classified %q, want %q", got, dsxerr.KindUsage)
 	}
 }
 
@@ -835,11 +837,11 @@ func TestAnUnknownShellIsAUsageErrorAndNoScript(t *testing.T) {
 	if script != "" {
 		t.Errorf("a rejected shell still returned %d bytes of script", len(script))
 	}
-	if got := classify(err).Kind; got != kindUsage {
-		t.Errorf("unknown shell classified %q, want %q", got, kindUsage)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("unknown shell classified %q, want %q", got, dsxerr.KindUsage)
 	}
-	if got := exitCodeFor(err); got != exitUsage {
-		t.Errorf("unknown shell exit = %d, want %d — retrying it cannot help", got, exitUsage)
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitUsage {
+		t.Errorf("unknown shell exit = %d, want %d — retrying it cannot help", got, dsxerr.ExitUsage)
 	}
 }
 
@@ -849,8 +851,8 @@ func TestCompletionWithNoShellNamesTheOnesItHas(t *testing.T) {
 	if err == nil {
 		t.Fatal("completion with no argument succeeded")
 	}
-	if got := classify(err).Kind; got != kindUsage {
-		t.Errorf("missing argument classified %q, want %q", got, kindUsage)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("missing argument classified %q, want %q", got, dsxerr.KindUsage)
 	}
 	for _, shell := range diagShells {
 		if !strings.Contains(err.Error(), shell) {

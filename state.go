@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 const stateFileName = ".dsx-state.json"
@@ -364,7 +366,7 @@ func checkPathCollisions(remote map[string]remoteEntry, local map[string]localFi
 		names = append(names, p)
 	}
 	slices.Sort(names)
-	return conflictError(names, fmt.Sprintf(
+	return dsxerr.Conflict(names, fmt.Sprintf(
 		"%s cannot hold these paths apart — its filesystem folds names that the server keeps "+
 			"distinct, so syncing them would land several files in one and destroy all but the last. "+
 			"Rename them in the project, or sync to a case-sensitive volume", dir))

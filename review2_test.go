@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Round two. The first round's fixes were themselves audited by agents told to
@@ -315,9 +317,9 @@ func TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("the server refused the write and put reported success")
 	}
-	if got := classify(err).Kind; got != kindConflict {
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindConflict {
 		t.Fatalf("put --plan classified a conflict as %q (exit %d); without --plan it is %q (exit %d). "+
-			"Same tool, same reply, opposite answer.", got, got.exitCode(), kindConflict, exitConflict)
+			"Same tool, same reply, opposite answer.", got, got.ExitCode(), dsxerr.KindConflict, dsxerr.ExitConflict)
 	}
 }
 

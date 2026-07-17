@@ -1,4 +1,10 @@
-package main
+// Package dsxerr is the error taxonomy and the exit codes -- the contract with
+// an agent calling dsx.
+//
+// It is the module's one leaf: every other package reports failures through it,
+// and it imports nothing of dsx's own. That is why it is a package at all. It
+// holds no policy about what went wrong, only about how a caller is told.
+package dsxerr
 
 import (
 	"encoding/json"
@@ -18,57 +24,57 @@ import (
 //	4  the network or the server faulted; a retry may well succeed
 //	5  the token is missing, expired, or rejected; run any `claude` command
 const (
-	exitOK        = 0
-	exitFailure   = 1
-	exitUsage     = 2
-	exitConflict  = 3
-	exitTransport = 4
-	exitAuth      = 5
+	ExitOK        = 0
+	ExitFailure   = 1
+	ExitUsage     = 2
+	ExitConflict  = 3
+	ExitTransport = 4
+	ExitAuth      = 5
 )
 
-// errKind is the stable token an agent matches on in --json output. It is
+// Kind is the stable token an agent matches on in --json output. It is
 // deliberately coarser than the message: the message may be reworded, the
 // token may not.
-type errKind string
+type Kind string
 
 const (
-	kindFailure   errKind = "error"
-	kindUsage     errKind = "usage"
-	kindConflict  errKind = "conflict"
-	kindTransport errKind = "transport"
-	kindAuth      errKind = "auth"
-	kindProtocol  errKind = "protocol"
-	kindLocal     errKind = "local"
+	KindFailure   Kind = "error"
+	KindUsage     Kind = "usage"
+	KindConflict  Kind = "conflict"
+	KindTransport Kind = "transport"
+	KindAuth      Kind = "auth"
+	KindProtocol  Kind = "protocol"
+	KindLocal     Kind = "local"
 )
 
-// exitCode maps a kind onto the process status. Kinds that share exitFailure
+// ExitCode maps a kind onto the process status. Kinds that share ExitFailure
 // still differ in --json, so a caller loses nothing by the collapse: the codes
 // exist to separate the three responses that differ (fetch a human, retry,
 // re-authenticate) from everything that just failed.
-func (k errKind) exitCode() int {
+func (k Kind) ExitCode() int {
 	switch k {
-	case kindUsage:
-		return exitUsage
-	case kindConflict:
-		return exitConflict
-	case kindTransport:
-		return exitTransport
-	case kindAuth:
-		return exitAuth
+	case KindUsage:
+		return ExitUsage
+	case KindConflict:
+		return ExitConflict
+	case KindTransport:
+		return ExitTransport
+	case KindAuth:
+		return ExitAuth
 	default:
-		return exitFailure
+		return ExitFailure
 	}
 }
 
-// dsxError is a failure carrying the classification a caller acts on.
-type dsxError struct {
-	Kind  errKind
+// Error is a failure carrying the classification a caller acts on.
+type Error struct {
+	Kind  Kind
 	Msg   string
 	Paths []string
 	Err   error
 }
 
-func (e *dsxError) Error() string {
+func (e *Error) Error() string {
 	var sb strings.Builder
 	sb.WriteString(e.Msg)
 	if e.Err != nil {
@@ -83,55 +89,55 @@ func (e *dsxError) Error() string {
 	return sb.String()
 }
 
-func (e *dsxError) Unwrap() error { return e.Err }
+func (e *Error) Unwrap() error { return e.Err }
 
-// classify recovers the classification from anywhere in the wrap chain. Every
+// Classify recovers the classification from anywhere in the wrap chain. Every
 // site on the way up wraps with %w, so the label survives the ascent; anything
 // never labelled degrades to a plain failure rather than to success.
-func classify(err error) *dsxError {
+func Classify(err error) *Error {
 	if err == nil {
 		return nil
 	}
-	var de *dsxError
+	var de *Error
 	if errors.As(err, &de) {
 		return de
 	}
 	// Msg is left empty on purpose. Both renderers join Msg and Err, so setting
 	// both to the same error made every unclassified failure say everything
 	// twice -- in prose and in --json alike.
-	return &dsxError{Kind: kindFailure, Err: err}
+	return &Error{Kind: KindFailure, Err: err}
 }
 
-func exitCodeFor(err error) int {
+func ExitCodeFor(err error) int {
 	if err == nil {
-		return exitOK
+		return ExitOK
 	}
-	return classify(err).Kind.exitCode()
+	return Classify(err).Kind.ExitCode()
 }
 
-// conflictError reports paths dsx refused to touch because both sides hold
-// work. Paths are sorted so a caller diffing two runs sees a stable list.
-func conflictError(paths []string, hint string) *dsxError {
+// Conflict reports paths dsx refused to touch because both sides hold work.
+// Paths are sorted so a caller diffing two runs sees a stable list.
+func Conflict(paths []string, hint string) *Error {
 	sorted := append([]string(nil), paths...)
 	sort.Strings(sorted)
-	return &dsxError{Kind: kindConflict, Msg: hint, Paths: sorted}
+	return &Error{Kind: KindConflict, Msg: hint, Paths: sorted}
 }
 
-func usageError(form string) *dsxError {
-	return &dsxError{Kind: kindUsage, Msg: "usage: dsx " + form}
+func Usage(form string) *Error {
+	return &Error{Kind: KindUsage, Msg: "usage: dsx " + form}
 }
 
-// errorPayload is the --json error envelope. Field names are contract.
-type errorPayload struct {
-	Error   errKind  `json:"error"`
+// payload is the --json error envelope. Field names are contract.
+type payload struct {
+	Error   Kind     `json:"error"`
 	Message string   `json:"message,omitempty"`
 	Paths   []string `json:"paths,omitempty"`
 }
 
-// renderError produces the single stderr line for a failed command: JSON an
-// agent can parse, or prose a person can read.
-func renderError(err error, asJSON bool) string {
-	de := classify(err)
+// Render produces the single stderr line for a failed command: JSON an agent
+// can parse, or prose a person can read.
+func Render(err error, asJSON bool) string {
+	de := Classify(err)
 	if de == nil {
 		return ""
 	}
@@ -145,7 +151,7 @@ func renderError(err error, asJSON bool) string {
 		}
 		msg += de.Err.Error()
 	}
-	b, marshalErr := json.Marshal(errorPayload{Error: de.Kind, Message: msg, Paths: de.Paths})
+	b, marshalErr := json.Marshal(payload{Error: de.Kind, Message: msg, Paths: de.Paths})
 	if marshalErr != nil {
 		// Falling back to prose beats emitting nothing: the caller still learns
 		// that the command failed, and the exit code is unaffected.
@@ -154,12 +160,12 @@ func renderError(err error, asJSON bool) string {
 	return string(b)
 }
 
-// jsonRequested reports whether the caller asked for machine-readable output.
+// JSONRequested reports whether the caller asked for machine-readable output.
 //
 // The error renderer runs outside every FlagSet -- errors escape before, during
 // and after flag parsing -- so it cannot ask the flag package. Scanning argv is
 // what lets a failure honour --json wherever the flag landed.
-func jsonRequested(args []string) bool {
+func JSONRequested(args []string) bool {
 	for _, a := range args {
 		name, value, hasValue := strings.Cut(a, "=")
 		if name != "--json" && name != "-json" {

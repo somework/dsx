@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Where Claude Code keeps its OAuth material, and how dsx finds it.
@@ -189,16 +191,16 @@ func tokenFrom(lookup envLookup, read func() (oauthCreds, error)) (string, error
 
 	c, err := read()
 	if errors.Is(err, errNoCredentials) {
-		return "", &dsxError{Kind: kindAuth,
+		return "", &dsxerr.Error{Kind: dsxerr.KindAuth,
 			Msg: "no Claude Code login found — run `claude` once to sign in, or set DSX_TOKEN"}
 	}
 	if err != nil {
-		return "", &dsxError{Kind: kindAuth, Msg: "reading Claude Code's credentials failed", Err: err}
+		return "", &dsxerr.Error{Kind: dsxerr.KindAuth, Msg: "reading Claude Code's credentials failed", Err: err}
 	}
 
 	if c.ExpiresAt > 0 {
 		if exp := time.UnixMilli(c.ExpiresAt); time.Now().After(exp) {
-			return "", &dsxError{Kind: kindAuth, Msg: fmt.Sprintf(
+			return "", &dsxerr.Error{Kind: dsxerr.KindAuth, Msg: fmt.Sprintf(
 				"access token expired at %s — run any `claude` command to refresh it, then retry",
 				exp.Format(time.RFC3339))}
 		}

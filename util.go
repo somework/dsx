@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // noPositionals refuses arguments a command does not take.
@@ -17,7 +19,7 @@ func noPositionals(pos []string, form string) error {
 	if len(pos) == 0 {
 		return nil
 	}
-	return &dsxError{Kind: kindUsage,
+	return &dsxerr.Error{Kind: dsxerr.KindUsage,
 		Msg: fmt.Sprintf("unexpected argument %q — usage: dsx %s", pos[0], form)}
 }
 
@@ -43,7 +45,7 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 		if err := fs.Parse(args); err != nil {
 			// A bad flag is a bad invocation: retrying it verbatim cannot help,
 			// and the caller deserves that in the exit code.
-			return nil, &dsxError{Kind: kindUsage, Msg: "dsx " + fs.Name(), Err: err}
+			return nil, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "dsx " + fs.Name(), Err: err}
 		}
 		rest := fs.Args()
 		if len(rest) == 0 {

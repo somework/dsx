@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Round four. Round three's own collision guard folded paths with
@@ -49,8 +51,8 @@ func TestPullRefusesARemotePathThatFoldsOntoADifferentLocalName(t *testing.T) {
 		t.Fatal("a remote path that is the same file as a different local name was accepted; " +
 			"pulling it overwrites the local file and --prune then deletes it from both sides")
 	}
-	if got := classify(err).Kind; got != kindConflict {
-		t.Errorf("classified %q, want %q — which name survives is the user's call", got, kindConflict)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindConflict {
+		t.Errorf("classified %q, want %q — which name survives is the user's call", got, dsxerr.KindConflict)
 	}
 	for _, want := range []string{"README.md", "readme.md"} {
 		if !contains(err.Error(), want) {

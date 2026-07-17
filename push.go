@@ -8,6 +8,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Batch limits. The server accepts up to 256 entries per call; the byte cap is
@@ -182,7 +184,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 		// Reporting it as a generic failure would send exit 1 to a caller
 		// watching for exit 3.
 		if paths, ok := conflictFromToolError(err); ok {
-			return conflictError(paths, "the server changed while dsx was writing; nothing was written — `dsx pull` first, or --force")
+			return dsxerr.Conflict(paths, "the server changed while dsx was writing; nothing was written — `dsx pull` first, or --force")
 		}
 		return err
 	}
@@ -227,7 +229,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 	}
 	if len(unacknowledged) > 0 {
 		slices.Sort(unacknowledged)
-		return &dsxError{Kind: kindProtocol, Paths: unacknowledged, Msg: fmt.Sprintf(
+		return &dsxerr.Error{Kind: dsxerr.KindProtocol, Paths: unacknowledged, Msg: fmt.Sprintf(
 			"write_files returned no etag for %d of %d paths, so they are not in the ledger even though "+
 				"the server may hold them; run `dsx pull` to resynchronise",
 			len(unacknowledged), len(batch))}

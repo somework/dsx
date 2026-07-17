@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // commandNames is the one list dsx dispatches, documents and completes from.
@@ -115,6 +117,6 @@ compdef _dsx dsx
 		return sb.String(), nil
 
 	default:
-		return "", usageError("completion <bash|zsh|fish>")
+		return "", dsxerr.Usage("completion <bash|zsh|fish>")
 	}
 }

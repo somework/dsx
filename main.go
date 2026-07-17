@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 const usage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
@@ -80,8 +82,8 @@ func main() {
 	}
 	// The renderer runs here, outside every FlagSet, so that a failure raised
 	// before flags were parsed still honours --json.
-	fmt.Fprintln(os.Stderr, renderError(err, jsonRequested(os.Args[1:])))
-	os.Exit(exitCodeFor(err))
+	fmt.Fprintln(os.Stderr, dsxerr.Render(err, dsxerr.JSONRequested(os.Args[1:])))
+	os.Exit(dsxerr.ExitCodeFor(err))
 }
 
 func run() error {
@@ -108,7 +110,7 @@ func run() error {
 	// failure -- dsx blaming the user's credentials for their spelling, and
 	// exit 5 inviting a re-authentication that could not possibly help.
 	if !isKnownCommand(cmd) {
-		return &dsxError{Kind: kindUsage, Msg: "unknown command " + strconv.Quote(cmd) + " — run `dsx help`"}
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "unknown command " + strconv.Quote(cmd) + " — run `dsx help`"}
 	}
 
 	if cmd == "auth" {
@@ -194,20 +196,20 @@ func run() error {
 		// Unreachable while commandNames and this switch agree, which
 		// TestEveryDispatchedCommandIsCompletable enforces. It stays as the
 		// answer if they ever stop agreeing.
-		return &dsxError{Kind: kindUsage, Msg: "command " + strconv.Quote(cmd) + " is listed but not wired — this is a dsx bug"}
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "command " + strconv.Quote(cmd) + " is listed but not wired — this is a dsx bug"}
 	}
 }
 
 func need1(args []string, form string) (string, []string, error) {
 	if len(args) < 1 {
-		return "", nil, usageError(form)
+		return "", nil, dsxerr.Usage(form)
 	}
 	return args[0], args[1:], nil
 }
 
 func need2(args []string, form string) (string, string, []string, error) {
 	if len(args) < 2 {
-		return "", "", nil, usageError(form)
+		return "", "", nil, dsxerr.Usage(form)
 	}
 	return args[0], args[1], args[2:], nil
 }
@@ -351,7 +353,7 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 	case 2:
 		return pos[0], pos[1], nil
 	default:
-		return "", "", usageError(mode + " [<project>] [<dir>]")
+		return "", "", dsxerr.Usage(mode + " [<project>] [<dir>]")
 	}
 
 	p, err := bound(dir)
@@ -359,7 +361,7 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 		return "", "", err
 	}
 	if p == "" {
-		return "", "", &dsxError{Kind: kindUsage, Msg: fmt.Sprintf(
+		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
 			dir, mode, dir)}
 	}
@@ -376,7 +378,7 @@ func conflictOutcome(conflicts []string, dryRun bool, hint string) error {
 	if dryRun || len(conflicts) == 0 {
 		return nil
 	}
-	return conflictError(conflicts, hint)
+	return dsxerr.Conflict(conflicts, hint)
 }
 
 func cmdSync(ctx context.Context, c *client, mode string, args []string) error {

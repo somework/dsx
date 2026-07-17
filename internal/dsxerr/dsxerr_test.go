@@ -1,4 +1,4 @@
-package main
+package dsxerr
 
 import (
 	"encoding/json"
@@ -11,10 +11,10 @@ import (
 func TestExitCodesAreDistinctPerKind(t *testing.T) {
 	// An agent branches on these numbers. Two kinds sharing a code would make
 	// "retry" and "fetch a human" indistinguishable.
-	seen := map[int]errKind{}
-	for _, k := range []errKind{kindUsage, kindConflict, kindTransport, kindAuth} {
-		code := k.exitCode()
-		if code == exitOK {
+	seen := map[int]Kind{}
+	for _, k := range []Kind{KindUsage, KindConflict, KindTransport, KindAuth} {
+		code := k.ExitCode()
+		if code == ExitOK {
 			t.Errorf("kind %q exits 0; failure would read as success", k)
 		}
 		if other, dup := seen[code]; dup {
@@ -27,41 +27,41 @@ func TestExitCodesAreDistinctPerKind(t *testing.T) {
 func TestClassifyFindsKindThroughWrapping(t *testing.T) {
 	// Every error site wraps with %w on the way up. A classification that only
 	// works on a bare error would silently degrade to the generic code.
-	base := &dsxError{Kind: kindAuth, Msg: "token expired"}
+	base := &Error{Kind: KindAuth, Msg: "token expired"}
 	wrapped := fmt.Errorf("read_file: %w", fmt.Errorf("rpc: %w", base))
 
-	got := classify(wrapped)
-	if got.Kind != kindAuth {
-		t.Fatalf("kind through two wraps = %q, want %q", got.Kind, kindAuth)
+	got := Classify(wrapped)
+	if got.Kind != KindAuth {
+		t.Fatalf("kind through two wraps = %q, want %q", got.Kind, KindAuth)
 	}
-	if exitCodeFor(wrapped) != exitAuth {
-		t.Fatalf("exit code = %d, want %d", exitCodeFor(wrapped), exitAuth)
+	if ExitCodeFor(wrapped) != ExitAuth {
+		t.Fatalf("exit code = %d, want %d", ExitCodeFor(wrapped), ExitAuth)
 	}
 }
 
 func TestClassifyUnknownErrorIsGenericFailureNotSuccess(t *testing.T) {
-	got := classify(errors.New("something we never labelled"))
+	got := Classify(errors.New("something we never labelled"))
 	if got.Kind == "" {
 		t.Error("unclassified error has no machine token")
 	}
-	if code := exitCodeFor(errors.New("x")); code != exitFailure {
-		t.Fatalf("unclassified exit = %d, want %d", code, exitFailure)
+	if code := ExitCodeFor(errors.New("x")); code != ExitFailure {
+		t.Fatalf("unclassified exit = %d, want %d", code, ExitFailure)
 	}
 }
 
 func TestClassifyNilIsNil(t *testing.T) {
-	if classify(nil) != nil {
-		t.Fatal("classify(nil) must be nil")
+	if Classify(nil) != nil {
+		t.Fatal("Classify(nil) must be nil")
 	}
-	if exitCodeFor(nil) != exitOK {
+	if ExitCodeFor(nil) != ExitOK {
 		t.Fatal("nil error must exit 0")
 	}
 }
 
 func TestRenderErrorJSONIsMachineReadableWithPaths(t *testing.T) {
-	err := conflictError([]string{"b.css", "a.css"}, "local differs")
+	err := Conflict([]string{"b.css", "a.css"}, "local differs")
 
-	line := renderError(err, true)
+	line := Render(err, true)
 	var got struct {
 		Error   string   `json:"error"`
 		Message string   `json:"message"`
@@ -70,8 +70,8 @@ func TestRenderErrorJSONIsMachineReadableWithPaths(t *testing.T) {
 	if jsonErr := json.Unmarshal([]byte(line), &got); jsonErr != nil {
 		t.Fatalf("--json error is not JSON: %v\n%s", jsonErr, line)
 	}
-	if got.Error != string(kindConflict) {
-		t.Errorf("error token = %q, want %q", got.Error, kindConflict)
+	if got.Error != string(KindConflict) {
+		t.Errorf("error token = %q, want %q", got.Error, KindConflict)
 	}
 	if len(got.Paths) != 2 || got.Paths[0] != "a.css" {
 		t.Errorf("paths = %v, want them present and sorted", got.Paths)
@@ -82,8 +82,8 @@ func TestRenderErrorJSONIsMachineReadableWithPaths(t *testing.T) {
 }
 
 func TestRenderErrorProseCarriesTheSamePaths(t *testing.T) {
-	err := conflictError([]string{"a.css"}, "local differs")
-	line := renderError(err, false)
+	err := Conflict([]string{"a.css"}, "local differs")
+	line := Render(err, false)
 	if !strings.Contains(line, "a.css") {
 		t.Errorf("prose error dropped the path: %q", line)
 	}
@@ -93,7 +93,7 @@ func TestRenderErrorProseCarriesTheSamePaths(t *testing.T) {
 }
 
 func TestRenderErrorJSONNeverEmitsBarePathsKeyWhenThereAreNone(t *testing.T) {
-	line := renderError(&dsxError{Kind: kindTransport, Msg: "http 503"}, true)
+	line := Render(&Error{Kind: KindTransport, Msg: "http 503"}, true)
 	if strings.Contains(line, "paths") {
 		t.Errorf("empty paths must be omitted, not emitted as null: %q", line)
 	}
@@ -118,17 +118,17 @@ func TestJSONRequestedScansArgsBeforeFlagParsing(t *testing.T) {
 		{[]string{"pull", "p", "d", "-json=0"}, false},
 	}
 	for _, tc := range cases {
-		if got := jsonRequested(tc.args); got != tc.want {
-			t.Errorf("jsonRequested(%v) = %v, want %v", tc.args, got, tc.want)
+		if got := JSONRequested(tc.args); got != tc.want {
+			t.Errorf("JSONRequested(%v) = %v, want %v", tc.args, got, tc.want)
 		}
 	}
 }
 
 func TestDsxErrorUnwrapsToItsCause(t *testing.T) {
 	cause := errors.New("dial tcp: refused")
-	err := &dsxError{Kind: kindTransport, Msg: "unreachable", Err: cause}
+	err := &Error{Kind: KindTransport, Msg: "unreachable", Err: cause}
 	if !errors.Is(err, cause) {
-		t.Fatal("dsxError must unwrap to its cause")
+		t.Fatal("Error must unwrap to its cause")
 	}
 	if !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("message lost: %q", err.Error())

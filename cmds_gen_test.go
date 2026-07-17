@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Tests for cmds.go -- the thin per-tool wrappers.
@@ -489,8 +491,8 @@ func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("rm succeeded though it never got a plan_token")
 	}
-	if got := classify(err).Kind; got != kindProtocol {
-		t.Errorf("kind = %q, want %q", got, kindProtocol)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindProtocol {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindProtocol)
 	}
 	if n := f.countTool("delete_files"); n != 0 {
 		t.Errorf("delete_files called %d times without a token; nothing may be deleted unauthorised", n)
@@ -507,8 +509,8 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 	})
 
 	_, err := cmdsRun(t, f, cmdRm, "p1")
-	if got := classify(err).Kind; got != kindUsage {
-		t.Errorf("kind = %q, want %q", got, kindUsage)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 	if n := len(f.recorded()); n != 0 {
 		t.Errorf("%d requests made for an invocation that could never work", n)
@@ -521,9 +523,9 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 
 // TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport.
 //
-// The classification is the contract, not the message. kindProtocol means the
+// The classification is the contract, not the message. dsxerr.KindProtocol means the
 // server said something dsx cannot use, and repeating the request will produce
-// the same answer; kindTransport (exit 4) would invite an agent to retry a call
+// the same answer; dsxerr.KindTransport (exit 4) would invite an agent to retry a call
 // that is guaranteed to fail again, and each retry mints plan state server-side.
 func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) {
 	cases := []struct {
@@ -545,11 +547,11 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 			if err == nil {
 				t.Fatal("planToken accepted a reply carrying no usable token")
 			}
-			de := classify(err)
-			if de.Kind != kindProtocol {
-				t.Errorf("kind = %q, want %q", de.Kind, kindProtocol)
+			de := dsxerr.Classify(err)
+			if de.Kind != dsxerr.KindProtocol {
+				t.Errorf("kind = %q, want %q", de.Kind, dsxerr.KindProtocol)
 			}
-			if code := exitCodeFor(err); code == exitTransport {
+			if code := dsxerr.ExitCodeFor(err); code == dsxerr.ExitTransport {
 				t.Errorf("exit code = %d (transport); a caller must not retry this", code)
 			}
 		})
@@ -581,7 +583,7 @@ func TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim(t *testing.T) {
 
 // TestPlanTokenKeepsATransportFailureRetryable -- the opposite guard to the one
 // above. A 5xx on the way to a token is worth retrying, and flattening every
-// finalize_plan failure to kindProtocol would lose that.
+// finalize_plan failure to dsxerr.KindProtocol would lose that.
 func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{HTTPStatus: 503, HTTPBody: "upstream unavailable"}
@@ -592,8 +594,8 @@ func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 	if err == nil {
 		t.Fatal("planToken reported success against a 503")
 	}
-	if got := classify(err).Kind; got != kindTransport {
-		t.Errorf("kind = %q, want %q -- a 503 is not a protocol violation", got, kindTransport)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindTransport {
+		t.Errorf("kind = %q, want %q -- a 503 is not a protocol violation", got, dsxerr.KindTransport)
 	}
 }
 
@@ -1017,7 +1019,7 @@ func TestCmdToolsJSONEmitsTheServersOwnListAsOneDocument(t *testing.T) {
 	}
 }
 
-// cmdTools' kindProtocol branch (a tools/list whose result is not a tool list)
+// cmdTools' dsxerr.KindProtocol branch (a tools/list whose result is not a tool list)
 // is not reachable here: the fake answers tools/list itself, ahead of the reply
 // func, so no test can hand cmdTools a malformed list without a second harness.
 // Left uncovered on purpose rather than grown a competing fake.
@@ -1181,11 +1183,11 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 			if err == nil {
 				t.Fatal("the invocation was accepted")
 			}
-			if got := classify(err).Kind; got != kindUsage {
-				t.Errorf("kind = %q, want %q", got, kindUsage)
+			if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+				t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 			}
-			if got := exitCodeFor(err); got != exitUsage {
-				t.Errorf("exit code = %d, want %d", got, exitUsage)
+			if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitUsage {
+				t.Errorf("exit code = %d, want %d", got, dsxerr.ExitUsage)
 			}
 			if n := len(f.recorded()); n != 0 {
 				t.Errorf("%d requests made for an invocation that could never work", n)

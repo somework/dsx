@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // The finalize_plan self-authorisation path.
@@ -31,7 +33,7 @@ func planToken(ctx context.Context, c *client, args map[string]any) (string, err
 		PlanToken string `json:"plan_token"`
 	}
 	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		return "", &dsxError{Kind: kindProtocol,
+		return "", &dsxerr.Error{Kind: dsxerr.KindProtocol,
 			Msg: "finalize_plan returned no plan_token: " + truncate(text, 200)}
 	}
 	return plan.PlanToken, nil

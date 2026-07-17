@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Defects the adversarial test pass turned up. Each is written red first, and
@@ -125,16 +127,16 @@ func TestRawRefusesANullArgumentInsteadOfSendingIt(t *testing.T) {
 			t.Errorf("raw accepted %s as arguments", bad)
 			continue
 		}
-		if got := classify(err).Kind; got != kindUsage {
-			t.Errorf("raw %s classified %q, want %q", bad, got, kindUsage)
+		if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+			t.Errorf("raw %s classified %q, want %q", bad, got, dsxerr.KindUsage)
 		}
 	}
 }
 
 func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
-	// A body dsx cannot parse was kindProtocol; a *result* dsx cannot parse
-	// degraded to the generic kindFailure. Both are "the server sent a shape we
-	// do not model", and errKind is the stable token an agent matches on, so
+	// A body dsx cannot parse was dsxerr.KindProtocol; a *result* dsx cannot parse
+	// degraded to the generic dsxerr.KindFailure. Both are "the server sent a shape we
+	// do not model", and dsxerr.Kind is the stable token an agent matches on, so
 	// the two must not disagree.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":"a bare string, not a tool result"}`}
@@ -144,8 +146,8 @@ func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
 	if err == nil {
 		t.Fatal("a malformed tool result was accepted")
 	}
-	if got := classify(err).Kind; got != kindProtocol {
-		t.Errorf("malformed tool result classified %q, want %q", got, kindProtocol)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindProtocol {
+		t.Errorf("malformed tool result classified %q, want %q", got, dsxerr.KindProtocol)
 	}
 }
 
@@ -236,8 +238,8 @@ func TestCommandsRefuseArgumentsTheyDoNotTake(t *testing.T) {
 			if err == nil {
 				t.Fatalf("dsx %s accepted a positional it does not take", tc.name)
 			}
-			if got := classify(err).Kind; got != kindUsage {
-				t.Errorf("classified %q, want %q so the caller does not retry it", got, kindUsage)
+			if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+				t.Errorf("classified %q, want %q so the caller does not retry it", got, dsxerr.KindUsage)
 			}
 		})
 	}

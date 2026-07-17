@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Cover for main.go's dispatch/wiring and util.go's argument plumbing.
@@ -95,12 +97,12 @@ func maincliFake(t *testing.T, text string) (*fakeMCP, *client) {
 	return f, f.client()
 }
 
-func maincliKind(t *testing.T, err error) errKind {
+func maincliKind(t *testing.T, err error) dsxerr.Kind {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected an error, got nil")
 	}
-	return classify(err).Kind
+	return dsxerr.Classify(err).Kind
 }
 
 // maincliWriteFile drops a file under dir, creating parents.
@@ -175,8 +177,8 @@ func TestSyncTargetWithNoArgumentsDefaultsToTheWorkingDirectory(t *testing.T) {
 
 func TestSyncTargetOnAnUnboundDirIsAUsageErrorThatSaysHowToBindIt(t *testing.T) {
 	_, _, err := resolveSyncTarget("pull", []string{"fresh"}, maincliUnbound)
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Fatalf("unbound dir classified %q, want %q: retrying the same command cannot help", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Fatalf("unbound dir classified %q, want %q: retrying the same command cannot help", got, dsxerr.KindUsage)
 	}
 	// "Errors say what to do next": the message has to carry the directory, the
 	// mode, and the fact that naming the project once is enough.
@@ -192,8 +194,8 @@ func TestSyncTargetRefusesMoreThanTwoPositionalArguments(t *testing.T) {
 	// Three arguments cannot be an abbreviation of anything; guessing which two
 	// were meant would sync the wrong pair.
 	_, _, err := resolveSyncTarget("pull", []string{"a", "b", "c"}, maincliNoLedger(t))
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Fatalf("three arguments classified %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Fatalf("three arguments classified %q, want %q", got, dsxerr.KindUsage)
 	}
 }
 
@@ -223,12 +225,12 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 	if err == nil {
 		t.Fatal("a real run that refused to move bytes reported success; a caller reading exit 0 would carry on over work that exists nowhere else")
 	}
-	de := classify(err)
-	if de.Kind != kindConflict {
-		t.Errorf("kind = %q, want %q", de.Kind, kindConflict)
+	de := dsxerr.Classify(err)
+	if de.Kind != dsxerr.KindConflict {
+		t.Errorf("kind = %q, want %q", de.Kind, dsxerr.KindConflict)
 	}
-	if got := exitCodeFor(err); got != exitConflict {
-		t.Errorf("exit code = %d, want %d", got, exitConflict)
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+		t.Errorf("exit code = %d, want %d", got, dsxerr.ExitConflict)
 	}
 	// Sorted so a caller diffing two runs sees a stable list.
 	want := []string{"a.css", "m.css", "z.css"}
@@ -506,16 +508,16 @@ func TestCommandNamesHasNoDuplicatesOrEmptyEntries(t *testing.T) {
 func TestNeed1AndNeed2ClassifyTooFewArgumentsAsUsage(t *testing.T) {
 	// Exit 2 is the contract for "running it again will not help". A missing
 	// argument reported as a generic failure invites a retry loop.
-	if _, _, err := need1(nil, "project <id>"); maincliKind(t, err) != kindUsage {
-		t.Errorf("need1(nil) classified %q, want %q", maincliKind(t, err), kindUsage)
+	if _, _, err := need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
+		t.Errorf("need1(nil) classified %q, want %q", maincliKind(t, err), dsxerr.KindUsage)
 	}
 	if _, _, err := need1([]string{}, "project <id>"); err == nil {
 		t.Error("need1 accepted zero arguments")
 	}
 	for _, args := range [][]string{nil, {"only-one"}} {
 		_, _, _, err := need2(args, "cp <src> <dst>")
-		if maincliKind(t, err) != kindUsage {
-			t.Errorf("need2(%v) classified %q, want %q", args, maincliKind(t, err), kindUsage)
+		if maincliKind(t, err) != dsxerr.KindUsage {
+			t.Errorf("need2(%v) classified %q, want %q", args, maincliKind(t, err), dsxerr.KindUsage)
 		}
 	}
 	if !strings.Contains(func() string { _, _, err := need1(nil, "project <id>"); return err.Error() }(), "project <id>") {
@@ -597,8 +599,8 @@ func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 	if err == nil {
 		t.Fatalf("an unknown flag was accepted, positionals = %v", pos)
 	}
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Errorf("unknown flag classified %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Errorf("unknown flag classified %q, want %q", got, dsxerr.KindUsage)
 	}
 	if !strings.Contains(err.Error(), "bogus") {
 		t.Errorf("the message does not name the offending flag: %q", err.Error())
@@ -832,8 +834,8 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 		_, _, err := need1(pos, "project <id>")
 		return "", nil, err
 	})
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Errorf("kind = %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 	if n := f.countTool("get_project"); n != 0 {
 		t.Errorf("%d tool calls made despite a usage error", n)
@@ -846,8 +848,8 @@ func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 		t.Fatal("build ran despite an unparseable flag")
 		return "", nil, nil
 	})
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Errorf("kind = %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 	if len(f.recorded()) != 0 {
 		t.Errorf("the endpoint was contacted: %v", f.recorded())
@@ -972,8 +974,8 @@ func TestAuthReportsAMissingLoginAsAuthNotAsSuccess(t *testing.T) {
 
 func TestAuthRejectsAnUnknownFlagWithoutReadingAnyCredential(t *testing.T) {
 	err := cmdAuth([]string{"--bogus"})
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Errorf("kind = %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 }
 
@@ -1055,10 +1057,10 @@ func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a pull that refused every file reported success; output was %q", out)
 	}
-	if got := exitCodeFor(err); got != exitConflict {
-		t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over the local edit", got, exitConflict)
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+		t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over the local edit", got, dsxerr.ExitConflict)
 	}
-	if paths := classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
+	if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
 		t.Errorf("conflict paths = %v, want [a.css] so the caller knows what to look at", paths)
 	}
 	// The summary still goes out: the caller is told what happened as well as
@@ -1110,8 +1112,8 @@ func TestSyncOnAnUnboundDirFailsBeforeTouchingTheNetwork(t *testing.T) {
 	dir := t.TempDir()
 
 	err := cmdSync(context.Background(), c, "pull", []string{dir})
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Fatalf("kind = %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Fatalf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 	if len(f.recorded()) != 0 {
 		t.Errorf("the endpoint was contacted for a directory with no known project: %v", f.recorded())
@@ -1181,8 +1183,8 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	if out != "" {
 		t.Errorf("-q printed %q", out)
 	}
-	if got := exitCodeFor(err); got != exitConflict {
-		t.Errorf("exit code under -q = %d, want %d", got, exitConflict)
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+		t.Errorf("exit code under -q = %d, want %d", got, dsxerr.ExitConflict)
 	}
 }
 
@@ -1213,8 +1215,8 @@ func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
 func TestSyncRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
 	err := cmdSync(context.Background(), c, "pull", []string{"proj", ".", "--bogus"})
-	if got := maincliKind(t, err); got != kindUsage {
-		t.Errorf("kind = %q, want %q", got, kindUsage)
+	if got := maincliKind(t, err); got != dsxerr.KindUsage {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
 	if len(f.recorded()) != 0 {
 		t.Errorf("the endpoint was contacted despite a bad flag: %v", f.recorded())
@@ -1320,8 +1322,8 @@ func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setup(t)
 			_, err := maincliRun(t, "pulll")
-			if got := maincliKind(t, err); got != kindUsage {
-				t.Fatalf("unknown command classified %q, want %q: %v", got, kindUsage, err)
+			if got := maincliKind(t, err); got != dsxerr.KindUsage {
+				t.Fatalf("unknown command classified %q, want %q: %v", got, dsxerr.KindUsage, err)
 			}
 			if !strings.Contains(err.Error(), "pulll") {
 				t.Errorf("the message does not name the command: %q", err.Error())
@@ -1345,50 +1347,63 @@ func TestRunCompletionAnswersForEveryShellAndRefusesOthers(t *testing.T) {
 			t.Errorf("dsx completion %s produced nothing usable: %q", shell, out)
 		}
 	}
-	if _, err := maincliRun(t, "completion", "powershell"); maincliKind(t, err) != kindUsage {
+	if _, err := maincliRun(t, "completion", "powershell"); maincliKind(t, err) != dsxerr.KindUsage {
 		t.Errorf("an unsupported shell must be a usage error")
 	}
-	if _, err := maincliRun(t, "completion"); maincliKind(t, err) != kindUsage {
+	if _, err := maincliRun(t, "completion"); maincliKind(t, err) != dsxerr.KindUsage {
 		t.Errorf("a missing shell argument must be a usage error")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// exitCodeFor / renderError, one per kind, end to end
+// dsxerr.ExitCodeFor / dsxerr.Render, one per kind, end to end
 // ---------------------------------------------------------------------------
+
+// wireError is the --json error envelope as a CALLER sees it, spelled out here
+// rather than borrowed from dsxerr.
+//
+// These field names are contract. A test that unmarshalled into the producer's
+// own struct would agree with it by construction: rename a json tag and both
+// sides move together, green, while every agent parsing dsx's output breaks.
+// That is the ledger's failure mode (invariant 5) in a different envelope.
+type wireError struct {
+	Error   dsxerr.Kind `json:"error"`
+	Message string      `json:"message,omitempty"`
+	Paths   []string    `json:"paths,omitempty"`
+}
 
 func TestEveryKindRendersAndExitsConsistently(t *testing.T) {
 	cases := []struct {
 		err      error
 		wantCode int
 	}{
-		{&dsxError{Kind: kindFailure, Msg: "something broke"}, exitFailure},
-		{usageError("cp <src> <dst>"), exitUsage},
-		{conflictError([]string{"b.css", "a.css"}, "local differs"), exitConflict},
-		{&dsxError{Kind: kindTransport, Msg: "http 503"}, exitTransport},
-		{&dsxError{Kind: kindAuth, Msg: "token expired"}, exitAuth},
-		{&dsxError{Kind: kindProtocol, Msg: "unparseable reply"}, exitFailure},
-		{&dsxError{Kind: kindLocal, Msg: "disk full"}, exitFailure},
+		{&dsxerr.Error{Kind: dsxerr.KindFailure, Msg: "something broke"}, dsxerr.ExitFailure},
+		{dsxerr.Usage("cp <src> <dst>"), dsxerr.ExitUsage},
+		{dsxerr.Conflict([]string{"b.css", "a.css"}, "local differs"), dsxerr.ExitConflict},
+		{&dsxerr.Error{Kind: dsxerr.KindTransport, Msg: "http 503"}, dsxerr.ExitTransport},
+		{&dsxerr.Error{Kind: dsxerr.KindAuth, Msg: "token expired"}, dsxerr.ExitAuth},
+		{&dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: "unparseable reply"}, dsxerr.ExitFailure},
+		{&dsxerr.Error{Kind: dsxerr.KindLocal, Msg: "disk full"}, dsxerr.ExitFailure},
 	}
 	for _, tc := range cases {
-		kind := classify(tc.err).Kind
+		kind := dsxerr.Classify(tc.err).Kind
 		t.Run(string(kind), func(t *testing.T) {
-			if got := exitCodeFor(tc.err); got != tc.wantCode {
+			if got := dsxerr.ExitCodeFor(tc.err); got != tc.wantCode {
 				t.Errorf("exit code = %d, want %d", got, tc.wantCode)
 			}
 
 			// Prose: readable, prefixed, never JSON.
-			prose := renderError(tc.err, false)
+			prose := dsxerr.Render(tc.err, false)
 			if !strings.HasPrefix(prose, "dsx: ") {
 				t.Errorf("prose = %q, want the dsx: prefix", prose)
 			}
 
 			// JSON: one line, and the kind token is what an agent matches on.
-			line := renderError(tc.err, true)
+			line := dsxerr.Render(tc.err, true)
 			if strings.Contains(line, "\n") {
 				t.Errorf("--json error spans lines: %q", line)
 			}
-			var got errorPayload
+			var got wireError
 			if err := json.Unmarshal([]byte(line), &got); err != nil {
 				t.Fatalf("--json error is not JSON: %v\n%s", err, line)
 			}
@@ -1402,15 +1417,15 @@ func TestEveryKindRendersAndExitsConsistently(t *testing.T) {
 	}
 }
 
-// kindProtocol and kindLocal both collapse onto exit 1, so the JSON token is the
+// dsxerr.KindProtocol and dsxerr.KindLocal both collapse onto exit 1, so the JSON token is the
 // only thing that still tells them apart. Losing it would leave a caller unable
 // to distinguish "the server said something we cannot parse" from "the disk is
 // full" — one is worth retrying elsewhere, the other is not.
 func TestKindsSharingAnExitCodeStayDistinctInJSON(t *testing.T) {
-	seen := map[errKind]bool{}
-	for _, k := range []errKind{kindFailure, kindProtocol, kindLocal} {
-		line := renderError(&dsxError{Kind: k, Msg: "x"}, true)
-		var got errorPayload
+	seen := map[dsxerr.Kind]bool{}
+	for _, k := range []dsxerr.Kind{dsxerr.KindFailure, dsxerr.KindProtocol, dsxerr.KindLocal} {
+		line := dsxerr.Render(&dsxerr.Error{Kind: k, Msg: "x"}, true)
+		var got wireError
 		if err := json.Unmarshal([]byte(line), &got); err != nil {
 			t.Fatal(err)
 		}
@@ -1418,8 +1433,8 @@ func TestKindsSharingAnExitCodeStayDistinctInJSON(t *testing.T) {
 			t.Errorf("kind %q is not distinguishable in --json", k)
 		}
 		seen[got.Error] = true
-		if exitCodeFor(&dsxError{Kind: k}) != exitFailure {
-			t.Errorf("kind %q no longer exits %d", k, exitFailure)
+		if dsxerr.ExitCodeFor(&dsxerr.Error{Kind: k}) != dsxerr.ExitFailure {
+			t.Errorf("kind %q no longer exits %d", k, dsxerr.ExitFailure)
 		}
 	}
 }
@@ -1432,20 +1447,20 @@ func TestErrorsRaisedBeforeFlagParsingStillHonourJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a usage error")
 	}
-	line := renderError(err, jsonRequested(argv))
+	line := dsxerr.Render(err, dsxerr.JSONRequested(argv))
 	if !json.Valid([]byte(line)) {
 		t.Fatalf("--json was on the command line but the error rendered as prose: %q", line)
 	}
-	if exitCodeFor(err) != exitUsage {
-		t.Errorf("exit code = %d, want %d", exitCodeFor(err), exitUsage)
+	if dsxerr.ExitCodeFor(err) != dsxerr.ExitUsage {
+		t.Errorf("exit code = %d, want %d", dsxerr.ExitCodeFor(err), dsxerr.ExitUsage)
 	}
 }
 
 func TestRenderErrorOnNilIsEmpty(t *testing.T) {
-	if got := renderError(nil, false); got != "" {
-		t.Errorf("renderError(nil) = %q", got)
+	if got := dsxerr.Render(nil, false); got != "" {
+		t.Errorf("dsxerr.Render(nil) = %q", got)
 	}
-	if got := renderError(nil, true); got != "" {
-		t.Errorf("renderError(nil, json) = %q", got)
+	if got := dsxerr.Render(nil, true); got != "" {
+		t.Errorf("dsxerr.Render(nil, json) = %q", got)
 	}
 }

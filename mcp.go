@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 const (
@@ -197,7 +199,7 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// The request may already have reached the server and been applied.
-		return nil, idempotent, &dsxError{Kind: kindTransport, Msg: "request failed", Err: err}
+		return nil, idempotent, &dsxerr.Error{Kind: dsxerr.KindTransport, Msg: "request failed", Err: err}
 	}
 	defer resp.Body.Close()
 
@@ -207,12 +209,12 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, idempotent, &dsxError{Kind: kindTransport, Msg: "reading the reply failed", Err: err}
+		return nil, idempotent, &dsxerr.Error{Kind: dsxerr.KindTransport, Msg: "reading the reply failed", Err: err}
 	}
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, false, &dsxError{Kind: kindAuth,
+		return nil, false, &dsxerr.Error{Kind: dsxerr.KindAuth,
 			Msg: "401 unauthorized — token rejected; run any `claude` command to refresh, then retry"}
 	case resp.StatusCode == http.StatusForbidden && bytes.Contains(payload, []byte("needs_project_grant")):
 		var g struct {
@@ -222,22 +224,22 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 		return nil, false, &grantError{ProjectID: g.ProjectID}
 	case resp.StatusCode == http.StatusTooManyRequests:
 		// Rejected before it ran; safe to retry whatever the method.
-		return nil, true, &dsxError{Kind: kindTransport,
+		return nil, true, &dsxerr.Error{Kind: dsxerr.KindTransport,
 			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
 	case resp.StatusCode >= 500:
-		return nil, idempotent, &dsxError{Kind: kindTransport,
+		return nil, idempotent, &dsxerr.Error{Kind: dsxerr.KindTransport,
 			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 200))}
 	case resp.StatusCode != http.StatusOK:
-		return nil, false, &dsxError{Kind: kindProtocol,
+		return nil, false, &dsxerr.Error{Kind: dsxerr.KindProtocol,
 			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, truncate(string(payload), 400))}
 	}
 
 	var out rpcResponse
 	if err := json.Unmarshal(normalizeSSE(payload, resp.Header.Get("Content-Type")), &out); err != nil {
-		return nil, false, &dsxError{Kind: kindProtocol, Msg: "malformed response", Err: err}
+		return nil, false, &dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: "malformed response", Err: err}
 	}
 	if out.Error != nil {
-		return nil, false, &dsxError{Kind: kindProtocol,
+		return nil, false, &dsxerr.Error{Kind: dsxerr.KindProtocol,
 			Msg: fmt.Sprintf("rpc %d: %s", out.Error.Code, out.Error.Message)}
 	}
 	return out.Result, false, nil
@@ -332,10 +334,10 @@ func (c *client) callTool(ctx context.Context, name string, args map[string]any)
 	}
 	var res toolResult
 	if err := json.Unmarshal(raw, &res); err != nil {
-		// kindProtocol, matching the malformed-body path above: both are "the
-		// server sent a shape we do not model", and errKind is the token an
+		// dsxerr.KindProtocol, matching the malformed-body path above: both are "the
+		// server sent a shape we do not model", and dsxerr.Kind is the token an
 		// agent matches on, so the two must not answer differently.
-		return "", &dsxError{Kind: kindProtocol, Msg: name + ": malformed tool result", Err: err}
+		return "", &dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: name + ": malformed tool result", Err: err}
 	}
 
 	var sb strings.Builder

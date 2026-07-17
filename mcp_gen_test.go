@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Transport tests for mcp.go.
@@ -157,8 +159,8 @@ func TestMutatingToolIsNotRetriedAfterA500(t *testing.T) {
 		t.Fatalf("write_files reached the server %d times, want exactly 1; "+
 			"a replayed write re-applies a mutation the server may already have made", n)
 	}
-	if k := classify(err).Kind; k != kindTransport {
-		t.Errorf("classify(err).Kind = %q, want %q", k, kindTransport)
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindTransport {
+		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q", k, dsxerr.KindTransport)
 	}
 }
 
@@ -205,11 +207,11 @@ func TestRetryExhaustionKeepsTheTransportClassification(t *testing.T) {
 	if n := f.countTool("list_files"); n != maxAttempts {
 		t.Errorf("list_files reached the server %d times, want maxAttempts=%d", n, maxAttempts)
 	}
-	if k := classify(err).Kind; k != kindTransport {
-		t.Errorf("classify(err).Kind = %q, want %q; the label did not survive the retry wrap", k, kindTransport)
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindTransport {
+		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q; the label did not survive the retry wrap", k, dsxerr.KindTransport)
 	}
-	if code := exitCodeFor(err); code != exitTransport {
-		t.Errorf("exitCodeFor(err) = %d, want %d", code, exitTransport)
+	if code := dsxerr.ExitCodeFor(err); code != dsxerr.ExitTransport {
+		t.Errorf("dsxerr.ExitCodeFor(err) = %d, want %d", code, dsxerr.ExitTransport)
 	}
 }
 
@@ -228,8 +230,8 @@ func TestBadRequestIsProtocolAndIsNotRetried(t *testing.T) {
 	if n := f.countTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1; a 400 will say the same thing every time", n)
 	}
-	if k := classify(err).Kind; k != kindProtocol {
-		t.Errorf("classify(err).Kind = %q, want %q", k, kindProtocol)
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
+		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q", k, dsxerr.KindProtocol)
 	}
 }
 
@@ -252,12 +254,12 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	if n := f.countTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1; a rejected token stays rejected", n)
 	}
-	de := classify(err)
-	if de.Kind != kindAuth {
-		t.Fatalf("classify(err).Kind = %q, want %q", de.Kind, kindAuth)
+	de := dsxerr.Classify(err)
+	if de.Kind != dsxerr.KindAuth {
+		t.Fatalf("dsxerr.Classify(err).Kind = %q, want %q", de.Kind, dsxerr.KindAuth)
 	}
-	if code := exitCodeFor(err); code != exitAuth {
-		t.Errorf("exitCodeFor(err) = %d, want %d", code, exitAuth)
+	if code := dsxerr.ExitCodeFor(err); code != dsxerr.ExitAuth {
+		t.Errorf("dsxerr.ExitCodeFor(err) = %d, want %d", code, dsxerr.ExitAuth)
 	}
 	// Errors say what to do next. Without the remedy the user has a dead token
 	// and no way to learn that re-running claude fixes it.
@@ -268,7 +270,7 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 
 // The grant refusal is recoverable and push.go recovers from it by name --
 // `errors.As(err, &ge)` at push.go:185, through callTool's %w wrap. If it
-// arrived as a plain dsxError or a toolError, push would surface the 403 to the
+// arrived as a plain dsxerr.Error or a toolError, push would surface the 403 to the
 // user instead of self-authorising with a plan_token.
 func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	t.Parallel()
@@ -345,8 +347,8 @@ func TestRPCErrorObjectIsProtocolAndIsNotRetried(t *testing.T) {
 	if err == nil {
 		t.Fatal("an rpc error object produced no error")
 	}
-	if k := classify(err).Kind; k != kindProtocol {
-		t.Errorf("classify(err).Kind = %q, want %q", k, kindProtocol)
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
+		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q", k, dsxerr.KindProtocol)
 	}
 	// list_files is read-only, so nothing but the classification stops a replay
 	// of a call the server has already judged malformed.
@@ -369,8 +371,8 @@ func TestMalformedBodyIsProtocolNotTransport(t *testing.T) {
 	if err == nil {
 		t.Fatal("a truncated body produced no error")
 	}
-	if k := classify(err).Kind; k != kindProtocol {
-		t.Errorf("classify(err).Kind = %q, want %q; unparseable is not the same as retryable", k, kindProtocol)
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
+		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q; unparseable is not the same as retryable", k, dsxerr.KindProtocol)
 	}
 	if n := f.countTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1", n)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // envMap builds a lookup with os.LookupEnv's semantics: set-but-empty and
@@ -175,8 +177,8 @@ func TestTokenFromRejectsAnExpiredTokenAsAuthNotAsSuccess(t *testing.T) {
 	if err == nil {
 		t.Fatal("an expired token was accepted")
 	}
-	if got := classify(err).Kind; got != kindAuth {
-		t.Errorf("expired token classified %q, want %q so the caller knows to run `claude`", got, kindAuth)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindAuth {
+		t.Errorf("expired token classified %q, want %q so the caller knows to run `claude`", got, dsxerr.KindAuth)
 	}
 	if !strings.Contains(err.Error(), "claude") {
 		t.Errorf("the error must say what to do next: %q", err.Error())
@@ -196,8 +198,8 @@ func TestTokenFromClassifiesAMissingStoreAsAuth(t *testing.T) {
 	_, err := tokenFrom(envMap(nil), func() (oauthCreds, error) {
 		return oauthCreds{}, errNoCredentials
 	})
-	if got := classify(err).Kind; got != kindAuth {
-		t.Fatalf("absent credentials classified %q, want %q", got, kindAuth)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindAuth {
+		t.Fatalf("absent credentials classified %q, want %q", got, dsxerr.KindAuth)
 	}
 }
 

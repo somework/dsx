@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // The scope the design endpoint actually enforces. The 401 it hands back
@@ -68,7 +70,7 @@ func cmdDoctor(ctx context.Context, c *client, args []string) error {
 	rep := runDoctor(ctx, c)
 	fmt.Println(rep.render(*asJSON))
 	if !rep.OK {
-		return &dsxError{Kind: kindFailure, Msg: "doctor found a problem"}
+		return &dsxerr.Error{Kind: dsxerr.KindFailure, Msg: "doctor found a problem"}
 	}
 	return nil
 }

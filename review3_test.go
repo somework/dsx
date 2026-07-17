@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // Residuals the round-two audits reported but did not themselves reach. Each is
@@ -156,8 +158,8 @@ func TestPullRefusesRemotePathsThatCollideOnThisFilesystem(t *testing.T) {
 	if strings.Contains(err.Error(), "other.css") {
 		t.Errorf("an uninvolved path was named: %v", err)
 	}
-	if got := classify(err).Kind; got != kindConflict {
-		t.Errorf("classified %q, want %q: a human must choose which file to keep", got, kindConflict)
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindConflict {
+		t.Errorf("classified %q, want %q: a human must choose which file to keep", got, dsxerr.KindConflict)
 	}
 
 	// No collision, no complaint.
