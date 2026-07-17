@@ -17,8 +17,11 @@ func cmdCompletion(args []string) error {
 	if err != nil {
 		return err
 	}
-	shell, _, err := cmd.Need1(pos, "completion <bash|zsh|fish>")
+	shell, rest, err := cmd.Need1(pos, "completion <bash|zsh|fish>")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "completion <bash|zsh|fish>"); err != nil {
 		return err
 	}
 	script, err := completionScript(shell)

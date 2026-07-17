@@ -60,7 +60,11 @@ func (r doctorReport) render(asJSON bool) string {
 func cmdDoctor(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("doctor")
 	asJSON := flags.Bool("json", false, "JSON output")
-	if _, err := cmd.ParseArgs(flags, args); err != nil {
+	pos, err := cmd.ParseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(pos, "doctor"); err != nil {
 		return err
 	}
 

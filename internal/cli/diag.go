@@ -29,7 +29,11 @@ var diagGroup = cmd.Group{
 func cmdAuth(args []string) error {
 	flags := cmd.NewFlagSet("auth")
 	asJSON := flags.Bool("json", false, "JSON output")
-	if _, err := cmd.ParseArgs(flags, args); err != nil {
+	pos, err := cmd.ParseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(pos, "auth"); err != nil {
 		return err
 	}
 
@@ -69,7 +73,11 @@ func cmdAuth(args []string) error {
 func cmdHelp(args []string) error {
 	flags := cmd.NewFlagSet("help")
 	asJSON := cmd.JSONFlag(flags)
-	if _, err := cmd.ParseArgs(flags, args); err != nil {
+	pos, err := cmd.ParseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(pos, "help"); err != nil {
 		return err
 	}
 	if !*asJSON {

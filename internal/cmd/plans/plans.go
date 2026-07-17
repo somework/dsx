@@ -28,8 +28,11 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]")
+	project, rest, err := cmd.Need1(pos, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}
@@ -56,8 +59,11 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, path, _, err := cmd.Need2(pos, "preview <project> <path>")
+	project, path, rest, err := cmd.Need2(pos, "preview <project> <path>")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "preview <project> <path>"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project, "path": path}
@@ -84,8 +90,11 @@ func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "support-js <project> [--path p]")
+	project, rest, err := cmd.Need1(pos, "support-js <project> [--path p]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "support-js <project> [--path p]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}

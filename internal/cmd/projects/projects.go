@@ -11,13 +11,19 @@ var Group = cmd.Group{
 	Title: "PROJECTS",
 	Cmds: []cmd.Command{
 		{Name: "projects", Form: "projects", Desc: "list projects",
-			Tool: func([]string) (string, map[string]any, error) {
+			Tool: func(pos []string) (string, map[string]any, error) {
+				if err := cmd.NoExtra(pos, "projects"); err != nil {
+					return "", nil, err
+				}
 				return "list_projects", map[string]any{}, nil
 			}},
 		{Name: "project", Form: "project <id>", Desc: "project detail",
 			Tool: func(pos []string) (string, map[string]any, error) {
-				id, _, err := cmd.Need1(pos, "project <id>")
+				id, rest, err := cmd.Need1(pos, "project <id>")
 				if err != nil {
+					return "", nil, err
+				}
+				if err := cmd.NoExtra(rest, "project <id>"); err != nil {
 					return "", nil, err
 				}
 				return "get_project", map[string]any{"project_id": id}, nil
@@ -25,7 +31,10 @@ var Group = cmd.Group{
 		{Name: "new", Form: "new <name> [--ds <id>]", Desc: "create project",
 			Run: cmdNew},
 		{Name: "systems", Form: "systems", Desc: "list design systems",
-			Tool: func([]string) (string, map[string]any, error) {
+			Tool: func(pos []string) (string, map[string]any, error) {
+				if err := cmd.NoExtra(pos, "systems"); err != nil {
+					return "", nil, err
+				}
 				return "list_design_systems", map[string]any{}, nil
 			}},
 	},
@@ -39,8 +48,11 @@ func cmdNew(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	name, _, err := cmd.Need1(pos, "new <name> [--ds <id>]")
+	name, rest, err := cmd.Need1(pos, "new <name> [--ds <id>]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "new <name> [--ds <id>]"); err != nil {
 		return err
 	}
 	a := map[string]any{"name": name}

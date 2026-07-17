@@ -93,6 +93,11 @@ func cmdRaw(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(rest) > 1 {
+		if err := cmd.NoExtra(rest[1:], `raw <tool> '<json-args>'`); err != nil {
+			return err
+		}
+	}
 	a := map[string]any{}
 	if len(rest) > 0 && rest[0] != "" {
 		if err := json.Unmarshal([]byte(rest[0]), &a); err != nil {

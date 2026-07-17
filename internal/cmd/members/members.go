@@ -13,8 +13,11 @@ var Group = cmd.Group{
 	Cmds: []cmd.Command{
 		{Name: "members", Form: "members <project>",
 			Tool: func(pos []string) (string, map[string]any, error) {
-				id, _, err := cmd.Need1(pos, "members <project>")
+				id, rest, err := cmd.Need1(pos, "members <project>")
 				if err != nil {
+					return "", nil, err
+				}
+				if err := cmd.NoExtra(rest, "members <project>"); err != nil {
 					return "", nil, err
 				}
 				return "list_members", map[string]any{"project_id": id}, nil
@@ -38,8 +41,11 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "member-add <project> --role <r> [--email e] [--uuid u]")
+	project, rest, err := cmd.Need1(pos, "member-add <project> --role <r> [--email e] [--uuid u]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "member-add <project> --role <r> [--email e] [--uuid u]"); err != nil {
 		return err
 	}
 	if *role == "" {
@@ -60,8 +66,11 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 
 func cmdMemberRm(ctx context.Context, c *mcp.Client, args []string) error {
 	return cmd.EmitFlagged(ctx, c, "member-rm", args, func(pos []string) (string, map[string]any, error) {
-		project, uuid, _, err := cmd.Need2(pos, "member-rm <project> <uuid>")
+		project, uuid, rest, err := cmd.Need2(pos, "member-rm <project> <uuid>")
 		if err != nil {
+			return "", nil, err
+		}
+		if err := cmd.NoExtra(rest, "member-rm <project> <uuid>"); err != nil {
 			return "", nil, err
 		}
 		return "remove_member", map[string]any{"project_id": project, "account_uuid": uuid}, nil
@@ -76,6 +85,9 @@ func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 		if len(rest) == 0 {
 			return "", nil, dsxerr.Usage("member-role <project> <uuid> <role>")
+		}
+		if err := cmd.NoExtra(rest[1:], "member-role <project> <uuid> <role>"); err != nil {
+			return "", nil, err
 		}
 		return "update_member_role", map[string]any{
 			"project_id": project, "account_uuid": uuid, "role": rest[0],
@@ -94,8 +106,11 @@ func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "sharing <project> [--scope s] [--link-permission p]")
+	project, rest, err := cmd.Need1(pos, "sharing <project> [--scope s] [--link-permission p]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "sharing <project> [--scope s] [--link-permission p]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}

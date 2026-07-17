@@ -36,6 +36,9 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 		a := map[string]any{"project_id": project}
 		if len(rest) > 0 {
 			a["path"] = rest[0]
+			if err := cmd.NoExtra(rest[1:], "ls <project> [path]"); err != nil {
+				return "", nil, err
+			}
 		}
 		return "list_files", a, nil
 	})
@@ -51,8 +54,11 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "tree <project>")
+	project, rest, err := cmd.Need1(pos, "tree <project>")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "tree <project>"); err != nil {
 		return err
 	}
 	files, err := syncer.WalkTree(ctx, c, project, *jobs)
@@ -91,8 +97,11 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, path, _, err := cmd.Need2(pos, "cat <project> <path> [--out f]")
+	project, path, rest, err := cmd.Need2(pos, "cat <project> <path> [--out f]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "cat <project> <path> [--out f]"); err != nil {
 		return err
 	}
 	body, etag, err := c.ReadFull(ctx, project, path)
@@ -138,6 +147,11 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	project, path, rest, err := cmd.Need2(pos, "put <project> <path> [file]")
 	if err != nil {
 		return err
+	}
+	if len(rest) > 1 {
+		if err := cmd.NoExtra(rest[1:], "put <project> <path> [file]"); err != nil {
+			return err
+		}
 	}
 
 	var body []byte
@@ -210,6 +224,9 @@ func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	if len(rest) == 0 {
 		return dsxerr.Usage("cp <project> <src> <dst> [--from <project>]")
+	}
+	if err := cmd.NoExtra(rest[1:], "cp <project> <src> <dst> [--from <project>]"); err != nil {
+		return err
 	}
 
 	file := map[string]any{"src": src, "dest": rest[0]}

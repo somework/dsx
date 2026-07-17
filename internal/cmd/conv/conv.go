@@ -27,8 +27,11 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "conv <project> [--chat id]")
+	project, rest, err := cmd.Need1(pos, "conv <project> [--chat id]")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "conv <project> [--chat id]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}
@@ -52,8 +55,11 @@ func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, _, err := cmd.Need1(pos, "conv-put <project> --messages <file.json>")
+	project, rest, err := cmd.Need1(pos, "conv-put <project> --messages <file.json>")
 	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "conv-put <project> --messages <file.json>"); err != nil {
 		return err
 	}
 	if *msgFile == "" {
