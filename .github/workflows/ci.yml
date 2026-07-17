@@ -64,10 +64,15 @@ jobs:
         # internal/ drops its coverage to whatever its own tests reach and the
         # floor fails on an attribution artifact, not on erosion.
         #
-        # Safe here only because every package in ./... is shipped code. Add a
-        # test-support package and it enters the denominator: exclude it
-        # explicitly rather than dropping this flag.
-        run: go test -race -coverpkg=./... -coverprofile=cover.out ./...
+        # The denominator is shipped code only. internal/clitest and
+        # internal/mcptest are test-support packages -- imported solely from
+        # _test.go, never reachable from the binary -- so they are excluded
+        # rather than allowed to dilute a floor that measures product erosion.
+        # This is the "exclude it explicitly" the flag's own note called for once
+        # such a package existed; do not drop the flag instead.
+        run: |
+          pkgs=$(go list ./... | grep -v -e /clitest -e /mcptest | paste -sd, -)
+          go test -race -coverpkg="$pkgs" -coverprofile=cover.out ./...
 
       - name: coverage floor
         # The floor is a ratchet against silent erosion, not a target to game.

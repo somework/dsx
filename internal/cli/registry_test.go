@@ -6,9 +6,31 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// cmdImportNames reports the local names under which a file imports
+// internal/cmd. Usually the one name "cmd"; the alias if the file renamed it. It
+// exists so the group-declaration scan matches `alias.Group{}` and not just a
+// hardcoded `cmd.Group{}` -- see the caller for why the hardcode was a blind spot.
+func cmdImportNames(file *ast.File) map[string]bool {
+	const cmdPath = "github.com/somework/dsx/internal/cmd"
+	names := map[string]bool{}
+	for _, imp := range file.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || path != cmdPath {
+			continue
+		}
+		if imp.Name != nil {
+			names[imp.Name.Name] = true // aliased import
+		} else {
+			names["cmd"] = true // internal/cmd's own package name
+		}
+	}
+	return names
+}
 
 // wantUsage is `dsx help`, written out rather than generated.
 //
@@ -209,6 +231,14 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parsing %s: %v", name, err)
 			}
+			// Resolve what internal/cmd is called in THIS file rather than
+			// assuming "cmd". A group file that imports it under an alias --
+			// `import c "…/internal/cmd"` writing `var Group = c.Group{…}` -- and
+			// is then forgotten from `groups` would slip a hardcoded `pkg == "cmd"`
+			// past both this scan and the count check (declared misses it, so both
+			// counts stay equal). The repo already aliases the sync import, so an
+			// aliased cmd in a group file is not hypothetical.
+			cmdNames := cmdImportNames(file)
 			for _, d := range file.Decls {
 				gd, ok := d.(*ast.GenDecl)
 				if !ok || gd.Tok != token.VAR {
@@ -228,7 +258,7 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 					// nothing, and the guard below is the only reason that was
 					// noticed rather than shipped.
 					if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
-						if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "cmd" {
+						if pkg, ok := sel.X.(*ast.Ident); ok && cmdNames[pkg.Name] {
 							declared[qualifier+vs.Names[0].Name] = filepath.Join(dir, name)
 						}
 					}
