@@ -23,7 +23,10 @@ first; each may import only what is above it:
 | `internal/mcp` | JSON-RPC transport, retry, SSE unwrapping, error types; `read_file` wrapper parsing and window reassembly (`envelope.go`, with `ReadFull` — they are one concern) |
 | `internal/mcptest` | the fake endpoint. **Imports `mcp` never**, so `mcp`'s own internal tests can import it without a cycle |
 | `internal/syncer` | the sync engine — see its own table below. Exports 17 top-level names plus the two reports' `Render`; `go doc -short` is the list. Everything a mistake could cost data through stays unexported — `planPull`, `planPush`, `localFile`, `safeJoin`, `checkRemotePath`, `writeBatch`, `deletePaths`, `save` |
-| `internal/cli` | dispatch, `usage`, flags, one thin wrapper per MCP tool, `doctor`, completions, `--version` — see its own table below. **Exports exactly one name: `Main`**, which is why the command registry is a package-level detail and not a plugin API |
+| `internal/cmd` | the command kernel — the `Command`/`Group`/`Needs` types and the parse/emit helpers every command shares (`Emit`, `EmitFlagged`, `EmitWrite`, `JSONSafe`, `Need1`, `Need2`, `ParseArgs`, `NewFlagSet`, `JSONFlag`, `NoPositionals`, `SplitList`, `FirstLine`, `NoClient`). **It knows nothing about which commands exist** — that list lives above it, in `cli`. A kernel that named its own groups would import packages that import it. See its own table below |
+| `internal/cmd/<group>` | one package per product group — `conv`, `escape`, `files`, `members`, `plans`, `projects`, `sync` (the directory is `sync`, the package is `synccmd`, so a file there can `import "sync"` for a `Mutex`). **Each exports exactly one name: `Group`.** The `cmdX` functions it wires stay unexported — dispatch reaches them through the `Group` literal, never by name |
+| `internal/clitest` | the fake-endpoint adapter as a real package: how to build a client against the fake, the domain shapes (`ListingFor`, `FileEntry`, `DirEntry`), `CaptureStdout`, `SeedState`. Every `internal/cmd/<group>` and `internal/cli` test needs it, and each is tested by its own internal tests, so without a package each would carry a copy. Only `_test.go` files import it, so it never reaches the binary. **`internal/syncer`'s `fake_test.go` stays a duplicate and cannot use this** — syncer's tests are internal ones (they drive `planPull`), so they cannot import anything that imports `syncer`, and `clitest` does. That is the cycle its header describes |
+| `internal/cli` | **the program's view of itself**: `Main`, `run`, the `groups` registry, generated `usage`, and the `diag` group (`help`/`auth`/`doctor`/`version`/`completion`). It assembles the product groups into one dispatchable list — see its own table below. **Exports exactly one name: `Main`**, which is why the command registry is a package-level detail and not a plugin API |
 
 Not `internal/sync`: `pull.go` and `tree.go` import the stdlib's `sync` for `Mutex` and
 `WaitGroup`. `package sync` beside `import "sync"` compiles and neither vet nor gofmt says
@@ -41,29 +44,50 @@ Inside `internal/syncer`:
 | `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
 | `outcome.go` | `ConflictOutcome`: a report's conflicts → the exit status. Here, not in `cli`, so that "this classification reaches exit 3" stays assertable beside the classification. Not in `plan.go`: it needs `dsxerr` |
 
+Inside `internal/cmd`:
+
+| File | Holds |
+|---|---|
+| `command.go` | the `Command`/`Group`/`Needs` types, `Dispatch`, and `NoClient`. The package doc says why the kernel cannot name its own groups |
+| `emit.go` | `Emit`, `EmitFlagged`, `EmitWrite`, `JSONSafe` — the `--json` guarantee lives here |
+| `args.go` | `Need1`/`Need2`, `ParseArgs`, `NewFlagSet`, `JSONFlag`, `NoPositionals`, `SplitList`, `FirstLine` |
+
+Each product group is one package under `internal/cmd/<group>`, one file, exporting
+one `Group` var — `members/members.go` is the worked example, and the rest read the
+same. The `cmdX` functions stay unexported: they are reached through the `Group`
+literal, never called across a package boundary.
+
 Inside `internal/cli`:
 
 | File | Holds |
 |---|---|
-| `registry.go` | **`groups` — the one list dsx dispatches, documents and completes from**, and the `command`/`group` types. `commandIndex`, `commandNames` and `usage` are all derived from it. See invariant 11 |
-| `usage.go` | `renderUsage` — `dsx help` is generated, not written. Only the header and the footer are prose |
-| `cli.go` | `Main` and `run`: resolve the command, then hand it exactly as much of dsx as its `Needs` declared |
-| `emit.go` | `emit`, `emitFlagged`, `emitWrite`, `jsonSafe` — the `--json` guarantee lives here |
-| `args.go` | `need1`/`need2`, `parseArgs`, `newFlagSet`, `noPositionals`, `splitList` |
-| one file per group | `sync.go`, `projects.go`, `files.go`, `plans.go`, `conv.go`, `members.go`, `escape.go`, `diag.go` — each holds its `group` var and the `cmdX` functions it names. One file = one section of `dsx help` |
+| `registry.go` | **`groups` — the one list dsx dispatches, documents and completes from.** It names the seven product-group packages plus `diagGroup`; `commandIndex`, `commandNames` and `usage` are all derived from it in `init()`. See invariant 11 |
+| `usage.go` | `renderUsage` and the generated `usage` var — `dsx help` is generated, not written. Only the header and the footer are prose |
+| `cli.go` | `Main` and `run`: resolve the command through `commandIndex`, then hand it exactly as much of dsx as its `Needs` declared |
+| `diag.go` | `diagGroup` and the `cmdAuth`/`cmdHelp` it names — the DIAGNOSTICS section |
 | `completion.go`, `doctor.go`, `version.go` | the three commands big enough to want their own file; `diag.go`'s group names them |
 
-**Group files carry no underscore, and that is not a style choice.** Go reads the
-last `_`-separated segment of a filename as a build constraint, so a group named
-for a GOOS — `cmd_js.go`, and `GOOS=js` is real — would build **only under wasm**,
-with no error and no warning. Bare names cannot trigger it.
+**`diag` stays in `cli` and does not move to a package of its own.** `cmdHelp` reads
+`usage` and `cmdCompletion` reads `commandNames`, both derived from `groups`, and
+`groups` must sit above every group it assembles. A diag package would have to import
+`cli` for those and `cli` already imports it — a cycle. It is forced, not chosen: these
+are the commands *about the program*, and nothing below the assembly point can see the
+program whole. That is the boundary — `cli` is dsx's view of itself; `internal/cmd/<group>`
+holds the product commands.
+
+**Group and command files carry no underscore, and that is not a style choice.** Go
+reads the last `_`-separated segment of a filename as a build constraint, so a file
+named for a GOOS — `files_js.go`, and `GOOS=js` is real — would build **only under
+wasm**, with no error and no warning. Bare names (`files.go`, `diag.go`) cannot trigger
+it.
 
 Elsewhere:
 
 | | |
 |---|---|
 | `main.go` | `func main` and `var version` — **`-X main.version`'s target, and it can live nowhere else.** See invariant 10 |
-| `fake_test.go` | **exists twice, in `cli` and in `syncer`, deliberately** — what `mcptest` cannot know: how to build a client, the domain shapes, `captureStdout`. It cannot be shared: `syncer`'s tests are internal ones (they drive `planPull`), so they cannot import anything that imports `syncer` — and any package holding `listingFor` would have to. Go's test rules leave no third option; the file says so at the top |
+| `internal/clitest` | the fake-endpoint adapter, now a real package rather than a copied `fake_test.go` — the third option Go's test rules once denied. Every test above `syncer` imports it; `cli`'s `fake_test.go` is now thin aliases onto it. `syncer` keeps its own copy for the cycle above |
+| `internal/syncer/fake_test.go` | **the one surviving duplicate**, and the header says why: syncer's internal tests drive `planPull`, so they cannot import `clitest` — which imports `syncer`. What `mcptest` cannot know still lives here in miniature: how to build a client, the domain shapes, `captureStdout` |
 | `reference/mcp-tools.json` | the server's own `tools/list` output, verbatim. `internal/mcp`'s tests reach it at `../../reference` |
 
 `plan.go` is deliberately pure and separate. Decisions there are testable without a network;
@@ -185,7 +209,7 @@ reading why it exists.
     Nothing in the test suite can catch this, and that is the point: `version_test.go` hands
     `stamped` to `buildVersion` itself rather than reading the var, so it stays green through
     all three mutations. Measured, not assumed — renaming `version` to `release` leaves
-    `go build` clean and all six packages green while the binary goes silent.
+    `go build` clean and every package green while the binary goes silent.
 
     A link-time property needs a link-time check, so CI builds with
     `-X main.version=v0.0.0-cistamp` and greps for it. That step is the only guard; do not
@@ -203,11 +227,23 @@ reading why it exists.
 
     Two things this does **not** cover, both tested for that reason. A `Form` may still
     disagree with its `Name` — that documents one command and runs another
-    (`TestEveryCommandFormStartsWithItsName`). And a `group` var may be declared and never
-    added to `groups`: that compiles clean and simply vanishes. Its test parses the package
-    for `var xGroup = group{...}` rather than listing them, because a hand-kept list there
-    would be the same list under test — whoever forgot `groups` forgets it too. That exact
-    mistake is recorded in invariant 9's `survey_test.go`.
+    (`TestEveryCommandFormStartsWithItsName`). And a `Group` var may be declared and never
+    added to `groups`: that compiles clean and simply vanishes — no `dsx help` section, and
+    every command in it rejected as unknown.
+
+    **A group is now declared in one of two shapes, and `TestEveryDeclaredGroupIsRegistered`
+    sweeps both.** The diag group is `var diagGroup = cmd.Group{...}` in `cli`; every product
+    group is `var Group = cmd.Group{...}` in its own `internal/cmd/<group>` package. The test
+    parses `.` for the first and `../cmd/*` for the second, then checks the count of declared
+    groups against `len(groups)`. **A sweep of only one place goes silently blind to every
+    group in the other** — which is exactly what happened the first time `members` moved out
+    to a package: the `cli`-only scan found nothing there and passed, and only the count check
+    caught it. The declared set is parsed, not restated: a hand-kept list here would be the
+    same list under test, and whoever forgot `groups` would forget it too. The test also
+    guards its own guard — a `len(declared) == 0` (the `cmd.Group` literal is a
+    `SelectorExpr` now, not an `Ident`, so a matcher looking for the old shape finds nothing
+    and would pass forever) fails loudly. That failure mode is why the guard exists; it is the
+    same mistake recorded in invariant 9's `survey_test.go`.
 
     `usage` is generated, and `TestUsageIsGeneratedByteForByte` holds the text. Its fixture
     is hand-written and traces to the const that predates the registry; one regenerated
