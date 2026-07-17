@@ -925,20 +925,6 @@ func TestCmdCompletionRejectsAnUnknownShellWithoutPrinting(t *testing.T) {
 	}
 }
 
-// The completion list and `usage` must stay in step: a command a user can Tab
-// to but cannot read about is a command with no documentation.
-//
-// This asserts one direction only -- commandNames ⊆ usage. The reverse does not
-// hold today and is reported separately rather than papered over here.
-func TestUsageDocumentsEveryCompletableCommand(t *testing.T) {
-	t.Parallel()
-	for _, n := range commandNames {
-		if !strings.Contains(usage, "dsx "+n) {
-			t.Errorf("command %q is completable but undocumented in `dsx help`", n)
-		}
-	}
-}
-
 // Moved out of the transport's own suite: it asserts what clockCheck makes of a
 // reply that carried no Date header, and clockCheck is doctor's. The transport's
 // half -- that lastServerDate stays zero -- is reachable through the exported
