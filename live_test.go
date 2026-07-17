@@ -40,6 +40,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/auth"
 )
 
 // unchangedReply is the short-circuit body read_file returns when if_none_match
@@ -74,7 +76,7 @@ func liveProjectID() string {
 
 func liveClient(t *testing.T) (*client, context.Context) {
 	t.Helper()
-	token, err := loadToken()
+	token, err := auth.LoadToken()
 	if err != nil {
 		t.Skipf("no usable Claude Code credential, skipping live suite: %v", err)
 	}

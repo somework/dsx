@@ -17,6 +17,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
@@ -870,7 +871,7 @@ func maincliFakeLogin(t *testing.T, token string, scopes []string, expiresAt int
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
-	writeCreds(t, dir, oauthCreds{AccessToken: token, Scopes: scopes, ExpiresAt: expiresAt})
+	writeCreds(t, dir, auth.Creds{AccessToken: token, Scopes: scopes, ExpiresAt: expiresAt})
 	return token
 }
 
@@ -886,7 +887,7 @@ func TestAuthNeverPrintsTheTokenInEitherMode(t *testing.T) {
 	// DSX_TOKEN is set as a second secret that must not leak either.
 	//
 	// Note while here — KNOWN DEFECT, recorded rather than fixed: cmdAuth goes
-	// through tokenInfo(), which reads the *stored* credential and never
+	// through auth.TokenInfo(), which reads the *stored* credential and never
 	// consults DSX_TOKEN. usage says "DSX_TOKEN overrides the stored
 	// credential", and every other command honours it, so with DSX_TOKEN set
 	// `dsx auth` reports the scopes and expiry of a credential the next request
@@ -1295,7 +1296,7 @@ func TestRunHelpAndVersionAnswerWithoutACredential(t *testing.T) {
 }
 
 func TestRunUnknownCommandIsAUsageErrorNamingTheCommand(t *testing.T) {
-	// run() once called loadToken() before reaching the unknown-command check, so
+	// run() once called auth.LoadToken() before reaching the unknown-command check, so
 	// `dsx pulll` on a machine with no login was reported as an auth failure --
 	// dsx blaming the user's credentials for their spelling, with exit 5 inviting
 	// a re-authentication that could not possibly help.

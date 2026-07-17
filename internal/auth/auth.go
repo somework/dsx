@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"crypto/sha256"
@@ -33,20 +33,20 @@ import (
 // Code's own code, but it is a derivation. See PROTOCOL.md.
 const credentialsFileName = ".credentials.json"
 
-// errNoCredentials means a store holds no login -- distinct from a store that
+// ErrNoCredentials means a store holds no login -- distinct from a store that
 // holds a broken one. The chain falls through the first and stops on the
 // second, because silently skipping a corrupt keychain would report "not
 // signed in" to a user who is.
-var errNoCredentials = errors.New("no stored credentials")
+var ErrNoCredentials = errors.New("no stored credentials")
 
-type oauthCreds struct {
+type Creds struct {
 	AccessToken string   `json:"accessToken"`
 	ExpiresAt   int64    `json:"expiresAt"`
 	Scopes      []string `json:"scopes"`
 }
 
 type keychainBlob struct {
-	ClaudeAiOauth oauthCreds `json:"claudeAiOauth"`
+	ClaudeAiOauth Creds `json:"claudeAiOauth"`
 }
 
 // envLookup has os.LookupEnv's signature. Claude Code distinguishes an unset
@@ -54,7 +54,7 @@ type keychainBlob struct {
 // too.
 type envLookup func(string) (string, bool)
 
-func homeDir() string {
+func HomeDir() string {
 	h, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -80,11 +80,11 @@ func claudeConfigDir(lookup envLookup, home string) string {
 	return filepath.Join(home, ".claude")
 }
 
-func credentialsPath(lookup envLookup, home string) string {
+func CredentialsPath(lookup envLookup, home string) string {
 	return filepath.Join(claudeConfigDir(lookup, home), credentialsFileName)
 }
 
-// keychainServiceName reproduces Claude Code's service name.
+// KeychainServiceName reproduces Claude Code's service name.
 //
 // The name is computed, not constant: a login under a non-default config dir
 // gets a sha256(dir)[:8] suffix so several logins can share one keychain.
@@ -94,7 +94,7 @@ func credentialsPath(lookup envLookup, home string) string {
 // The OAUTH_FILE_SUFFIX that sits between "Claude Code" and "-credentials" is
 // "" for the production build and non-empty only for Anthropic's internal local
 // and custom-endpoint builds; dsx targets the production one.
-func keychainServiceName(lookup envLookup, home string) string {
+func KeychainServiceName(lookup envLookup, home string) string {
 	const base = "Claude Code" + "-credentials"
 
 	var (
@@ -116,81 +116,81 @@ func keychainServiceName(lookup envLookup, home string) string {
 
 // readCredentialsFile reads the plaintext store. Absence is not a failure: it
 // is how a keychain-backed install looks, and the chain must fall through it.
-func readCredentialsFile(path string) (oauthCreds, error) {
+func readCredentialsFile(path string) (Creds, error) {
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return oauthCreds{}, errNoCredentials
+		return Creds{}, ErrNoCredentials
 	}
 	if err != nil {
-		return oauthCreds{}, fmt.Errorf("reading %s: %w", path, err)
+		return Creds{}, fmt.Errorf("reading %s: %w", path, err)
 	}
 	var blob keychainBlob
 	if err := json.Unmarshal(b, &blob); err != nil {
-		return oauthCreds{}, fmt.Errorf("%s is not the JSON Claude Code writes: %w", path, err)
+		return Creds{}, fmt.Errorf("%s is not the JSON Claude Code writes: %w", path, err)
 	}
 	if blob.ClaudeAiOauth.AccessToken == "" {
-		return oauthCreds{}, errNoCredentials
+		return Creds{}, ErrNoCredentials
 	}
 	return blob.ClaudeAiOauth, nil
 }
 
-// credSource names the store a login came out of. `dsx doctor` reports it, and
+// Source names the store a login came out of. `dsx doctor` reports it, and
 // a user debugging "why does dsx not see my login" needs it more than anything
 // else dsx could print.
-type credSource string
+type Source string
 
 const (
-	srcNone     credSource = "none"
-	srcKeychain credSource = "keychain"
-	srcFile     credSource = "file"
+	SrcNone     Source = "none"
+	SrcKeychain Source = "keychain"
+	SrcFile     Source = "file"
 )
 
 // readCredentialsChain walks the stores in Claude Code's own order and names
 // the one that answered.
-func readCredentialsChain(keychain func() (oauthCreds, error), filePath string) (oauthCreds, credSource, error) {
+func readCredentialsChain(keychain func() (Creds, error), filePath string) (Creds, Source, error) {
 	c, err := keychain()
 	if err == nil {
-		return c, srcKeychain, nil
+		return c, SrcKeychain, nil
 	}
-	if !errors.Is(err, errNoCredentials) {
-		return oauthCreds{}, srcNone, err
+	if !errors.Is(err, ErrNoCredentials) {
+		return Creds{}, SrcNone, err
 	}
 	c, err = readCredentialsFile(filePath)
 	if err != nil {
-		return oauthCreds{}, srcNone, err
+		return Creds{}, SrcNone, err
 	}
-	return c, srcFile, nil
+	return c, SrcFile, nil
 }
 
-// readCredentials resolves the stored login the way `claude` itself would.
-func readCredentials() (oauthCreds, credSource, error) {
-	home := homeDir()
-	service := keychainServiceName(os.LookupEnv, home)
+// ReadCredentials resolves the stored login the way `claude` itself would.
+func ReadCredentials() (Creds, Source, error) {
+	home := HomeDir()
+	service := KeychainServiceName(os.LookupEnv, home)
 	return readCredentialsChain(
-		func() (oauthCreds, error) { return readKeychain(service) },
-		credentialsPath(os.LookupEnv, home),
+		func() (Creds, error) { return readKeychain(service) },
+		CredentialsPath(os.LookupEnv, home),
 	)
 }
 
-// loadToken resolves the bearer token for the design MCP endpoint.
+// LoadToken resolves the bearer token for the design MCP endpoint.
 //
 // The token is read, never written. Refreshing here would rotate the refresh
 // token out from under Claude Code and silently break its login, so an expired
 // token is reported rather than renewed.
-func loadToken() (string, error) {
-	return tokenFrom(os.LookupEnv, func() (oauthCreds, error) {
-		c, _, err := readCredentials()
+func LoadToken() (string, error) {
+	return tokenFrom(os.LookupEnv, func() (Creds, error) {
+		c, _, err := ReadCredentials()
 		return c, err
 	})
 }
 
-func tokenFrom(lookup envLookup, read func() (oauthCreds, error)) (string, error) {
+func tokenFrom(lookup envLookup, read func() (Creds, error)) (string, error) {
 	if t, _ := lookup("DSX_TOKEN"); t != "" {
 		return t, nil
 	}
 
 	c, err := read()
-	if errors.Is(err, errNoCredentials) {
+	if errors.Is(err, ErrNoCredentials) {
 		return "", &dsxerr.Error{Kind: dsxerr.KindAuth,
 			Msg: "no Claude Code login found — run `claude` once to sign in, or set DSX_TOKEN"}
 	}
@@ -208,10 +208,10 @@ func tokenFrom(lookup envLookup, read func() (oauthCreds, error)) (string, error
 	return c.AccessToken, nil
 }
 
-// tokenInfo reports non-secret metadata about the stored credential. It must
+// TokenInfo reports non-secret metadata about the stored credential. It must
 // never return, log, or render the token itself.
-func tokenInfo() (scopes []string, expiresAt time.Time, err error) {
-	c, _, err := readCredentials()
+func TokenInfo() (scopes []string, expiresAt time.Time, err error) {
+	c, _, err := ReadCredentials()
 	if err != nil {
 		return nil, time.Time{}, err
 	}

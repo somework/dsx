@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"encoding/json"
@@ -50,7 +50,7 @@ func TestClaudeConfigDirMatchesClaudeCodesOwnResolution(t *testing.T) {
 }
 
 func TestCredentialsPathSitsInTheConfigDir(t *testing.T) {
-	got := credentialsPath(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
+	got := CredentialsPath(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
 	if got != filepath.Join("/custom", ".credentials.json") {
 		t.Fatalf("credentials path = %q", got)
 	}
@@ -59,7 +59,7 @@ func TestCredentialsPathSitsInTheConfigDir(t *testing.T) {
 func TestKeychainServiceNameIsPlainOnADefaultInstall(t *testing.T) {
 	// Measured on this machine: `security find-generic-password -s
 	// "Claude Code-credentials"` resolves, with neither env var set.
-	got := keychainServiceName(envMap(nil), "/home/u")
+	got := KeychainServiceName(envMap(nil), "/home/u")
 	if got != "Claude Code-credentials" {
 		t.Fatalf("default service = %q, want %q", got, "Claude Code-credentials")
 	}
@@ -69,7 +69,7 @@ func TestKeychainServiceNameHashesANonDefaultConfigDir(t *testing.T) {
 	// Claude Code suffixes the service with sha256(dir)[:8] whenever the config
 	// dir is not the default, so one machine can hold several logins. Hardcoding
 	// the plain name makes dsx read the wrong item -- or none at all.
-	got := keychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
+	got := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
 	if got == "Claude Code-credentials" {
 		t.Fatal("a custom config dir must not reuse the default service name")
 	}
@@ -81,25 +81,25 @@ func TestKeychainServiceNameHashesANonDefaultConfigDir(t *testing.T) {
 		t.Errorf("hash suffix %q is %d chars, want 8", suffix, len(suffix))
 	}
 	// Same dir must resolve to the same item on every run.
-	again := keychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
+	again := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/custom"}), "/home/u")
 	if again != got {
 		t.Errorf("service name is not stable: %q then %q", got, again)
 	}
-	other := keychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/elsewhere"}), "/home/u")
+	other := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/elsewhere"}), "/home/u")
 	if other == got {
 		t.Error("two different config dirs collide on one service name")
 	}
 }
 
 func TestKeychainServiceNameUsesSecureStorageDirForTheHash(t *testing.T) {
-	viaSecure := keychainServiceName(envMap(map[string]string{"CLAUDE_SECURESTORAGE_CONFIG_DIR": "/secure"}), "/home/u")
-	viaConfig := keychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/secure"}), "/home/u")
+	viaSecure := KeychainServiceName(envMap(map[string]string{"CLAUDE_SECURESTORAGE_CONFIG_DIR": "/secure"}), "/home/u")
+	viaConfig := KeychainServiceName(envMap(map[string]string{"CLAUDE_CONFIG_DIR": "/secure"}), "/home/u")
 	if viaSecure != viaConfig {
 		t.Errorf("the same directory hashed two ways: %q vs %q", viaSecure, viaConfig)
 	}
 }
 
-func writeCreds(t *testing.T, dir string, c oauthCreds) string {
+func writeCreds(t *testing.T, dir string, c Creds) string {
 	t.Helper()
 	b, err := json.Marshal(keychainBlob{ClaudeAiOauth: c})
 	if err != nil {
@@ -114,7 +114,7 @@ func writeCreds(t *testing.T, dir string, c oauthCreds) string {
 
 func TestReadCredentialsFileParsesClaudeCodesShape(t *testing.T) {
 	dir := t.TempDir()
-	writeCreds(t, dir, oauthCreds{AccessToken: "sk-ant-oat01-x", ExpiresAt: 1784000000000, Scopes: []string{"user:mcp_servers"}})
+	writeCreds(t, dir, Creds{AccessToken: "sk-ant-oat01-x", ExpiresAt: 1784000000000, Scopes: []string{"user:mcp_servers"}})
 
 	got, err := readCredentialsFile(filepath.Join(dir, credentialsFileName))
 	if err != nil {
@@ -130,8 +130,8 @@ func TestReadCredentialsFileParsesClaudeCodesShape(t *testing.T) {
 
 func TestReadCredentialsFileReportsAbsenceAsNoCredentialsNotAsFailure(t *testing.T) {
 	_, err := readCredentialsFile(filepath.Join(t.TempDir(), "nope.json"))
-	if !errors.Is(err, errNoCredentials) {
-		t.Fatalf("missing file gave %v, want errNoCredentials so the chain can fall through", err)
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("missing file gave %v, want ErrNoCredentials so the chain can fall through", err)
 	}
 }
 
@@ -145,24 +145,24 @@ func TestReadCredentialsFileRejectsGarbage(t *testing.T) {
 	if err == nil {
 		t.Fatal("garbage parsed as credentials")
 	}
-	if errors.Is(err, errNoCredentials) {
+	if errors.Is(err, ErrNoCredentials) {
 		t.Fatal("a corrupt store must not read as an empty one: it would be silently skipped")
 	}
 }
 
 func TestReadCredentialsFileTreatsAnEmptyTokenAsNoCredentials(t *testing.T) {
 	dir := t.TempDir()
-	writeCreds(t, dir, oauthCreds{AccessToken: ""})
+	writeCreds(t, dir, Creds{AccessToken: ""})
 	_, err := readCredentialsFile(filepath.Join(dir, credentialsFileName))
-	if !errors.Is(err, errNoCredentials) {
-		t.Fatalf("a blank token gave %v, want errNoCredentials", err)
+	if !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("a blank token gave %v, want ErrNoCredentials", err)
 	}
 }
 
 func TestTokenFromPrefersDSXTokenOverEveryStore(t *testing.T) {
-	got, err := tokenFrom(envMap(map[string]string{"DSX_TOKEN": "override"}), func() (oauthCreds, error) {
+	got, err := tokenFrom(envMap(map[string]string{"DSX_TOKEN": "override"}), func() (Creds, error) {
 		t.Fatal("the store was consulted despite DSX_TOKEN being set")
-		return oauthCreds{}, nil
+		return Creds{}, nil
 	})
 	if err != nil || got != "override" {
 		t.Fatalf("tokenFrom = %q, %v", got, err)
@@ -171,8 +171,8 @@ func TestTokenFromPrefersDSXTokenOverEveryStore(t *testing.T) {
 
 func TestTokenFromRejectsAnExpiredTokenAsAuthNotAsSuccess(t *testing.T) {
 	past := time.Now().Add(-time.Hour).UnixMilli()
-	_, err := tokenFrom(envMap(nil), func() (oauthCreds, error) {
-		return oauthCreds{AccessToken: "stale", ExpiresAt: past}, nil
+	_, err := tokenFrom(envMap(nil), func() (Creds, error) {
+		return Creds{AccessToken: "stale", ExpiresAt: past}, nil
 	})
 	if err == nil {
 		t.Fatal("an expired token was accepted")
@@ -186,8 +186,8 @@ func TestTokenFromRejectsAnExpiredTokenAsAuthNotAsSuccess(t *testing.T) {
 }
 
 func TestTokenFromAcceptsATokenWithNoRecordedExpiry(t *testing.T) {
-	got, err := tokenFrom(envMap(nil), func() (oauthCreds, error) {
-		return oauthCreds{AccessToken: "live"}, nil
+	got, err := tokenFrom(envMap(nil), func() (Creds, error) {
+		return Creds{AccessToken: "live"}, nil
 	})
 	if err != nil || got != "live" {
 		t.Fatalf("tokenFrom = %q, %v", got, err)
@@ -195,8 +195,8 @@ func TestTokenFromAcceptsATokenWithNoRecordedExpiry(t *testing.T) {
 }
 
 func TestTokenFromClassifiesAMissingStoreAsAuth(t *testing.T) {
-	_, err := tokenFrom(envMap(nil), func() (oauthCreds, error) {
-		return oauthCreds{}, errNoCredentials
+	_, err := tokenFrom(envMap(nil), func() (Creds, error) {
+		return Creds{}, ErrNoCredentials
 	})
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindAuth {
 		t.Fatalf("absent credentials classified %q, want %q", got, dsxerr.KindAuth)
@@ -206,8 +206,8 @@ func TestTokenFromClassifiesAMissingStoreAsAuth(t *testing.T) {
 func TestTokenFromNeverPutsTheTokenInAnError(t *testing.T) {
 	// The one thing this binary must never do is print the credential.
 	const secret = "sk-ant-oat01-SECRET-VALUE"
-	_, err := tokenFrom(envMap(nil), func() (oauthCreds, error) {
-		return oauthCreds{AccessToken: secret, ExpiresAt: time.Now().Add(-time.Hour).UnixMilli()}, nil
+	_, err := tokenFrom(envMap(nil), func() (Creds, error) {
+		return Creds{AccessToken: secret, ExpiresAt: time.Now().Add(-time.Hour).UnixMilli()}, nil
 	})
 	if err == nil {
 		t.Fatal("expected an expiry error")
@@ -222,10 +222,10 @@ func TestReadCredentialsFallsBackToTheFileWhenTheKeychainHasNothing(t *testing.T
 	// keychain first and the plaintext file second, with no platform gate. dsx
 	// has to walk the same chain or it will not find a login claude can.
 	dir := t.TempDir()
-	writeCreds(t, dir, oauthCreds{AccessToken: "from-file"})
+	writeCreds(t, dir, Creds{AccessToken: "from-file"})
 
 	got, src, err := readCredentialsChain(
-		func() (oauthCreds, error) { return oauthCreds{}, errNoCredentials },
+		func() (Creds, error) { return Creds{}, ErrNoCredentials },
 		filepath.Join(dir, credentialsFileName),
 	)
 	if err != nil {
@@ -234,17 +234,17 @@ func TestReadCredentialsFallsBackToTheFileWhenTheKeychainHasNothing(t *testing.T
 	if got.AccessToken != "from-file" {
 		t.Fatalf("accessToken = %q, want the file's", got.AccessToken)
 	}
-	if src != srcFile {
-		t.Errorf("source = %q, want %q", src, srcFile)
+	if src != SrcFile {
+		t.Errorf("source = %q, want %q", src, SrcFile)
 	}
 }
 
 func TestReadCredentialsPrefersTheKeychainOverTheFile(t *testing.T) {
 	dir := t.TempDir()
-	writeCreds(t, dir, oauthCreds{AccessToken: "from-file"})
+	writeCreds(t, dir, Creds{AccessToken: "from-file"})
 
 	got, src, err := readCredentialsChain(
-		func() (oauthCreds, error) { return oauthCreds{AccessToken: "from-keychain"}, nil },
+		func() (Creds, error) { return Creds{AccessToken: "from-keychain"}, nil },
 		filepath.Join(dir, credentialsFileName),
 	)
 	if err != nil {
@@ -253,8 +253,8 @@ func TestReadCredentialsPrefersTheKeychainOverTheFile(t *testing.T) {
 	if got.AccessToken != "from-keychain" {
 		t.Fatalf("accessToken = %q, want the keychain's", got.AccessToken)
 	}
-	if src != srcKeychain {
-		t.Errorf("source = %q, want %q", src, srcKeychain)
+	if src != SrcKeychain {
+		t.Errorf("source = %q, want %q", src, SrcKeychain)
 	}
 }
 
@@ -264,8 +264,8 @@ func TestReadCredentialsSurfacesACorruptFileRatherThanReportingNoLogin(t *testin
 	if err := os.WriteFile(p, []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := readCredentialsChain(func() (oauthCreds, error) { return oauthCreds{}, errNoCredentials }, p)
-	if err == nil || errors.Is(err, errNoCredentials) {
+	_, _, err := readCredentialsChain(func() (Creds, error) { return Creds{}, ErrNoCredentials }, p)
+	if err == nil || errors.Is(err, ErrNoCredentials) {
 		t.Fatalf("a corrupt file gave %v; it must be reported, not read as 'not signed in'", err)
 	}
 }
@@ -275,11 +275,11 @@ func TestReadCredentialsChainStopsOnABrokenKeychainRatherThanMaskingIt(t *testin
 	// would report "not signed in" and send the user to re-run `claude`, when
 	// the real fix is to unlock.
 	dir := t.TempDir()
-	writeCreds(t, dir, oauthCreds{AccessToken: "from-file"})
+	writeCreds(t, dir, Creds{AccessToken: "from-file"})
 	boom := errors.New("keychain is locked")
 
 	_, _, err := readCredentialsChain(
-		func() (oauthCreds, error) { return oauthCreds{}, boom },
+		func() (Creds, error) { return Creds{}, boom },
 		filepath.Join(dir, credentialsFileName),
 	)
 	if !errors.Is(err, boom) {
@@ -291,7 +291,7 @@ func TestKeychainIsOnlyConsultedOnDarwin(t *testing.T) {
 	// The build-tag split is the point: on Linux there is no security(1), and
 	// shelling out to a missing binary on every run is a bug, not a fallback.
 	_, err := readKeychain("Claude Code-credentials")
-	if runtime.GOOS != "darwin" && !errors.Is(err, errNoCredentials) {
-		t.Fatalf("non-darwin keychain read gave %v, want errNoCredentials", err)
+	if runtime.GOOS != "darwin" && !errors.Is(err, ErrNoCredentials) {
+		t.Fatalf("non-darwin keychain read gave %v, want ErrNoCredentials", err)
 	}
 }

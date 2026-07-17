@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
@@ -117,7 +118,7 @@ func run() error {
 		return cmdAuth(args)
 	}
 
-	token, err := loadToken()
+	token, err := auth.LoadToken()
 	if err != nil {
 		return err
 	}
@@ -285,7 +286,7 @@ func cmdAuth(args []string) error {
 		return nil
 	}
 
-	scopes, exp, err := tokenInfo()
+	scopes, exp, err := auth.TokenInfo()
 	if err != nil {
 		return err
 	}

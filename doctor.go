@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
@@ -91,7 +92,7 @@ func runDoctor(ctx context.Context, c *client) doctorReport {
 	} else {
 		// Naming the store is the single most useful thing dsx can say to
 		// someone whose login it cannot see.
-		creds, src, err := readCredentials()
+		creds, src, err := auth.ReadCredentials()
 		if err != nil {
 			rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
 		} else {
@@ -101,8 +102,8 @@ func runDoctor(ctx context.Context, c *client) doctorReport {
 				scopeCheck(creds.Scopes),
 			)
 		}
-		if src == srcFile {
-			rep.Checks = append(rep.Checks, credentialsModeCheck(credentialsPath(os.LookupEnv, homeDir())))
+		if src == auth.SrcFile {
+			rep.Checks = append(rep.Checks, credentialsModeCheck(auth.CredentialsPath(os.LookupEnv, auth.HomeDir())))
 		}
 	}
 
@@ -133,13 +134,13 @@ func runDoctor(ctx context.Context, c *client) doctorReport {
 	return rep
 }
 
-func describeSource(src credSource) string {
-	home := homeDir()
+func describeSource(src auth.Source) string {
+	home := auth.HomeDir()
 	switch src {
-	case srcKeychain:
-		return "keychain, service " + keychainServiceName(os.LookupEnv, home)
-	case srcFile:
-		return "file " + credentialsPath(os.LookupEnv, home)
+	case auth.SrcKeychain:
+		return "keychain, service " + auth.KeychainServiceName(os.LookupEnv, home)
+	case auth.SrcFile:
+		return "file " + auth.CredentialsPath(os.LookupEnv, home)
 	default:
 		return string(src)
 	}

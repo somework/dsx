@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
@@ -33,7 +35,7 @@ import (
 // CLAUDE_SECURESTORAGE_CONFIG_DIR dominates both credentialsPath and
 // keychainServiceName. The service name it derives is sha256(dir)[:8], which no
 // keychain holds, so readCredentialsChain falls through the keychain lane
-// (errNoCredentials) and lands on the file lane the test controls. The real
+// (auth.ErrNoCredentials) and lands on the file lane the test controls. The real
 // "Claude Code-credentials" item is never queried.
 func diagPinCredentialStore(t *testing.T) string {
 	t.Helper()
@@ -44,15 +46,43 @@ func diagPinCredentialStore(t *testing.T) string {
 	// Assert the pin rather than trust it. If this ever resolved to the default
 	// service name, every doctor test below would be reading the developer's
 	// real login -- passing or failing on credentials no CI machine has.
-	if svc := keychainServiceName(os.LookupEnv, homeDir()); svc == "Claude Code-credentials" {
+	if svc := auth.KeychainServiceName(os.LookupEnv, auth.HomeDir()); svc == "Claude Code-credentials" {
 		t.Fatalf("credential store is not pinned: service resolved to the real item %q", svc)
 	}
 	return dir
 }
 
+// writeCreds plants a Claude Code credentials file and returns its path.
+//
+// The JSON is spelled out here rather than marshalled through auth's own blob
+// type. A test that builds the file with the producer's struct agrees with it by
+// construction: rename a json tag and both sides move together, green, while
+// every file Claude Code actually wrote stops decoding and dsx reports "no login
+// found" to a user who is plainly logged in. That is the ledger's failure mode
+// (invariant 5) in a different file, and the reason ledger_golden_test.go
+// hand-writes its fixture too.
+//
+// The filename is hardcoded for the same reason: `.credentials.json` is the name
+// Claude Code writes, not a name dsx gets to choose.
+func writeCreds(t *testing.T, dir string, c auth.Creds) string {
+	t.Helper()
+	scopes, err := json.Marshal(c.Scopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"claudeAiOauth":{"accessToken":%q,"expiresAt":%d,"scopes":%s}}`,
+		c.AccessToken, c.ExpiresAt, scopes)
+
+	p := filepath.Join(dir, ".credentials.json")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 // diagHealthyCreds is a login with nothing wrong with it.
-func diagHealthyCreds() oauthCreds {
-	return oauthCreds{
+func diagHealthyCreds() auth.Creds {
+	return auth.Creds{
 		AccessToken: "sk-ant-oat01-diag",
 		ExpiresAt:   time.Now().Add(8 * time.Hour).UnixMilli(),
 		Scopes:      []string{"user:inference", enforcedScope},
@@ -313,7 +343,7 @@ func TestCredentialsFileModeIsJudgedByWhoElseCanRead(t *testing.T) {
 		t.Run(tc.mode.String(), func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			p := writeCreds(t, dir, oauthCreds{AccessToken: "x"})
+			p := writeCreds(t, dir, auth.Creds{AccessToken: "x"})
 			if err := os.Chmod(p, tc.mode); err != nil {
 				t.Fatal(err)
 			}
@@ -361,7 +391,7 @@ func TestAnUnstatableCredentialsPathWarnsRatherThanReadingAsAbsent(t *testing.T)
 	if err := os.Mkdir(locked, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	p := writeCreds(t, locked, oauthCreds{AccessToken: "x"})
+	p := writeCreds(t, locked, auth.Creds{AccessToken: "x"})
 	if err := os.Chmod(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
@@ -385,20 +415,20 @@ func TestAnUnstatableCredentialsPathWarnsRatherThanReadingAsAbsent(t *testing.T)
 // several service names, and which item dsx read is the whole question.
 func TestDescribeSourceNamesTheKeychainItemNotJustTheKeychain(t *testing.T) {
 	dir := diagPinCredentialStore(t)
-	want := keychainServiceName(os.LookupEnv, homeDir())
+	want := auth.KeychainServiceName(os.LookupEnv, auth.HomeDir())
 
-	got := describeSource(srcKeychain)
+	got := describeSource(auth.SrcKeychain)
 	if !strings.Contains(got, want) {
 		t.Fatalf("describeSource(keychain) = %q, want it to name service %q", got, want)
 	}
-	if got == string(srcKeychain) {
+	if got == string(auth.SrcKeychain) {
 		t.Fatal("the keychain source names no item at all")
 	}
 
-	if fileDesc := describeSource(srcFile); !strings.Contains(fileDesc, dir) {
+	if fileDesc := describeSource(auth.SrcFile); !strings.Contains(fileDesc, dir) {
 		t.Errorf("describeSource(file) = %q, want it to name the path under %q", fileDesc, dir)
 	}
-	if none := describeSource(srcNone); none == "" {
+	if none := describeSource(auth.SrcNone); none == "" {
 		t.Error("describeSource(none) says nothing at all")
 	}
 }
@@ -437,7 +467,7 @@ func TestAWarnAloneKeepsTheReportOK(t *testing.T) {
 
 func TestReportIsNotOKExactlyWhenSomeCheckFails(t *testing.T) {
 	dir := diagPinCredentialStore(t)
-	writeCreds(t, dir, oauthCreds{
+	writeCreds(t, dir, auth.Creds{
 		AccessToken: "sk-ant-oat01-diag",
 		ExpiresAt:   time.Now().Add(-time.Hour).UnixMilli(), // the only fault
 		Scopes:      []string{enforcedScope},
