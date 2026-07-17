@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/somework/dsx/internal/cmd"
+	"github.com/somework/dsx/internal/cmd/members"
 )
 
 // groups is the one list dsx dispatches, documents and completes from.
@@ -20,7 +21,7 @@ import (
 // invisible, and a human reads this output.
 var groups = []cmd.Group{
 	syncGroup, projectsGroup, filesGroup, plansGroup,
-	convGroup, membersGroup, escapeGroup, diagGroup,
+	convGroup, members.Group, escapeGroup, diagGroup,
 }
 
 // commandIndex is every dispatchable spelling, aliases included. commandNames

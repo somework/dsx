@@ -1,4 +1,4 @@
-package cli
+package members
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var membersGroup = cmd.Group{
+// Group is the MEMBERS / SHARING section of `dsx help`.
+var Group = cmd.Group{
 	Title: "MEMBERS / SHARING",
 	Cmds: []cmd.Command{
 		{Name: "members", Form: "members <project>",

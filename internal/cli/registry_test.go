@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -185,74 +186,96 @@ func TestNoGroupIsEmptyOrDuplicated(t *testing.T) {
 func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 	t.Parallel()
 
-	fset := token.NewFileSet()
-	entries, err := os.ReadDir(".")
+	declared := map[string]string{} // how `groups` must name it -> where it lives
+	registered := map[string]bool{}
+
+	// A group is declared in one of two places, and both have to be swept: as
+	// `var xGroup = cmd.Group{...}` here, or as `var Group = cmd.Group{...}` in
+	// its own package under internal/cmd. A sweep of only one of them would go
+	// quiet for every group in the other -- which is what happened the first time
+	// members moved out, and only the count check below caught it.
+	scan := func(dir, qualifier string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fset := token.NewFileSet()
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", name, err)
+			}
+			for _, d := range file.Decls {
+				gd, ok := d.(*ast.GenDecl)
+				if !ok || gd.Tok != token.VAR {
+					continue
+				}
+				for _, spec := range gd.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
+						continue
+					}
+					lit, ok := vs.Values[0].(*ast.CompositeLit)
+					if !ok {
+						continue
+					}
+					// The type is cmd.Group -- a SelectorExpr, not an Ident, now
+					// that it comes from a package. Matching Ident silently found
+					// nothing, and the guard below is the only reason that was
+					// noticed rather than shipped.
+					if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
+						if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "cmd" {
+							declared[qualifier+vs.Names[0].Name] = filepath.Join(dir, name)
+						}
+					}
+					if qualifier == "" && vs.Names[0].Name == "groups" {
+						for _, elt := range lit.Elts {
+							switch v := elt.(type) {
+							case *ast.Ident: // a group declared in this package
+								registered[v.Name] = true
+							case *ast.SelectorExpr: // members.Group and friends
+								if pkg, ok := v.X.(*ast.Ident); ok {
+									registered[pkg.Name+"."+v.Sel.Name] = true
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	scan(".", "")
+	pkgs, err := os.ReadDir(filepath.Join("..", "cmd"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	declared := map[string]string{} // group var name -> file it lives in
-	registered := map[string]bool{}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(fset, name, nil, 0)
-		if err != nil {
-			t.Fatalf("parsing %s: %v", name, err)
-		}
-		for _, d := range file.Decls {
-			gd, ok := d.(*ast.GenDecl)
-			if !ok || gd.Tok != token.VAR {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				vs, ok := spec.(*ast.ValueSpec)
-				if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
-					continue
-				}
-				switch v := vs.Values[0].(type) {
-				case *ast.CompositeLit:
-					// `var xGroup = cmd.Group{...}` — a declaration. The type is a
-					// SelectorExpr, not an Ident, now that it comes from a package:
-					// the Ident form silently matched nothing, and the guard below
-					// is the only reason that was noticed rather than shipped.
-					if sel, ok := v.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
-						if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "cmd" {
-							declared[vs.Names[0].Name] = name
-						}
-					}
-					// `var groups = []cmd.Group{a, b, ...}` — the registrations.
-					if vs.Names[0].Name != "groups" {
-						continue
-					}
-					for _, elt := range v.Elts {
-						if id, ok := elt.(*ast.Ident); ok {
-							registered[id.Name] = true
-						}
-					}
-				}
-			}
+	for _, p := range pkgs {
+		if p.IsDir() {
+			scan(filepath.Join("..", "cmd", p.Name()), p.Name()+".")
 		}
 	}
 
 	// Guard the guard. An extractor that found nothing would pass forever, which
 	// is the failure mode this whole test exists to avoid repeating.
 	if len(declared) == 0 {
-		t.Fatal("no `var xGroup = cmd.Group{...}` found in this package; the parser is broken, not the code")
+		t.Fatal("no `= cmd.Group{...}` found anywhere; the parser is broken, not the code")
 	}
 	if len(registered) == 0 {
 		t.Fatal("no `var groups = []cmd.Group{...}` found; the parser is broken, not the code")
 	}
 	if len(declared) != len(groups) {
-		t.Errorf("%d group vars are declared but groups holds %d", len(declared), len(groups))
+		t.Errorf("%d groups are declared but `groups` holds %d", len(declared), len(groups))
 	}
 
-	for name, file := range declared {
+	for name, where := range declared {
 		if !registered[name] {
 			t.Errorf("%s declares %s, but it is missing from `groups`: its section is absent from "+
-				"`dsx help` and every command in it is rejected as unknown", file, name)
+				"`dsx help` and every command in it is rejected as unknown", where, name)
 		}
 	}
 }
