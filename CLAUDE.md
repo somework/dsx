@@ -239,11 +239,15 @@ reading why it exists.
     group in the other** — which is exactly what happened the first time `members` moved out
     to a package: the `cli`-only scan found nothing there and passed, and only the count check
     caught it. The declared set is parsed, not restated: a hand-kept list here would be the
-    same list under test, and whoever forgot `groups` would forget it too. The test also
-    guards its own guard — a `len(declared) == 0` (the `cmd.Group` literal is a
-    `SelectorExpr` now, not an `Ident`, so a matcher looking for the old shape finds nothing
-    and would pass forever) fails loudly. That failure mode is why the guard exists; it is the
-    same mistake recorded in invariant 9's `survey_test.go`.
+    same list under test, and whoever forgot `groups` would forget it too. The matcher
+    resolves what `internal/cmd` is imported as in each file rather than hardcoding `cmd`:
+    a group that aliased the import (`import c ".../internal/cmd"`) and was then forgotten
+    from `groups` would otherwise slip past both the scan and the count check — the count
+    only catches a group that is aliased *and* registered. The test also guards its own
+    guard — a `len(declared) == 0` (the `cmd.Group` literal is a `SelectorExpr` now, not an
+    `Ident`, so a matcher looking for the old shape finds nothing and would pass forever)
+    fails loudly. That failure mode is why the guard exists; it is the same mistake recorded
+    in invariant 9's `survey_test.go`.
 
     `usage` is generated, and `TestUsageIsGeneratedByteForByte` holds the text. Its fixture
     is hand-written and traces to the const that predates the registry; one regenerated
