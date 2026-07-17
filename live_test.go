@@ -42,6 +42,20 @@ import (
 	"time"
 )
 
+// unchangedReply is the short-circuit body read_file returns when if_none_match
+// hits the current etag.
+//
+// It lives here rather than in pull.go because dsx never sends if_none_match:
+// list_files already carries every etag, so an unchanged file costs no request
+// at all -- not even a conditional one. The reply shape is still worth pinning,
+// because that reasoning only holds while the etags in a listing mean what the
+// ones in a read mean.
+type unchangedReply struct {
+	Unchanged bool   `json:"unchanged"`
+	Etag      string `json:"etag"`
+	Path      string `json:"path"`
+}
+
 // liveProject is the project the suite exercises: Kolgarn Design System.
 // Override with DSX_LIVE_PROJECT to point at another one you own.
 const liveProject = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

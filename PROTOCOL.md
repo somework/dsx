@@ -47,13 +47,50 @@ token carries `user:file_upload user:inference user:mcp_servers user:profile
 user:sessions:claude_code` — neither `user:design:read` nor `user:design:write` — and the
 server accepts it. `user:mcp_servers` is what is actually checked.
 
-Storage, in the order dsx should try:
+### Where the credential lives
+
+Read out of the shipped `claude` binary (v2.1.211), not guessed. Its storage layer is
+
+```js
+qc() = Kac(Bwi, MBn)      // "keychain-with-plaintext-fallback"
+```
+
+— the macOS Keychain first, a plaintext JSON file second, **on every platform**, with no
+check on `process.platform`. On Linux the keychain lane simply fails (`security(1)` is a
+macOS binary) and the file answers. Both backends serialise the same object, so both hold
+the same `{"claudeAiOauth":{…}}`.
+
+dsx walks the same chain, in the same order:
 
 | Where | Shape |
 |---|---|
-| `DSX_TOKEN` env | raw token |
-| macOS Keychain, service `Claude Code-credentials` | JSON, field `claudeAiOauth.accessToken` |
-| a `.credentials.json` file (Linux/WSL — **not implemented, path inferred**) | the claude binary contains that literal; the directory and payload shape are a guess until checked on Linux |
+| `DSX_TOKEN` env | raw token; overrides everything, including `dsx auth` |
+| Keychain (darwin only), service **computed**, account `$USER` | JSON, field `claudeAiOauth.accessToken` |
+| `<config-dir>/.credentials.json`, mode `0600` | the same JSON |
+
+**The service name is not a constant.** Claude Code builds it as
+
+```
+`Claude Code${hs().OAUTH_FILE_SUFFIX}-credentials${dirSuffix}`
+```
+
+where `OAUTH_FILE_SUFFIX` is `""` for the production build (`-local-oauth` and
+`-custom-oauth` exist for Anthropic's internal ones), and `dirSuffix` is empty for the
+default config dir and `-<sha256(configDir)[:8]>` otherwise — so several logins can share
+one keychain. dsx hardcoded the plain name until 2026-07-17, which read the wrong item, or
+none, for anyone who sets `CLAUDE_CONFIG_DIR`.
+
+The config dir resolves as, in order: `CLAUDE_SECURESTORAGE_CONFIG_DIR` if *defined* (empty
+means the default), else `CLAUDE_CONFIG_DIR`, else `~/.claude`. Three independent places in
+the binary agree on `CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")`.
+
+**Measured** on a real install: the keychain item is service `Claude Code-credentials`,
+account `$USER`, with neither env var set — i.e. the default branch of the formula, confirmed.
+
+**Not measured:** the file lane. No Linux machine was available, so dsx has never read a
+`.credentials.json` that Claude Code actually wrote. The path, the mode and the payload are
+read out of Claude Code's own code rather than guessed at from a bare string, but that is a
+derivation, and it is the one thing in this document that has not met the real thing.
 
 Token is `sk-ant-oat01…`, ~108 chars, with `expiresAt` (ms) and a `refreshToken`
 (`sk-ant-ort01…`). dsx **must not refresh**: rotating the refresh token would break Claude
@@ -87,6 +124,41 @@ exists.
   `truncated_line` — that file cannot be reassembled through this API.
 - `if_none_match` returns `{"unchanged":true,"etag":…,"path":…}`. A file over the cap never
   takes this short-circuit.
+
+### Windowed reads carry the server's prose inside the body
+
+The nastiest thing in this file, and it silently corrupted files until 2026-07-17.
+
+A window that stops short of the end ends with a line **the server wrote**, inside the body,
+after the content:
+
+```
+line 003854 — …\n
+\n
+…[+54400 bytes truncated at read_file's 256 KiB cap — the body ends at a complete line; continue with offset=3856]\n
+</untrusted-project-content>
+```
+
+Measured on a 316,540-byte file (4,655 lines), which came back as `lines="1-3855"` then
+`lines="3856-4655"`:
+
+- The notice is on **every window that stops short of `total_lines`**, and **absent from the
+  final one**.
+- It sits after the content's own trailing newline, separated by one more newline, and the
+  framing newline before the close tag is stripped as usual — so it lands squarely inside
+  `Body`.
+- "the body ends at a complete line" is true, and it answers a question this document used to
+  leave open: **windows need no separator between them.** Concatenating the bodies is correct
+  *once the notice is removed*.
+
+Concatenating window bodies verbatim therefore splices that sentence into the middle of the
+user's file. `dsx pull` was saved by the size assertion — the decoded length disagreed with
+`list_files` and the write was refused, so large files simply would not pull — but `dsx cat`
+wrote it out without a word.
+
+dsx now strips it, and **refuses** any windowed body whose trailer it cannot account for. If
+the server rewords the notice, dsx breaks loudly on files over 256 KiB. That is the trade:
+loud is recoverable, quiet is not.
 
 `list_files` is **not recursive**, returns project-relative paths (not basenames), and gives
 `path/type/size/etag` per entry. Directories appear as `{"path":…,"type":"directory"}` with
@@ -122,8 +194,15 @@ the same write. dsx does this automatically.
 
 - `scope:"paths"` (default) — declare `writes`/`deletes`; token lasts ~15 min; reply carries
   `base_etags`
-- `scope:"project"` — any path for ~4 h, `expires_at` given, **never** deletes; `writes`/
-  `deletes` must be omitted
+- `scope:"project"` — any path for ~4 h, **never** deletes; `writes`/`deletes` must be omitted.
+  Reply:
+
+  ```json
+  {"expires_at":1784262307,"plan_token":"plan_eyJ…","project_id":"…","scope":"project"}
+  ```
+
+  `expires_at` is **unix seconds as a number**, not a string. The token is a JWT-shaped blob
+  whose payload names the project and the scope.
 
 `delete_files` **requires** a path-scoped token naming every path; a project-scoped token is
 refused. `"0"` is invalid as `if_match` here (a delete needs the row to exist).
@@ -188,3 +267,23 @@ direction is closed. The browser is the only way out.
 
 Beware when testing: `2>&1 >/dev/null` sends stderr to the *old* stdout. That mistake once
 made a failed write look like a read refusal and nearly invented a false protocol fact.
+
+## Re-probing this document
+
+Every claim above is asserted by the live suite:
+
+```bash
+go test -tags=live -run TestLive ./...     # 20 tests, ~40 s
+```
+
+It writes only to `.dsx-selftest*` paths in the test project, removes them, and confirms the
+project's file count is back where it started. There is no `delete_project` tool, so it never
+creates one — `TestLiveRefusesToCreateProjects` enforces that by reading its own source.
+
+If one of those tests fails, **this document is what is wrong**, not the test. Re-probe, then
+correct both.
+
+The tests are worth more than they look: three facts here were guessed wrong before they were
+measured (`write_files` returns a map; `needs_project_grant` is a 403; binary-ness is by
+content), and the truncation notice above was found only because a live test read a file
+larger than the cap. A mock would have agreed with every wrong guess.

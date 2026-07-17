@@ -10,13 +10,6 @@ import (
 	"sync"
 )
 
-// unchangedReply is the short-circuit body returned when if_none_match hits.
-type unchangedReply struct {
-	Unchanged bool   `json:"unchanged"`
-	Etag      string `json:"etag"`
-	Path      string `json:"path"`
-}
-
 // readFull retrieves a complete file, walking windows when the server's
 // 256 KiB per-read cap truncates it.
 func (c *client) readFull(ctx context.Context, projectID, path string) (body string, etag string, err error) {
