@@ -38,7 +38,19 @@ jobs:
       - name: test
         # The live suite is excluded by its build tag: it needs a real login and
         # writes to a real project. CI has neither and must not acquire either.
-        run: go test -race -coverprofile=cover.out ./...
+        #
+        # -coverpkg=./... attributes coverage to the package a line lives in
+        # rather than the package whose test drove it. It is a no-op while the
+        # binary is one package -- measured: identical totals with and without --
+        # and it is here so that the floor keeps measuring the same thing if a
+        # line ever moves into a subpackage. Without it, moving a file under
+        # internal/ drops its coverage to whatever its own tests reach and the
+        # floor fails on an attribution artifact, not on erosion.
+        #
+        # Safe here only because every package in ./... is shipped code. Add a
+        # test-support package and it enters the denominator: exclude it
+        # explicitly rather than dropping this flag.
+        run: go test -race -coverpkg=./... -coverprofile=cover.out ./...
 
       - name: coverage floor
         # The floor is a ratchet against silent erosion, not a target to game.

@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 )
 
@@ -119,21 +118,16 @@ func TestNestedBuiltInDirectoriesAreStillPrunedWhenAUserRuleExists(t *testing.T)
 	}
 }
 
-func TestStatusJSONSortsConflictsLikeEveryOtherField(t *testing.T) {
-	// The union of two sorted lists is not sorted, and the sort sat after the
-	// dry-run early return — so `status` (always a dry run) emitted an unsorted
-	// list while a real pull emitted a sorted one. Identical state, two orders,
-	// and an agent diffing two runs sees noise. Every sibling field is sorted.
-	d := pullDecision{Conflicts: []string{"zzz.css"}, PruneConflicts: []string{"aaa.css"}}
-	rep := pullReport{
-		Conflicts:      append(append([]string(nil), d.Conflicts...), d.PruneConflicts...),
-		PruneConflicts: d.PruneConflicts,
-	}
-	slices.Sort(rep.Conflicts)
-	if rep.Conflicts[0] != "aaa.css" {
-		t.Fatalf("conflicts = %v, want sorted", rep.Conflicts)
-	}
-}
+// Round four's fourth defect -- the union of two sorted lists is not sorted, and
+// the sort sat after the dry-run early return, so `status` emitted an unsorted
+// list while a real pull emitted a sorted one -- is guarded by
+// report_order_test.go, which drives runPull and runPush in both modes.
+//
+// The test that stood here did not guard it. It hand-built a pullReport, called
+// the sort on it inside the test body, then asserted the result was sorted: it
+// exercised the stdlib and never reached runPull. Measured before removing it:
+// reversing every sort in pull.go left all 604 tests green. It was named for a
+// defect it could not have caught -- the shape this file exists to record.
 
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)

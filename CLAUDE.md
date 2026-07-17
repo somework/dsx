@@ -138,7 +138,7 @@ reading why it exists.
 ## Testing
 
 ```bash
-go test -race ./...     # 604 tests
+go test -race ./...     # 624 tests
 go vet ./... && gofmt -l .
 ```
 
