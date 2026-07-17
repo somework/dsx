@@ -7,3 +7,6 @@ dsx
 
 # agent worktrees
 .claude/
+
+# local, gitnexus-managed (see hook)
+CLAUDE.local.md
