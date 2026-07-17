@@ -5,6 +5,7 @@ import (
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/cmd/members"
+	"github.com/somework/dsx/internal/cmd/projects"
 )
 
 // groups is the one list dsx dispatches, documents and completes from.
@@ -20,7 +21,7 @@ import (
 // explicit slice rather than init() appends: init() order across files is
 // invisible, and a human reads this output.
 var groups = []cmd.Group{
-	syncGroup, projectsGroup, filesGroup, plansGroup,
+	syncGroup, projects.Group, filesGroup, plansGroup,
 	convGroup, members.Group, escapeGroup, diagGroup,
 }
 

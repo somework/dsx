@@ -1,4 +1,4 @@
-package cli
+package projects
 
 import (
 	"context"
@@ -7,7 +7,8 @@ import (
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var projectsGroup = cmd.Group{
+// Group is the PROJECTS section of `dsx help`.
+var Group = cmd.Group{
 	Title: "PROJECTS",
 	Cmds: []cmd.Command{
 		{Name: "projects", Form: "projects", Desc: "list projects",
