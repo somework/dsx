@@ -207,66 +207,6 @@ func run() error {
 	}
 }
 
-func need1(args []string, form string) (string, []string, error) {
-	if len(args) < 1 {
-		return "", nil, dsxerr.Usage(form)
-	}
-	return args[0], args[1:], nil
-}
-
-func need2(args []string, form string) (string, string, []string, error) {
-	if len(args) < 2 {
-		return "", "", nil, dsxerr.Usage(form)
-	}
-	return args[0], args[1], args[2:], nil
-}
-
-// emit calls a tool and prints its text result.
-//
-// Under --json, stdout is guaranteed to be one JSON document. Most tools
-// already answer in JSON and are passed through untouched; the few that answer
-// in prose are wrapped rather than handed to a caller that is about to run a
-// parser over them. A guarantee with exceptions is not one an agent can use.
-func emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool) error {
-	text, err := c.CallTool(ctx, tool, args)
-	if err != nil {
-		return err
-	}
-	fmt.Println(jsonSafe(text, asJSON))
-	return nil
-}
-
-func jsonSafe(text string, asJSON bool) string {
-	if !asJSON {
-		return text
-	}
-	if json.Valid([]byte(text)) {
-		return text
-	}
-	b, err := json.Marshal(map[string]string{"text": text})
-	if err != nil {
-		return text
-	}
-	return string(b)
-}
-
-// emitFlagged parses the standard --json flag, then calls the tool. It is the
-// shape every passthrough command takes: an agent should not have to learn
-// which subcommands happen to accept --json.
-func emitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
-	flags := newFlagSet(name)
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
-	if err != nil {
-		return err
-	}
-	tool, toolArgs, err := build(pos)
-	if err != nil {
-		return err
-	}
-	return emit(ctx, c, tool, toolArgs, *asJSON)
-}
-
 // cmdAuth reports the credential's metadata. It must never render the token:
 // this is the command most likely to be run with a terminal being recorded.
 func cmdAuth(args []string) error {

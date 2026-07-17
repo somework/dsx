@@ -182,31 +182,6 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	return emitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
 }
 
-// emitWrite is emit for a tool that writes: it recovers from the server's
-// demand for a standing project grant before printing.
-func emitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
-	var (
-		text string
-		err  error
-	)
-	if _, given := args["plan_token"]; given {
-		// The caller brought their own authority; do not mint another over it.
-		// Short-circuiting to emit() here is what made `dsx put --plan` exit 1
-		// on the very reply that exits 3 without --plan: emit does not classify.
-		text, err = c.CallTool(ctx, tool, args)
-	} else {
-		text, err = syncer.CallWithGrant(ctx, c, tool, args, projectID, paths)
-	}
-	if err != nil {
-		if conflicts, ok := mcp.ConflictFromToolError(err); ok {
-			return dsxerr.Conflict(conflicts, "the server changed since dsx read it; nothing was written")
-		}
-		return err
-	}
-	fmt.Println(jsonSafe(text, asJSON))
-	return nil
-}
-
 func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := newFlagSet("rm")
 	asJSON := jsonFlag(flags)
@@ -596,13 +571,4 @@ func cmdRaw(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 	}
 	return emit(ctx, c, tool, a, *asJSON)
-}
-
-func firstLine(s string) string {
-	for i := range len(s) {
-		if s[i] == '\n' {
-			return s[:i]
-		}
-	}
-	return s
 }

@@ -9,6 +9,20 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
+func need1(args []string, form string) (string, []string, error) {
+	if len(args) < 1 {
+		return "", nil, dsxerr.Usage(form)
+	}
+	return args[0], args[1:], nil
+}
+
+func need2(args []string, form string) (string, string, []string, error) {
+	if len(args) < 2 {
+		return "", "", nil, dsxerr.Usage(form)
+	}
+	return args[0], args[1], args[2:], nil
+}
+
 // noPositionals refuses arguments a command does not take.
 //
 // Silently discarding them lets `dsx prompt <project>` -- the spelling every
@@ -69,4 +83,13 @@ func splitList(s string) []string {
 		}
 	}
 	return out
+}
+
+func firstLine(s string) string {
+	for i := range len(s) {
+		if s[i] == '\n' {
+			return s[:i]
+		}
+	}
+	return s
 }
