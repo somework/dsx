@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/somework/dsx/internal/auth"
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
@@ -276,7 +277,7 @@ func TestJSONSafePassesValidJSONThroughByteIdentical(t *testing.T) {
 		`"a bare string is a JSON document"`,
 		`{"nested":{"deep":[1,2,{"x":null}]}}`,
 	} {
-		if got := jsonSafe(doc, true); got != doc {
+		if got := cmd.JSONSafe(doc, true); got != doc {
 			t.Errorf("jsonSafe(%q) = %q, want it byte-identical", doc, got)
 		}
 	}
@@ -284,7 +285,7 @@ func TestJSONSafePassesValidJSONThroughByteIdentical(t *testing.T) {
 
 func TestJSONSafeWrapsProseSoStdoutStaysParseable(t *testing.T) {
 	const prose = "Deleted 3 files from the project."
-	got := jsonSafe(prose, true)
+	got := cmd.JSONSafe(prose, true)
 
 	if !json.Valid([]byte(got)) {
 		t.Fatalf("prose was handed to a parser unwrapped: %q", got)
@@ -313,7 +314,7 @@ func TestJSONSafeWrapsAStringThatOnlyLooksLikeJSON(t *testing.T) {
 		"{\n  broken\n}",         // braces around prose
 	}
 	for _, s := range cases {
-		got := jsonSafe(s, true)
+		got := cmd.JSONSafe(s, true)
 		if got == s {
 			t.Errorf("jsonSafe(%q) passed it through unwrapped; it is not valid JSON", s)
 			continue
@@ -326,12 +327,12 @@ func TestJSONSafeWrapsAStringThatOnlyLooksLikeJSON(t *testing.T) {
 
 func TestJSONSafeLeavesProseAloneWhenJSONWasNotAsked(t *testing.T) {
 	const prose = "just words"
-	if got := jsonSafe(prose, false); got != prose {
+	if got := cmd.JSONSafe(prose, false); got != prose {
 		t.Errorf("jsonSafe(%q, false) = %q; the human lane must not be wrapped", prose, got)
 	}
 	// Even a valid JSON document is untouched in prose mode.
 	const doc = `{"a":1}`
-	if got := jsonSafe(doc, false); got != doc {
+	if got := cmd.JSONSafe(doc, false); got != doc {
 		t.Errorf("jsonSafe(%q, false) = %q", doc, got)
 	}
 }
@@ -356,29 +357,29 @@ func TestCommandNamesHasNoDuplicatesOrEmptyEntries(t *testing.T) {
 func TestNeed1AndNeed2ClassifyTooFewArgumentsAsUsage(t *testing.T) {
 	// Exit 2 is the contract for "running it again will not help". A missing
 	// argument reported as a generic failure invites a retry loop.
-	if _, _, err := need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
+	if _, _, err := cmd.Need1(nil, "project <id>"); maincliKind(t, err) != dsxerr.KindUsage {
 		t.Errorf("need1(nil) classified %q, want %q", maincliKind(t, err), dsxerr.KindUsage)
 	}
-	if _, _, err := need1([]string{}, "project <id>"); err == nil {
+	if _, _, err := cmd.Need1([]string{}, "project <id>"); err == nil {
 		t.Error("need1 accepted zero arguments")
 	}
 	for _, args := range [][]string{nil, {"only-one"}} {
-		_, _, _, err := need2(args, "cp <src> <dst>")
+		_, _, _, err := cmd.Need2(args, "cp <src> <dst>")
 		if maincliKind(t, err) != dsxerr.KindUsage {
 			t.Errorf("need2(%v) classified %q, want %q", args, maincliKind(t, err), dsxerr.KindUsage)
 		}
 	}
-	if !strings.Contains(func() string { _, _, err := need1(nil, "project <id>"); return err.Error() }(), "project <id>") {
+	if !strings.Contains(func() string { _, _, err := cmd.Need1(nil, "project <id>"); return err.Error() }(), "project <id>") {
 		t.Error("the usage error must echo the form the caller should have typed")
 	}
 }
 
 func TestNeed1AndNeed2ReturnTheRestForTheNextParser(t *testing.T) {
-	first, rest, err := need1([]string{"a", "b", "c"}, "f")
+	first, rest, err := cmd.Need1([]string{"a", "b", "c"}, "f")
 	if err != nil || first != "a" || !reflect.DeepEqual(rest, []string{"b", "c"}) {
 		t.Fatalf("need1 = (%q, %v, %v)", first, rest, err)
 	}
-	a, b, rest2, err := need2([]string{"a", "b", "c"}, "f")
+	a, b, rest2, err := cmd.Need2([]string{"a", "b", "c"}, "f")
 	if err != nil || a != "a" || b != "b" || !reflect.DeepEqual(rest2, []string{"c"}) {
 		t.Fatalf("need2 = (%q, %q, %v, %v)", a, b, rest2, err)
 	}
@@ -407,9 +408,9 @@ func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fs := newFlagSet("tree")
-			asJSON := jsonFlag(fs)
-			pos, err := parseArgs(fs, tc.args)
+			fs := cmd.NewFlagSet("tree")
+			asJSON := cmd.JSONFlag(fs)
+			pos, err := cmd.ParseArgs(fs, tc.args)
 			if err != nil {
 				t.Fatalf("parseArgs(%v): %v", tc.args, err)
 			}
@@ -427,9 +428,9 @@ func TestParseArgsFindsFlagsBeforeBetweenAndAfterPositionals(t *testing.T) {
 
 func TestParseArgsKeepsPositionalOrder(t *testing.T) {
 	// `dsx cp <src> <dst>` means something different reversed.
-	fs := newFlagSet("cp")
-	_ = jsonFlag(fs)
-	pos, err := parseArgs(fs, []string{"src.css", "--json", "dst.css"})
+	fs := cmd.NewFlagSet("cp")
+	_ = cmd.JSONFlag(fs)
+	pos, err := cmd.ParseArgs(fs, []string{"src.css", "--json", "dst.css"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -441,9 +442,9 @@ func TestParseArgsKeepsPositionalOrder(t *testing.T) {
 func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 	// A typo'd flag swallowed as a positional would be handed to the server as a
 	// path. Retrying it verbatim cannot help, so it is exit 2.
-	fs := newFlagSet("tree")
-	_ = jsonFlag(fs)
-	pos, err := parseArgs(fs, []string{"proj", "--bogus"})
+	fs := cmd.NewFlagSet("tree")
+	_ = cmd.JSONFlag(fs)
+	pos, err := cmd.ParseArgs(fs, []string{"proj", "--bogus"})
 	if err == nil {
 		t.Fatalf("an unknown flag was accepted, positionals = %v", pos)
 	}
@@ -462,9 +463,9 @@ func TestParseArgsTreatsAnUnknownFlagAsUsageNotAsAPositional(t *testing.T) {
 func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	var err error
 	leaked := maincliCaptureStderr(t, func() {
-		fs := newFlagSet("tree")
-		_ = jsonFlag(fs)
-		_, err = parseArgs(fs, []string{"--bogus"})
+		fs := cmd.NewFlagSet("tree")
+		_ = cmd.JSONFlag(fs)
+		_, err = cmd.ParseArgs(fs, []string{"--bogus"})
 	})
 	if err == nil {
 		t.Fatal("expected a usage error")
@@ -479,7 +480,7 @@ func TestNewFlagSetKeepsFlagsOwnChatterOffStderr(t *testing.T) {
 	control := maincliCaptureStderr(t, func() {
 		raw := flag.NewFlagSet("raw", flag.ContinueOnError)
 		_ = raw.Bool("json", false, "")
-		_, _ = parseArgs(raw, []string{"--bogus"})
+		_, _ = cmd.ParseArgs(raw, []string{"--bogus"})
 	})
 	if control == "" {
 		t.Skip("flag no longer writes to stderr by default; the discard assertion above has lost its teeth")
@@ -517,7 +518,7 @@ func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := splitList(tc.in)
+			got := cmd.SplitList(tc.in)
 			if len(got) != len(tc.want) {
 				t.Fatalf("splitList(%q) = %v, want %v", tc.in, got, tc.want)
 			}
@@ -540,7 +541,7 @@ func TestSplitListDropsEmptiesAndTrimsEveryEntry(t *testing.T) {
 
 func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
 	// Trimming the ends is not licence to rewrite a path the user actually has.
-	got := splitList(" my file.css ,b.css")
+	got := cmd.SplitList(" my file.css ,b.css")
 	if len(got) != 2 || got[0] != "my file.css" {
 		t.Fatalf("splitList = %v, want the inner space preserved", got)
 	}
@@ -553,7 +554,7 @@ func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
 func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 	_, c := maincliFake(t, "Deleted 3 files.")
 	out, err := captureStdout(t, func() error {
-		return emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false)
+		return cmd.Emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -573,7 +574,7 @@ func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
 	} {
 		out, err := captureStdout(t, func() error {
 			_, c := maincliFake(t, text)
-			return emit(context.Background(), c, "list_projects", map[string]any{}, true)
+			return cmd.Emit(context.Background(), c, "list_projects", map[string]any{}, true)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -596,7 +597,7 @@ func TestEmitPrintsNothingWhenTheToolFails(t *testing.T) {
 	})
 	c := fakeClient(f)
 	out, err := captureStdout(t, func() error {
-		return emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
+		return cmd.Emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
 	})
 	if err == nil {
 		t.Fatal("a tool error was reported as success")
@@ -610,11 +611,12 @@ func TestEmitFlaggedAcceptsJSONAfterThePositionalsEveryCommandTakesIt(t *testing
 	f, c := maincliFake(t, "plain prose")
 	var gotPos []string
 	out, err := captureStdout(t, func() error {
-		return emitFlagged(context.Background(), c, "project", []string{"proj-uuid", "--json"},
+		return cmd.EmitFlagged(context.Background(), c, "project", []string{"proj-uuid", "--json"},
 			func(pos []string) (string, map[string]any, error) {
 				gotPos = pos
 				return "get_project", map[string]any{"project_id": pos[0]}, nil
 			})
+
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -635,10 +637,11 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 	// build's error has to stop the call. Calling the tool anyway would send the
 	// server a request assembled from arguments we already rejected.
 	f, c := maincliFake(t, "unreachable")
-	err := emitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
-		_, _, err := need1(pos, "project <id>")
+	err := cmd.EmitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
+		_, _, err := cmd.Need1(pos, "project <id>")
 		return "", nil, err
 	})
+
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -649,10 +652,11 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 
 func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
-	err := emitFlagged(context.Background(), c, "projects", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
+	err := cmd.EmitFlagged(context.Background(), c, "projects", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
 		t.Fatal("build ran despite an unparseable flag")
 		return "", nil, nil
 	})
+
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}

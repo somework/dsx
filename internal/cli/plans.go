@@ -3,12 +3,13 @@ package cli
 import (
 	"context"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var plansGroup = group{
+var plansGroup = cmd.Group{
 	Title: "PLANS / PREVIEW",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "plan", Form: "plan <project> [--writes a,b] [--deletes c,d] [--scope project]", Run: cmdPlan},
 		{Name: "preview", Form: "preview <project> <path> [--render] [--validators a,b]", Run: cmdPreview},
 		{Name: "support-js", Form: "support-js <project> [--path p]", Run: cmdSupportJS},
@@ -16,46 +17,46 @@ var plansGroup = group{
 }
 
 func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("plan")
+	flags := cmd.NewFlagSet("plan")
 	var (
 		writes  = flags.String("writes", "", "comma-separated paths to authorise for writing")
 		deletes = flags.String("deletes", "", "comma-separated paths to authorise for deletion")
 		scope   = flags.String("scope", "", `"paths" (default) or "project"`)
-		asJSON  = jsonFlag(flags)
+		asJSON  = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]")
+	project, _, err := cmd.Need1(pos, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]")
 	if err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}
-	if v := splitList(*writes); len(v) > 0 {
+	if v := cmd.SplitList(*writes); len(v) > 0 {
 		a["writes"] = v
 	}
-	if v := splitList(*deletes); len(v) > 0 {
+	if v := cmd.SplitList(*deletes); len(v) > 0 {
 		a["deletes"] = v
 	}
 	if *scope != "" {
 		a["scope"] = *scope
 	}
-	return emit(ctx, c, "finalize_plan", a, *asJSON)
+	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON)
 }
 
 func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("preview")
+	flags := cmd.NewFlagSet("preview")
 	var (
 		render     = flags.Bool("render", false, "render the preview")
 		validators = flags.String("validators", "", "comma-separated validators")
-		asJSON     = jsonFlag(flags)
+		asJSON     = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, path, _, err := need2(pos, "preview <project> <path>")
+	project, path, _, err := cmd.Need2(pos, "preview <project> <path>")
 	if err != nil {
 		return err
 	}
@@ -63,10 +64,10 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	if *render {
 		a["render"] = true
 	}
-	if v := splitList(*validators); len(v) > 0 {
+	if v := cmd.SplitList(*validators); len(v) > 0 {
 		a["validators"] = v
 	}
-	return emit(ctx, c, "render_preview", a, *asJSON)
+	return cmd.Emit(ctx, c, "render_preview", a, *asJSON)
 }
 
 // defaultSupportJS is where create_support_js writes when `path` is omitted.
@@ -77,18 +78,18 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 const defaultSupportJS = "support.js"
 
 func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("support-js")
+	flags := cmd.NewFlagSet("support-js")
 	var (
 		path    = flags.String("path", "", "destination path")
 		ifMatch = flags.String("if-match", "", "etag guard")
 		plan    = flags.String("plan", "", "plan_token")
-		asJSON  = jsonFlag(flags)
+		asJSON  = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "support-js <project> [--path p]")
+	project, _, err := cmd.Need1(pos, "support-js <project> [--path p]")
 	if err != nil {
 		return err
 	}
@@ -107,5 +108,5 @@ func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
 	if dest == "" {
 		dest = defaultSupportJS
 	}
-	return emitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON)
+	return cmd.EmitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON)
 }

@@ -3,19 +3,20 @@ package cli
 import (
 	"context"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var projectsGroup = group{
+var projectsGroup = cmd.Group{
 	Title: "PROJECTS",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "projects", Form: "projects", Desc: "list projects",
 			Tool: func([]string) (string, map[string]any, error) {
 				return "list_projects", map[string]any{}, nil
 			}},
 		{Name: "project", Form: "project <id>", Desc: "project detail",
 			Tool: func(pos []string) (string, map[string]any, error) {
-				id, _, err := need1(pos, "project <id>")
+				id, _, err := cmd.Need1(pos, "project <id>")
 				if err != nil {
 					return "", nil, err
 				}
@@ -31,14 +32,14 @@ var projectsGroup = group{
 }
 
 func cmdNew(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("new")
+	flags := cmd.NewFlagSet("new")
 	ds := flags.String("ds", "", "design system id to attach")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	name, _, err := need1(pos, "new <name> [--ds <id>]")
+	name, _, err := cmd.Need1(pos, "new <name> [--ds <id>]")
 	if err != nil {
 		return err
 	}
@@ -46,5 +47,5 @@ func cmdNew(ctx context.Context, c *mcp.Client, args []string) error {
 	if *ds != "" {
 		a["design_system_id"] = *ds
 	}
-	return emit(ctx, c, "create_project", a, *asJSON)
+	return cmd.Emit(ctx, c, "create_project", a, *asJSON)
 }

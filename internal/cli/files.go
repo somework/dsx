@@ -8,15 +8,16 @@ import (
 	"io"
 	"os"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/fmtutil"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
 )
 
-var filesGroup = group{
+var filesGroup = cmd.Group{
 	Title: "FILES",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "ls", Form: "ls <project> [path]", Desc: "list one directory", Run: cmdLs},
 		{Name: "tree", Form: "tree <project>", Desc: "every file, recursive, with etags", Run: cmdTree},
 		{Name: "cat", Form: "cat <project> <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
@@ -27,8 +28,8 @@ var filesGroup = group{
 }
 
 func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
-	return emitFlagged(ctx, c, "ls", args, func(pos []string) (string, map[string]any, error) {
-		project, rest, err := need1(pos, "ls <project> [path]")
+	return cmd.EmitFlagged(ctx, c, "ls", args, func(pos []string) (string, map[string]any, error) {
+		project, rest, err := cmd.Need1(pos, "ls <project> [path]")
 		if err != nil {
 			return "", nil, err
 		}
@@ -38,19 +39,20 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 		return "list_files", a, nil
 	})
+
 }
 
 func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("tree")
+	flags := cmd.NewFlagSet("tree")
 	var (
 		jobs   = flags.Int("j", 8, "concurrency")
-		asJSON = jsonFlag(flags)
+		asJSON = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "tree <project>")
+	project, _, err := cmd.Need1(pos, "tree <project>")
 	if err != nil {
 		return err
 	}
@@ -81,16 +83,16 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("cat")
+	flags := cmd.NewFlagSet("cat")
 	var (
 		out    = flags.String("out", "", "write to this file instead of stdout")
-		asJSON = jsonFlag(flags)
+		asJSON = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, path, _, err := need2(pos, "cat <project> <path> [--out f]")
+	project, path, _, err := cmd.Need2(pos, "cat <project> <path> [--out f]")
 	if err != nil {
 		return err
 	}
@@ -126,17 +128,17 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("put")
+	flags := cmd.NewFlagSet("put")
 	var (
 		ifMatch = flags.String("if-match", "", `etag guard; "0" asserts the path is new`)
 		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
-		asJSON  = jsonFlag(flags)
+		asJSON  = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, path, rest, err := need2(pos, "put <project> <path> [file]")
+	project, path, rest, err := cmd.Need2(pos, "put <project> <path> [file]")
 	if err != nil {
 		return err
 	}
@@ -166,17 +168,17 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	// Self-authorise exactly the way push does. A project with no standing
 	// grant is the default, and `dsx put` used to stop dead on the 403 that
 	// `dsx push` recovers from silently.
-	return emitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
+	return cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
 }
 
 func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("rm")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	flags := cmd.NewFlagSet("rm")
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, rest, err := need1(pos, "rm <project> <path...>")
+	project, rest, err := cmd.Need1(pos, "rm <project> <path...>")
 	if err != nil {
 		return err
 	}
@@ -190,26 +192,27 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	return emit(ctx, c, "delete_files", map[string]any{
+	return cmd.Emit(ctx, c, "delete_files", map[string]any{
 		"project_id": project,
 		"plan_token": token,
 		"paths":      rest,
 	}, *asJSON)
+
 }
 
 func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("cp")
+	flags := cmd.NewFlagSet("cp")
 	var (
 		from    = flags.String("from", "", "source project (omit for same-project copy)")
 		ifMatch = flags.String("if-match", "", "etag guard on a single-file dest")
 		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
-		asJSON  = jsonFlag(flags)
+		asJSON  = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, src, rest, err := need2(pos, "cp <project> <src> <dst> [--from <project>]")
+	project, src, rest, err := cmd.Need2(pos, "cp <project> <src> <dst> [--from <project>]")
 	if err != nil {
 		return err
 	}
@@ -228,5 +231,5 @@ func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return emitWrite(ctx, c, "copy_files", a, project, []string{rest[0]}, *asJSON)
+	return cmd.EmitWrite(ctx, c, "copy_files", a, project, []string{rest[0]}, *asJSON)
 }

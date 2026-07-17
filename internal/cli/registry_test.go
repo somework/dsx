@@ -214,11 +214,16 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 				}
 				switch v := vs.Values[0].(type) {
 				case *ast.CompositeLit:
-					// `var xGroup = group{...}` — a declaration.
-					if id, ok := v.Type.(*ast.Ident); ok && id.Name == "group" {
-						declared[vs.Names[0].Name] = name
+					// `var xGroup = cmd.Group{...}` — a declaration. The type is a
+					// SelectorExpr, not an Ident, now that it comes from a package:
+					// the Ident form silently matched nothing, and the guard below
+					// is the only reason that was noticed rather than shipped.
+					if sel, ok := v.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
+						if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "cmd" {
+							declared[vs.Names[0].Name] = name
+						}
 					}
-					// `var groups = []group{a, b, ...}` — the registrations.
+					// `var groups = []cmd.Group{a, b, ...}` — the registrations.
 					if vs.Names[0].Name != "groups" {
 						continue
 					}
@@ -235,10 +240,10 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 	// Guard the guard. An extractor that found nothing would pass forever, which
 	// is the failure mode this whole test exists to avoid repeating.
 	if len(declared) == 0 {
-		t.Fatal("no `var xGroup = group{...}` found in this package; the parser is broken, not the code")
+		t.Fatal("no `var xGroup = cmd.Group{...}` found in this package; the parser is broken, not the code")
 	}
 	if len(registered) == 0 {
-		t.Fatal("no `var groups = []group{...}` found; the parser is broken, not the code")
+		t.Fatal("no `var groups = []cmd.Group{...}` found; the parser is broken, not the code")
 	}
 	if len(declared) != len(groups) {
 		t.Errorf("%d group vars are declared but groups holds %d", len(declared), len(groups))

@@ -6,27 +6,28 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var convGroup = group{
+var convGroup = cmd.Group{
 	Title: "CONVERSATION",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "conv", Form: "conv <project> [--chat id]", Run: cmdConv},
 		{Name: "conv-put", Form: "conv-put <project> --messages <file.json> [--chat id] [--title t] [--append]", Run: cmdConvPut},
 	},
 }
 
 func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("conv")
+	flags := cmd.NewFlagSet("conv")
 	chat := flags.String("chat", "", "chat id")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "conv <project> [--chat id]")
+	project, _, err := cmd.Need1(pos, "conv <project> [--chat id]")
 	if err != nil {
 		return err
 	}
@@ -34,24 +35,24 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 	if *chat != "" {
 		a["chat_id"] = *chat
 	}
-	return emit(ctx, c, "get_conversation", a, *asJSON)
+	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON)
 }
 
 func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("conv-put")
+	flags := cmd.NewFlagSet("conv-put")
 	var (
 		msgFile = flags.String("messages", "", "JSON file holding the messages array (required)")
 		chat    = flags.String("chat", "", "chat id")
 		title   = flags.String("title", "", "conversation title")
 		appnd   = flags.Bool("append", false, "append instead of replacing")
 		through = flags.Int("synced-through-idx", -1, "synced_through_idx")
-		asJSON  = jsonFlag(flags)
+		asJSON  = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "conv-put <project> --messages <file.json>")
+	project, _, err := cmd.Need1(pos, "conv-put <project> --messages <file.json>")
 	if err != nil {
 		return err
 	}
@@ -80,5 +81,5 @@ func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if *through >= 0 {
 		a["synced_through_idx"] = *through
 	}
-	return emit(ctx, c, "put_conversation", a, *asJSON)
+	return cmd.Emit(ctx, c, "put_conversation", a, *asJSON)
 }

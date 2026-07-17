@@ -1,4 +1,4 @@
-package cli
+package cmd
 
 import (
 	"context"
@@ -10,22 +10,22 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// emit calls a tool and prints its text result.
+// Emit calls a tool and prints its text result.
 //
 // Under --json, stdout is guaranteed to be one JSON document. Most tools
 // already answer in JSON and are passed through untouched; the few that answer
 // in prose are wrapped rather than handed to a caller that is about to run a
 // parser over them. A guarantee with exceptions is not one an agent can use.
-func emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool) error {
+func Emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool) error {
 	text, err := c.CallTool(ctx, tool, args)
 	if err != nil {
 		return err
 	}
-	fmt.Println(jsonSafe(text, asJSON))
+	fmt.Println(JSONSafe(text, asJSON))
 	return nil
 }
 
-func jsonSafe(text string, asJSON bool) string {
+func JSONSafe(text string, asJSON bool) string {
 	if !asJSON {
 		return text
 	}
@@ -39,13 +39,13 @@ func jsonSafe(text string, asJSON bool) string {
 	return string(b)
 }
 
-// emitFlagged parses the standard --json flag, then calls the tool. It is the
+// EmitFlagged parses the standard --json flag, then calls the tool. It is the
 // shape every passthrough command takes: an agent should not have to learn
 // which subcommands happen to accept --json.
-func emitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
-	flags := newFlagSet(name)
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+func EmitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
+	flags := NewFlagSet(name)
+	asJSON := JSONFlag(flags)
+	pos, err := ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
@@ -53,12 +53,12 @@ func emitFlagged(ctx context.Context, c *mcp.Client, name string, args []string,
 	if err != nil {
 		return err
 	}
-	return emit(ctx, c, tool, toolArgs, *asJSON)
+	return Emit(ctx, c, tool, toolArgs, *asJSON)
 }
 
-// emitWrite is emit for a tool that writes: it recovers from the server's
+// EmitWrite is Emit for a tool that writes: it recovers from the server's
 // demand for a standing project grant before printing.
-func emitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
+func EmitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
 	var (
 		text string
 		err  error
@@ -77,6 +77,6 @@ func emitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]
 		}
 		return err
 	}
-	fmt.Println(jsonSafe(text, asJSON))
+	fmt.Println(JSONSafe(text, asJSON))
 	return nil
 }

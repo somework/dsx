@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/somework/dsx/internal/auth"
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
@@ -47,15 +48,15 @@ func run() error {
 	// This is now the same lookup that dispatches, so the two cannot disagree.
 	// They used to be a list and a switch, with an unreachable default arm
 	// standing by for the day they did.
-	cmd, ok := commandIndex[name]
+	entry, ok := commandIndex[name]
 	if !ok {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "unknown command " + strconv.Quote(name) + " — run `dsx help`"}
 	}
 
 	// help, version and completion answer from the binary alone. They install no
 	// signal handler because there is nothing to interrupt.
-	if cmd.Needs == needNothing {
-		return cmd.dispatch(context.Background(), nil, args)
+	if entry.Needs == cmd.NeedNothing {
+		return entry.Dispatch(context.Background(), nil, args)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -63,13 +64,13 @@ func run() error {
 
 	// auth reads the credential itself, and must not be handed a client built
 	// from a token it is about to report on.
-	if cmd.Needs == needAuth {
-		return cmd.dispatch(ctx, nil, args)
+	if entry.Needs == cmd.NeedAuth {
+		return entry.Dispatch(ctx, nil, args)
 	}
 
 	token, err := auth.LoadToken()
 	if err != nil {
 		return err
 	}
-	return cmd.dispatch(ctx, mcp.New(token), args)
+	return entry.Dispatch(ctx, mcp.New(token), args)
 }

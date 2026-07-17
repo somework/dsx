@@ -1,6 +1,10 @@
 package cli
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/somework/dsx/internal/cmd"
+)
 
 // usage is what `dsx help` prints, and what `dsx` with no arguments prints.
 //
@@ -33,7 +37,7 @@ Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP U
 // the line. "  dsx " is six of it, so a Form has 34 before it runs out of room.
 const usageDescCol = 40
 
-func renderUsage(gs []group) string {
+func renderUsage(gs []cmd.Group) string {
 	var sb strings.Builder
 	// Every command line below already ends in a newline, so a section needs
 	// exactly one more ahead of its title to leave a blank line.
@@ -55,7 +59,7 @@ func renderUsage(gs []group) string {
 // description on the same line behind two spaces rather than wrapping: no
 // command needs that today, but silently dropping the description would be a
 // worse answer than a ragged line.
-func usageLine(c command) string {
+func usageLine(c cmd.Command) string {
 	line := "  dsx " + c.Form
 	if c.Desc == "" {
 		return line + "\n"

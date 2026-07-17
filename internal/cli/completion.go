@@ -6,17 +6,18 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
 func cmdCompletion(args []string) error {
-	flags := newFlagSet("completion")
-	asJSON := jsonFlag(flags)
-	pos, err := parseArgs(flags, args)
+	flags := cmd.NewFlagSet("completion")
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	shell, _, err := need1(pos, "completion <bash|zsh|fish>")
+	shell, _, err := cmd.Need1(pos, "completion <bash|zsh|fish>")
 	if err != nil {
 		return err
 	}

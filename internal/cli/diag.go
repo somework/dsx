@@ -7,30 +7,31 @@ import (
 	"time"
 
 	"github.com/somework/dsx/internal/auth"
+	"github.com/somework/dsx/internal/cmd"
 )
 
-var diagGroup = group{
+var diagGroup = cmd.Group{
 	Title: "DIAGNOSTICS",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "help", Aliases: []string{"-h", "--help"}, Form: "help",
-			Needs: needNothing, Run: noClient(cmdHelp)},
+			Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdHelp)},
 		{Name: "auth", Form: "auth", Desc: "token scopes and expiry (never the token)",
-			Needs: needAuth, Run: noClient(cmdAuth)},
+			Needs: cmd.NeedAuth, Run: cmd.NoClient(cmdAuth)},
 		{Name: "doctor", Form: "doctor", Desc: "token, endpoint, clock skew",
 			Run: cmdDoctor},
 		{Name: "version", Aliases: []string{"-v", "--version"}, Form: "version",
-			Desc: "version, revision, platform", Needs: needNothing, Run: noClient(cmdVersion)},
+			Desc: "version, revision, platform", Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdVersion)},
 		{Name: "completion", Form: "completion <bash|zsh|fish>",
-			Needs: needNothing, Run: noClient(cmdCompletion)},
+			Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdCompletion)},
 	},
 }
 
 // cmdAuth reports the credential's metadata. It must never render the token:
 // this is the command most likely to be run with a terminal being recorded.
 func cmdAuth(args []string) error {
-	flags := newFlagSet("auth")
+	flags := cmd.NewFlagSet("auth")
 	asJSON := flags.Bool("json", false, "JSON output")
-	if _, err := parseArgs(flags, args); err != nil {
+	if _, err := cmd.ParseArgs(flags, args); err != nil {
 		return err
 	}
 	// DSX_TOKEN overrides the stored credential for every other command, so it
@@ -77,9 +78,9 @@ func cmdAuth(args []string) error {
 // exceptions is not one an agent can use. It was dispatched before any FlagSet
 // and printed prose regardless.
 func cmdHelp(args []string) error {
-	flags := newFlagSet("help")
-	asJSON := jsonFlag(flags)
-	if _, err := parseArgs(flags, args); err != nil {
+	flags := cmd.NewFlagSet("help")
+	asJSON := cmd.JSONFlag(flags)
+	if _, err := cmd.ParseArgs(flags, args); err != nil {
 		return err
 	}
 	if !*asJSON {

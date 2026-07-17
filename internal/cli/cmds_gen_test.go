@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/mcptest"
@@ -1299,7 +1300,7 @@ func TestFirstLine(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := firstLine(tc.in); got != tc.want {
+			if got := cmd.FirstLine(tc.in); got != tc.want {
 				t.Errorf("firstLine(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})

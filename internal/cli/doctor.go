@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/somework/dsx/internal/auth"
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
@@ -63,9 +64,9 @@ func (r doctorReport) render(asJSON bool) string {
 }
 
 func cmdDoctor(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("doctor")
+	flags := cmd.NewFlagSet("doctor")
 	asJSON := flags.Bool("json", false, "JSON output")
-	if _, err := parseArgs(flags, args); err != nil {
+	if _, err := cmd.ParseArgs(flags, args); err != nil {
 		return err
 	}
 

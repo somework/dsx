@@ -3,16 +3,17 @@ package cli
 import (
 	"context"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
 
-var membersGroup = group{
+var membersGroup = cmd.Group{
 	Title: "MEMBERS / SHARING",
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "members", Form: "members <project>",
 			Tool: func(pos []string) (string, map[string]any, error) {
-				id, _, err := need1(pos, "members <project>")
+				id, _, err := cmd.Need1(pos, "members <project>")
 				if err != nil {
 					return "", nil, err
 				}
@@ -26,18 +27,18 @@ var membersGroup = group{
 }
 
 func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("member-add")
+	flags := cmd.NewFlagSet("member-add")
 	var (
 		role   = flags.String("role", "", "role (required)")
 		email  = flags.String("email", "", "invitee email")
 		uuid   = flags.String("uuid", "", "invitee account uuid")
-		asJSON = jsonFlag(flags)
+		asJSON = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "member-add <project> --role <r> [--email e] [--uuid u]")
+	project, _, err := cmd.Need1(pos, "member-add <project> --role <r> [--email e] [--uuid u]")
 	if err != nil {
 		return err
 	}
@@ -54,22 +55,23 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 	if *uuid != "" {
 		a["account_uuid"] = *uuid
 	}
-	return emit(ctx, c, "add_member", a, *asJSON)
+	return cmd.Emit(ctx, c, "add_member", a, *asJSON)
 }
 
 func cmdMemberRm(ctx context.Context, c *mcp.Client, args []string) error {
-	return emitFlagged(ctx, c, "member-rm", args, func(pos []string) (string, map[string]any, error) {
-		project, uuid, _, err := need2(pos, "member-rm <project> <uuid>")
+	return cmd.EmitFlagged(ctx, c, "member-rm", args, func(pos []string) (string, map[string]any, error) {
+		project, uuid, _, err := cmd.Need2(pos, "member-rm <project> <uuid>")
 		if err != nil {
 			return "", nil, err
 		}
 		return "remove_member", map[string]any{"project_id": project, "account_uuid": uuid}, nil
 	})
+
 }
 
 func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
-	return emitFlagged(ctx, c, "member-role", args, func(pos []string) (string, map[string]any, error) {
-		project, uuid, rest, err := need2(pos, "member-role <project> <uuid> <role>")
+	return cmd.EmitFlagged(ctx, c, "member-role", args, func(pos []string) (string, map[string]any, error) {
+		project, uuid, rest, err := cmd.Need2(pos, "member-role <project> <uuid> <role>")
 		if err != nil {
 			return "", nil, err
 		}
@@ -80,20 +82,21 @@ func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
 			"project_id": project, "account_uuid": uuid, "role": rest[0],
 		}, nil
 	})
+
 }
 
 func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := newFlagSet("sharing")
+	flags := cmd.NewFlagSet("sharing")
 	var (
 		scope  = flags.String("scope", "", "sharing scope")
 		link   = flags.String("link-permission", "", "link permission")
-		asJSON = jsonFlag(flags)
+		asJSON = cmd.JSONFlag(flags)
 	)
-	pos, err := parseArgs(flags, args)
+	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, _, err := need1(pos, "sharing <project> [--scope s] [--link-permission p]")
+	project, _, err := cmd.Need1(pos, "sharing <project> [--scope s] [--link-permission p]")
 	if err != nil {
 		return err
 	}
@@ -104,5 +107,5 @@ func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
 	if *link != "" {
 		a["link_permission"] = *link
 	}
-	return emit(ctx, c, "update_sharing", a, *asJSON)
+	return cmd.Emit(ctx, c, "update_sharing", a, *asJSON)
 }

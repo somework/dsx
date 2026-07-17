@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
 )
 
-var syncGroup = group{
+var syncGroup = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
 	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.`,
-	Cmds: []command{
+	Cmds: []cmd.Command{
 		{Name: "pull", Form: "pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("pull")},
 		{Name: "push", Form: "push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
@@ -86,7 +87,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		asJSON = fs.Bool("json", false, "JSON output")
 		quiet  = fs.Bool("q", false, "suppress summary")
 	)
-	pos, err := parseArgs(fs, args)
+	pos, err := cmd.ParseArgs(fs, args)
 	if err != nil {
 		return err
 	}
