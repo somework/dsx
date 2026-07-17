@@ -397,9 +397,6 @@ func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *jobs < 1 {
-		*jobs = 1
-	}
 
 	dryRun := *dry || mode == "status"
 	if mode != "push" {

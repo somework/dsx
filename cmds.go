@@ -62,9 +62,6 @@ func cmdTree(ctx context.Context, c *client, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *jobs < 1 {
-		*jobs = 1
-	}
 	files, err := c.walkTree(ctx, project, *jobs)
 	if err != nil {
 		return err

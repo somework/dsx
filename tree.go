@@ -40,6 +40,15 @@ func (c *client) listDir(ctx context.Context, projectID, path string) ([]remoteE
 // This is the whole basis of a cheap sync: one listing per directory yields
 // every etag up front, so unchanged files are never requested at all.
 func (c *client) walkTree(ctx context.Context, projectID string, concurrency int) (map[string]remoteEntry, error) {
+	// Clamp here, beside the semaphore, not in the callers. A non-positive size
+	// is not a slow walk, it is no walk: at zero the channel is unbuffered and
+	// walk's send blocks on a receiver that only runs after it, so wg.Wait never
+	// returns; below zero make panics outright. Both are silent from the caller's
+	// side, and cmdTree reaches this function without passing through runPull, so
+	// a clamp kept in the callers is a rule two of them must remember rather than
+	// a property this one guarantees.
+	concurrency = max(concurrency, 1)
+
 	var (
 		mu    sync.Mutex
 		files = map[string]remoteEntry{}

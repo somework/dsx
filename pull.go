@@ -160,9 +160,11 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	}
 
 	var (
-		mu   sync.Mutex
-		wg   sync.WaitGroup
-		sem  = make(chan struct{}, o.concurrency)
+		mu sync.Mutex
+		wg sync.WaitGroup
+		// Clamped beside the semaphore for the same reason as walkTree's: zero
+		// deadlocks the fetch, negative panics make, and neither says so.
+		sem  = make(chan struct{}, max(o.concurrency, 1))
 		errs []error
 	)
 	// The caller's context stays separate: the derived one is cancelled by our
