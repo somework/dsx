@@ -6,14 +6,33 @@ import (
 	"strings"
 )
 
-// commandNames is the single list the shells complete against. A command that
-// exists but is missing here is invisible to a user pressing Tab, so
-// TestUsageDocumentsEveryCommand keeps this list and `usage` in step.
+// commandNames is the one list dsx dispatches, documents and completes from.
+//
+// It is load-bearing three ways: run() refuses anything not in it, `usage` must
+// document every entry, and every shell completes against it. That is
+// deliberate. It used to be only the shells' list, and `put` fell out of it
+// unnoticed -- dispatched, documented, and invisible to everyone pressing Tab.
+// Wiring dispatch to the same list means the next omission breaks loudly
+// instead of quietly.
+//
+// Kept in step by TestUsageDocumentsEveryCommand and
+// TestEveryDispatchedCommandIsCompletable, which walks run()'s AST rather than
+// trusting anyone to update a list twice.
 var commandNames = []string{
 	"auth", "cat", "completion", "conv", "conv-put", "cp", "doctor", "help",
 	"ls", "member-add", "member-rm", "member-role", "members", "new", "plan",
-	"preview", "project", "projects", "prompt", "pull", "push", "raw", "rm",
-	"sharing", "status", "support-js", "systems", "tools", "tree", "version",
+	"preview", "project", "projects", "prompt", "pull", "push", "put", "raw",
+	"rm", "sharing", "status", "support-js", "systems", "tools", "tree",
+	"version",
+}
+
+func isKnownCommand(name string) bool {
+	for _, n := range commandNames {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
 
 func cmdCompletion(args []string) error {

@@ -533,6 +533,13 @@ func cmdRaw(ctx context.Context, c *client, args []string) error {
 		if err := json.Unmarshal([]byte(rest[0]), &a); err != nil {
 			return &dsxError{Kind: kindUsage, Msg: "arguments must be a JSON object", Err: err}
 		}
+		// The literal `null` unmarshals into a map without error and leaves it
+		// nil, so the guard above waves it through and dsx sends
+		// "arguments": null. Every other non-object is refused; this one was an
+		// inconsistent boundary, not a decision.
+		if a == nil {
+			return &dsxError{Kind: kindUsage, Msg: "arguments must be a JSON object, not null"}
+		}
 	}
 	return emit(ctx, c, tool, a, *asJSON)
 }

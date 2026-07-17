@@ -60,11 +60,21 @@ func syncExists(t *testing.T, path string) bool {
 	return err == nil
 }
 
-// syncWindow renders one windowed read_file reply: the same framing as
-// envelopeFor, plus the lines/total_lines the server adds when its 256 KiB cap
-// forces it to answer in pieces.
+// syncWindow renders one windowed read_file reply, framed the way the live
+// server frames one.
+//
+// A window that stops short of total_lines carries, INSIDE its body, a notice
+// saying so. That is measured, not assumed (a 316 KB live read on 2026-07-17);
+// dsx spliced that notice into reassembled files until it was caught. A fixture
+// without it would be testing a protocol that does not exist, which is exactly
+// how the bug survived being "covered" in the first place.
 func syncWindow(path, etag string, lo, hi, total int, body string) string {
 	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(body)
+	if hi < total {
+		esc += fmt.Sprintf(
+			"\n…[+%d bytes truncated at read_file's 256 KiB cap — the body ends at a complete line; continue with offset=%d]",
+			4096, hi+1)
+	}
 	return fmt.Sprintf(
 		"<untrusted-project-content path=%q etag=%q lines=\"%d-%d\" total_lines=\"%d\">\n%s\n</untrusted-project-content>",
 		path, etag, lo, hi, total, esc)
@@ -340,28 +350,27 @@ func TestListDirReportsAMalformedListingRatherThanAnEmptyOne(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReadFullConcatenatesEveryWindowAndAsksForTheNextByLine(t *testing.T) {
-	// The window bodies here are what our envelope parser yields; whether the
-	// server puts the newline that separates two windows at the end of the
-	// first or the start of the second is a protocol question this fake cannot
-	// answer. What is pinned is dsx's own contract: every window is fetched and
-	// the pieces are joined in order, with the next offset derived from the
-	// last line returned.
+	// The question this test used to leave open -- whether the newline between
+	// two windows rides on the end of the first or the start of the second --
+	// has since been answered live: the server ends every window at a complete
+	// line, so the newline is the first window's last byte and the pieces need
+	// no separator between them. The fixtures below reflect that measurement.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name != "read_file" {
 			return fakeReply{Text: "unexpected " + name, IsError: true}
 		}
 		if _, windowed := args["offset"]; !windowed {
-			return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta")}
+			return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta\n")}
 		}
-		return fakeReply{Text: syncWindow("a.css", "e1", 3, 4, 4, "gamma\ndelta")}
+		return fakeReply{Text: syncWindow("a.css", "e1", 3, 4, 4, "gamma\ndelta\n")}
 	})
 
 	body, etag, err := f.client().readFull(context.Background(), "p1", "a.css")
 	if err != nil {
 		t.Fatalf("readFull: %v", err)
 	}
-	if want := "alpha\nbeta" + "gamma\ndelta"; body != want {
-		t.Errorf("body = %q, want %q — the windows must be joined in order", body, want)
+	if want := "alpha\nbeta\ngamma\ndelta\n"; body != want {
+		t.Errorf("body = %q, want %q — the windows must be joined in order, with no server prose between them", body, want)
 	}
 	if etag != "e1" {
 		t.Errorf("etag = %q, want e1", etag)
@@ -401,9 +410,9 @@ func TestReadFullRefusesATruncatedLineRatherThanReturningIt(t *testing.T) {
 func TestReadFullRefusesAnEtagThatChangesMidRead(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if _, windowed := args["offset"]; !windowed {
-			return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta")}
+			return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta\n")}
 		}
-		return fakeReply{Text: syncWindow("a.css", "e2", 3, 4, 4, "gamma\ndelta")}
+		return fakeReply{Text: syncWindow("a.css", "e2", 3, 4, 4, "gamma\ndelta\n")}
 	})
 	body, etag, err := f.client().readFull(context.Background(), "p1", "a.css")
 	if err == nil {
@@ -423,7 +432,7 @@ func TestReadFullRefusesAReadThatMakesNoProgress(t *testing.T) {
 	// A server that keeps answering with the same window would otherwise spin
 	// forever, appending the same bytes each time.
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta")}
+		return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta\n")}
 	})
 	_, _, err := f.client().readFull(context.Background(), "p1", "a.css")
 	if err == nil {

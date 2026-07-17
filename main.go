@@ -105,6 +105,14 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Reject an unknown command before reaching for the credential. Loading it
+	// first meant a typo on a machine with no login was reported as an auth
+	// failure -- dsx blaming the user's credentials for their spelling, and
+	// exit 5 inviting a re-authentication that could not possibly help.
+	if !isKnownCommand(cmd) {
+		return &dsxError{Kind: kindUsage, Msg: "unknown command " + strconv.Quote(cmd) + " — run `dsx help`"}
+	}
+
 	if cmd == "auth" {
 		return cmdAuth(args)
 	}
@@ -185,7 +193,10 @@ func run() error {
 	case "raw":
 		return cmdRaw(ctx, c, args)
 	default:
-		return &dsxError{Kind: kindUsage, Msg: "unknown command " + strconv.Quote(cmd) + " — run `dsx help`"}
+		// Unreachable while commandNames and this switch agree, which
+		// TestEveryDispatchedCommandIsCompletable enforces. It stays as the
+		// answer if they ever stop agreeing.
+		return &dsxError{Kind: kindUsage, Msg: "command " + strconv.Quote(cmd) + " is listed but not wired — this is a dsx bug"}
 	}
 }
 
@@ -257,12 +268,30 @@ func cmdAuth(args []string) error {
 	if _, err := parseArgs(flags, args); err != nil {
 		return err
 	}
+	// DSX_TOKEN overrides the stored credential for every other command, so it
+	// has to override it here too. Reporting the stored credential's metadata
+	// while the next request uses a different token is worse than reporting
+	// nothing: this is the command someone runs to explain a 401.
+	if t, _ := os.LookupEnv("DSX_TOKEN"); t != "" {
+		if *asJSON {
+			b, err := json.Marshal(map[string]any{"source": "DSX_TOKEN"})
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(b))
+			return nil
+		}
+		fmt.Println("source:  DSX_TOKEN (scopes and expiry are not knowable from a bare token)")
+		return nil
+	}
+
 	scopes, exp, err := tokenInfo()
 	if err != nil {
 		return err
 	}
 	if *asJSON {
 		b, err := json.Marshal(map[string]any{
+			"source":  "store",
 			"scopes":  scopes,
 			"expires": exp.Format(time.RFC3339),
 		})

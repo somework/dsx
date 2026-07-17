@@ -4,3 +4,6 @@ dsx
 .idea/
 
 .goal-prompt.txt
+
+# agent worktrees
+.claude/

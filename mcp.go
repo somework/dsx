@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -261,7 +262,10 @@ func (c *client) callTool(ctx context.Context, name string, args map[string]any)
 	}
 	var res toolResult
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", fmt.Errorf("%s: malformed tool result: %w", name, err)
+		// kindProtocol, matching the malformed-body path above: both are "the
+		// server sent a shape we do not model", and errKind is the token an
+		// agent matches on, so the two must not answer differently.
+		return "", &dsxError{Kind: kindProtocol, Msg: name + ": malformed tool result", Err: err}
 	}
 
 	var sb strings.Builder
@@ -274,9 +278,19 @@ func (c *client) callTool(ctx context.Context, name string, args map[string]any)
 	return sb.String(), nil
 }
 
+// truncate bounds server text for display, cutting on a rune boundary.
+//
+// The bound is in bytes because the callers are bounding a payload, but the
+// cut cannot land inside a rune: the endpoint's own prose is full of multi-byte
+// characters (it writes — and …), and half of one is invalid UTF-8 in an error
+// message that is about to be marshalled into --json.
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }

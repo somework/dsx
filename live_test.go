@@ -130,22 +130,113 @@ func liveRemove(c *client, ctx context.Context, paths ...string) error {
 	return err
 }
 
+// liveWriteRaw sends one write_files with no plan_token, so a project without a
+// standing grant answers 403. Tests that want the file there use liveWrite.
+func liveWriteRaw(c *client, ctx context.Context, path string, body []byte, extra map[string]any) (string, error) {
+	file := map[string]any{
+		"path": path, "data": base64.StdEncoding.EncodeToString(body), "encoding": "base64",
+	}
+	for k, v := range extra {
+		file[k] = v
+	}
+	return c.callTool(ctx, "write_files", map[string]any{
+		"project_id": liveProjectID(),
+		"files":      []any{file},
+	})
+}
+
+// liveWrite puts a file there, self-authorising exactly the way push does.
+//
+// The test project has no standing grant, so a bare write_files is refused with
+// a 403. That is not an obstacle to route around: it is the same recovery push
+// performs, and running it on every write means the live suite exercises it
+// constantly rather than in one test.
 func liveWrite(t *testing.T, c *client, ctx context.Context, path string, body []byte) string {
 	t.Helper()
-	text, err := c.callTool(ctx, "write_files", map[string]any{
-		"project_id": liveProjectID(),
-		"files": []any{map[string]any{
-			"path": path, "data": base64.StdEncoding.EncodeToString(body), "encoding": "base64",
-		}},
-	})
+
+	text, err := liveWriteRaw(c, ctx, path, body, nil)
+	var ge *grantError
+	if errors.As(err, &ge) {
+		token, planErr := c.planFor(ctx, liveProjectID(), []string{path})
+		if planErr != nil {
+			t.Fatalf("could not self-authorise the write of %s: %v", path, planErr)
+		}
+		text, err = c.callTool(ctx, "write_files", map[string]any{
+			"project_id": liveProjectID(),
+			"plan_token": token,
+			"files": []any{map[string]any{
+				"path": path, "data": base64.StdEncoding.EncodeToString(body), "encoding": "base64",
+			}},
+		})
+	}
 	if err != nil {
 		t.Fatalf("write_files %s: %v", path, err)
 	}
+
 	var res writeResult
 	if err := json.Unmarshal([]byte(text), &res); err != nil {
 		t.Fatalf("write_files reply is not the documented shape: %v\n%s", err, truncate(text, 300))
 	}
 	return res.Etags[path]
+}
+
+// liveAuthorised mints a path-scoped plan_token for these paths.
+//
+// A test asserting that the server refuses some *specific* write needs one:
+// without a standing grant the 403 arrives first and would mask the answer the
+// test is actually about.
+func liveAuthorised(t *testing.T, c *client, ctx context.Context, paths ...string) string {
+	t.Helper()
+	token, err := c.planFor(ctx, liveProjectID(), paths)
+	if err != nil {
+		t.Fatalf("finalize_plan for %v: %v", paths, err)
+	}
+	return token
+}
+
+// TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError pins the fact dsx got wrong
+// first, and that its whole self-authorisation path is built on.
+//
+// If the server ever moved this to a tool error, errors.As would stop matching,
+// push would surface a bare refusal, and the user would be sent to a browser for
+// something dsx can resolve itself.
+func TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError(t *testing.T) {
+	c, ctx := liveClient(t)
+	path := liveScratch(t, c, ctx, "-grant.txt")
+
+	_, err := liveWriteRaw(c, ctx, path, []byte("grant probe\n"), nil)
+	if err == nil {
+		t.Skip("this project has a standing write grant, so the 403 path cannot be probed here")
+	}
+
+	var ge *grantError
+	if !errors.As(err, &ge) {
+		var te *toolError
+		if errors.As(err, &te) {
+			t.Fatalf("needs_project_grant now arrives as a TOOL error, not an HTTP 403 — "+
+				"push's self-authorisation is dead code and users will be sent to a browser: %v", te)
+		}
+		t.Fatalf("a write without a grant failed in a way dsx does not model: %v", err)
+	}
+	if ge.ProjectID != liveProjectID() {
+		t.Errorf("grant error names project %q, want %q", ge.ProjectID, liveProjectID())
+	}
+
+	// And the documented recovery must actually work, without a browser.
+	token, err := c.planFor(ctx, liveProjectID(), []string{path})
+	if err != nil {
+		t.Fatalf("finalize_plan could not authorise the write the 403 demanded: %v", err)
+	}
+	if _, err := c.callTool(ctx, "write_files", map[string]any{
+		"project_id": liveProjectID(),
+		"plan_token": token,
+		"files": []any{map[string]any{
+			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("grant probe\n")),
+			"encoding": "base64",
+		}},
+	}); err != nil {
+		t.Fatalf("a path-scoped plan_token did not authorise the write it named: %v", err)
+	}
 }
 
 // TestLiveRefusesToCreateProjects guards the discipline itself.
@@ -159,8 +250,15 @@ func TestLiveRefusesToCreateProjects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), `"create_project"`) {
-		t.Fatal("the live suite calls create_project; there is no delete_project, so that project is permanent litter")
+	// Match the call, not the name: TestLiveToolsListCoversEveryWrappedTool
+	// legitimately lists create_project among the tools that must still exist.
+	//
+	// The needle is assembled at run time so that this line is not itself a
+	// match. Spelling it out would make the guard trip on its own source, which
+	// is how it first failed.
+	needle := `callTool(ctx, "` + "create" + `_project"`
+	if strings.Contains(string(b), needle) {
+		t.Fatal("the live suite creates a project; there is no delete_project, so that project is permanent litter")
 	}
 	if liveProjectID() == "" {
 		t.Fatal("no live project configured")
@@ -249,15 +347,23 @@ func TestLiveIfNoneMatchShortCircuits(t *testing.T) {
 	c, ctx := liveClient(t)
 	files := liveTree(t, c, ctx)
 
+	// The file has to be one read_file will actually serve. Size alone is not
+	// enough: "binary" here means invalid UTF-8, and the project holds such
+	// files under innocent names.
 	var path, etag string
 	for _, p := range sortedPaths(files) {
-		if e := files[p]; e.Size > 0 && e.Size < 200<<10 {
-			path, etag = p, e.Etag
-			break
+		e := files[p]
+		if e.Size == 0 || e.Size >= 200<<10 {
+			continue
 		}
+		if _, _, err := c.readFull(ctx, liveProjectID(), p); err != nil {
+			continue
+		}
+		path, etag = p, e.Etag
+		break
 	}
 	if path == "" {
-		t.Skip("no suitable file")
+		t.Skip("no readable text file to probe if_none_match with")
 	}
 
 	text, err := c.callTool(ctx, "read_file", map[string]any{
@@ -284,6 +390,7 @@ func TestLiveWriteReplyIsAMapNotAList(t *testing.T) {
 	body := []byte("dsx live self-test; safe to delete\n")
 	text, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": liveAuthorised(t, c, ctx, path),
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString(body), "encoding": "base64",
 		}},
@@ -387,6 +494,83 @@ func TestLiveBinaryIsDecidedByContentNotExtension(t *testing.T) {
 	})
 }
 
+// TestLiveWindowedReadReassemblesByteExactly settles a known unknown.
+//
+// readFull walks windows and concatenates their bodies with no separator, so it
+// is correct only if each window's body carries the newline that ends its last
+// line. parseEnvelope strips exactly one newline before the close tag, so if the
+// server frames a window as "l1\nl2" rather than "l1\nl2\n", one byte is lost at
+// every window boundary.
+//
+// PROTOCOL.md never recorded which side that newline falls on, and the two
+// consumers differ in what it costs: runPull is saved by invariant 1 (the
+// decoded length would disagree with list_files' size and the write is refused),
+// but `dsx cat` has no such check and would emit a corrupted file in silence.
+//
+// The file has to exceed the 256 KiB read cap for the server to window at all.
+func TestLiveWindowedReadReassemblesByteExactly(t *testing.T) {
+	c, ctx := liveClient(t)
+	before := len(liveTree(t, c, ctx))
+	path := liveScratch(t, c, ctx, "-windowed.txt")
+
+	// Comfortably past the 256 KiB cap, with numbered lines so a lost newline
+	// shows up as two line numbers run together rather than as a vague mismatch.
+	var sb strings.Builder
+	for i := 0; sb.Len() < 300<<10; i++ {
+		fmt.Fprintf(&sb, "line %06d — dsx live self-test, safe to delete, padding padding\n", i)
+	}
+	body := sb.String()
+
+	liveWrite(t, c, ctx, path, []byte(body))
+
+	// One raw read first: it must come back windowed, or this test proves nothing.
+	text, err := c.callTool(ctx, "read_file", map[string]any{
+		"project_id": liveProjectID(), "path": path,
+	})
+	if err != nil {
+		t.Fatalf("read_file: %v", err)
+	}
+	env, err := parseEnvelope(text)
+	if err != nil {
+		t.Fatalf("parseEnvelope: %v", err)
+	}
+	if env.Complete() {
+		t.Skipf("the server returned %d bytes whole; the 256 KiB cap has moved and this test no longer probes windowing", len(env.Body))
+	}
+	t.Logf("first window: lines %d-%d of %d, %d bytes", env.Lines[0], env.Lines[1], env.TotalLines, len(env.Body))
+
+	got, _, err := c.readFull(ctx, liveProjectID(), path)
+	if err != nil {
+		t.Fatalf("readFull: %v", err)
+	}
+	if got == body {
+		if err := liveRemove(c, ctx, path); err != nil {
+			t.Fatalf("delete_files: %v", err)
+		}
+		if after := len(liveTree(t, c, ctx)); after != before {
+			t.Errorf("file count %d -> %d", before, after)
+		}
+		return
+	}
+
+	// Report precisely where it diverged: the byte offset localises the fault to
+	// a window boundary if that is what it is.
+	n := min(len(got), len(body))
+	at := n
+	for i := range n {
+		if got[i] != body[i] {
+			at = i
+			break
+		}
+	}
+	t.Errorf("windowed read is NOT byte-exact: got %d bytes, want %d; first difference at offset %d\n"+
+		"  want %q\n   got %q\n"+
+		"If the offset lands on a line boundary, readFull is dropping the newline that ends each window.",
+		len(got), len(body), at,
+		body[max(0, at-40):min(len(body), at+40)],
+		got[max(0, at-40):min(len(got), at+40)])
+}
+
 // TestLiveDeleteRefusesAProjectScopedToken pins why deletePaths always mints a
 // path-scoped token. If the server ever relaxes this, the comment in push.go
 // becomes a lie.
@@ -403,13 +587,24 @@ func TestLiveDeleteRefusesAProjectScopedToken(t *testing.T) {
 	}
 	var plan struct {
 		PlanToken string `json:"plan_token"`
-		ExpiresAt string `json:"expires_at"`
+		// Unix seconds, not a string: measured 2026-07-17.
+		ExpiresAt int64  `json:"expires_at"`
+		Scope     string `json:"scope"`
 	}
 	if err := json.Unmarshal([]byte(text), &plan); err != nil || plan.PlanToken == "" {
-		t.Fatalf("project-scoped finalize_plan returned no plan_token: %s", truncate(text, 200))
+		t.Fatalf("project-scoped finalize_plan returned no plan_token: %v\n%s", err, truncate(text, 300))
 	}
-	if plan.ExpiresAt == "" {
+	if plan.ExpiresAt == 0 {
 		t.Error("PROTOCOL.md says a project-scoped plan reports expires_at")
+	}
+	if plan.Scope != "project" {
+		t.Errorf("scope = %q, want project", plan.Scope)
+	}
+	// PROTOCOL.md records ~4 h. Assert the order of magnitude only: the exact
+	// number is the server's to choose, but a token that expired on arrival or
+	// lasted a week would both be worth noticing.
+	if life := time.Until(time.Unix(plan.ExpiresAt, 0)); life < time.Hour || life > 8*time.Hour {
+		t.Errorf("a project-scoped token lives %s; PROTOCOL.md records about 4h", life.Round(time.Minute))
 	}
 
 	_, err = c.callTool(ctx, "delete_files", map[string]any{
@@ -430,9 +625,11 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 	path := liveScratch(t, c, ctx, "-ifmatch.txt")
 
 	etag := liveWrite(t, c, ctx, path, []byte("first\n"))
+	token := liveAuthorised(t, c, ctx, path)
 
 	_, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": token,
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("second\n")),
 			"encoding": "base64", "if_match": "1",
@@ -445,6 +642,7 @@ func TestLiveIfMatchGuardsAgainstABlindOverwrite(t *testing.T) {
 	// The correct etag must still work, or dsx would be unable to push at all.
 	if _, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": token,
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("second\n")),
 			"encoding": "base64", "if_match": etag,
@@ -460,8 +658,11 @@ func TestLiveIfMatchZeroAssertsThePathIsNew(t *testing.T) {
 	c, ctx := liveClient(t)
 	path := liveScratch(t, c, ctx, "-new.txt")
 
+	token := liveAuthorised(t, c, ctx, path)
+
 	if _, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": token,
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("new\n")),
 			"encoding": "base64", "if_match": "0",
@@ -472,6 +673,7 @@ func TestLiveIfMatchZeroAssertsThePathIsNew(t *testing.T) {
 
 	_, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": token,
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("again\n")),
 			"encoding": "base64", "if_match": "0",
@@ -490,6 +692,7 @@ func TestLiveUnsupportedContentTypeIsRefused(t *testing.T) {
 
 	_, err := c.callTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
+		"plan_token": liveAuthorised(t, c, ctx, path),
 		"files": []any{map[string]any{
 			"path": path, "data": base64.StdEncoding.EncodeToString([]byte("x")), "encoding": "base64",
 		}},
