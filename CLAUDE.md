@@ -23,7 +23,7 @@ first; each may import only what is above it:
 | `internal/mcp` | JSON-RPC transport, retry, SSE unwrapping, error types; `read_file` wrapper parsing and window reassembly (`envelope.go`, with `ReadFull` — they are one concern) |
 | `internal/mcptest` | the fake endpoint. **Imports `mcp` never**, so `mcp`'s own internal tests can import it without a cycle |
 | `internal/syncer` | the sync engine — see its own table below. Exports 17 top-level names plus the two reports' `Render`; `go doc -short` is the list. Everything a mistake could cost data through stays unexported — `planPull`, `planPush`, `localFile`, `safeJoin`, `checkRemotePath`, `writeBatch`, `deletePaths`, `save` |
-| `internal/cli` | dispatch, `usage`, flags, one thin function per MCP tool, `doctor`, completions, `--version`. **Exports exactly one name: `Main`** |
+| `internal/cli` | dispatch, `usage`, flags, one thin wrapper per MCP tool, `doctor`, completions, `--version` — see its own table below. **Exports exactly one name: `Main`**, which is why the command registry is a package-level detail and not a plugin API |
 
 Not `internal/sync`: `pull.go` and `tree.go` import the stdlib's `sync` for `Mutex` and
 `WaitGroup`. `package sync` beside `import "sync"` compiles and neither vet nor gofmt says
@@ -41,13 +41,28 @@ Inside `internal/syncer`:
 | `grant.go` | the `finalize_plan` self-authorisation path, below every caller |
 | `outcome.go` | `ConflictOutcome`: a report's conflicts → the exit status. Here, not in `cli`, so that "this classification reaches exit 3" stays assertable beside the classification. Not in `plan.go`: it needs `dsxerr` |
 
+Inside `internal/cli`:
+
+| File | Holds |
+|---|---|
+| `registry.go` | **`groups` — the one list dsx dispatches, documents and completes from**, and the `command`/`group` types. `commandIndex`, `commandNames` and `usage` are all derived from it. See invariant 11 |
+| `usage.go` | `renderUsage` — `dsx help` is generated, not written. Only the header and the footer are prose |
+| `cli.go` | `Main` and `run`: resolve the command, then hand it exactly as much of dsx as its `Needs` declared |
+| `emit.go` | `emit`, `emitFlagged`, `emitWrite`, `jsonSafe` — the `--json` guarantee lives here |
+| `args.go` | `need1`/`need2`, `parseArgs`, `newFlagSet`, `noPositionals`, `splitList` |
+| one file per group | `sync.go`, `projects.go`, `files.go`, `plans.go`, `conv.go`, `members.go`, `escape.go`, `diag.go` — each holds its `group` var and the `cmdX` functions it names. One file = one section of `dsx help` |
+| `completion.go`, `doctor.go`, `version.go` | the three commands big enough to want their own file; `diag.go`'s group names them |
+
+**Group files carry no underscore, and that is not a style choice.** Go reads the
+last `_`-separated segment of a filename as a build constraint, so a group named
+for a GOOS — `cmd_js.go`, and `GOOS=js` is real — would build **only under wasm**,
+with no error and no warning. Bare names cannot trigger it.
+
 Elsewhere:
 
 | | |
 |---|---|
 | `main.go` | `func main` and `var version` — **`-X main.version`'s target, and it can live nowhere else.** See invariant 10 |
-| `internal/cli/cli.go` | `Main`, `run` and its dispatch, `usage`, `emit`, sync command wiring |
-| `internal/cli/completion.go` | `commandNames`, which drives dispatch, `usage` and the shells |
 | `fake_test.go` | **exists twice, in `cli` and in `syncer`, deliberately** — what `mcptest` cannot know: how to build a client, the domain shapes, `captureStdout`. It cannot be shared: `syncer`'s tests are internal ones (they drive `planPull`), so they cannot import anything that imports `syncer` — and any package holding `listingFor` would have to. Go's test rules leave no third option; the file says so at the top |
 | `reference/mcp-tools.json` | the server's own `tools/list` output, verbatim. `internal/mcp`'s tests reach it at `../../reference` |
 
@@ -177,10 +192,38 @@ reading why it exists.
     delete it as redundant. Before the split this could not break — `var version` and
     `cmdVersion` were in one file — so the invariant is younger than the code it protects.
 
+11. **`groups` is the only place a command is declared.** Dispatch (`commandIndex`), the
+    shells (`commandNames`) and `dsx help` (`usage`) are all derived from it. They used to
+    be three hand-kept lists — a switch, a slice, and a const — held together by two tests
+    that parsed `run()`'s AST, because nothing else could. It still failed: `put` fell out
+    of `commandNames` and was dispatched, documented, and invisible to every shell.
+
+    So do not reintroduce a second list. A command's name, its usage line and its section
+    are one literal, and an omission is now an absence of code rather than a test failure.
+
+    Two things this does **not** cover, both tested for that reason. A `Form` may still
+    disagree with its `Name` — that documents one command and runs another
+    (`TestEveryCommandFormStartsWithItsName`). And a `group` var may be declared and never
+    added to `groups`: that compiles clean and simply vanishes. Its test parses the package
+    for `var xGroup = group{...}` rather than listing them, because a hand-kept list there
+    would be the same list under test — whoever forgot `groups` forgets it too. That exact
+    mistake is recorded in invariant 9's `survey_test.go`.
+
+    `usage` is generated, and `TestUsageIsGeneratedByteForByte` holds the text. Its fixture
+    is hand-written and traces to the const that predates the registry; one regenerated
+    from `renderUsage` would only prove the code equals itself — the same reasoning as the
+    ledger's golden in invariant 5. This is dsx's most-read output and output width is a
+    token budget, so a diff there is a product change, not a detail.
+
+    `commandIndex`, `commandNames` and `usage` are built in `init()`, not by var
+    initialiser, and that is forced: `cmdHelp` reads `usage` and `help` is itself in
+    `groups`, so the initialiser graph closes a loop Go refuses. `groups` stays an explicit
+    ordered slice — `init()` derives, and nothing registers itself from another file.
+
 ## Testing
 
 ```bash
-go test -race ./...     # 624 tests (324 top-level)
+go test -race ./...     # 627 tests (343 top-level)
 go vet ./... && go vet -tags=live ./... && gofmt -l .
 ```
 
