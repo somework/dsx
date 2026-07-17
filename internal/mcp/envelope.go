@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	stdpath "path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -48,7 +49,9 @@ func ParseEnvelope(raw string) (Envelope, error) {
 	}
 
 	e.Path = attrs["path"]
-	e.Etag = attrs["etag"]
+	if e.Etag = attrs["etag"]; e.Etag == "" {
+		return e, fmt.Errorf("envelope has no etag; refusing to reassemble a read whose revision cannot be pinned across windows")
+	}
 	_, e.Truncated = attrs["truncated_line"]
 
 	if v, ok := attrs["total_lines"]; ok {
@@ -158,10 +161,20 @@ func decodeEntities(s string) string {
 	return b.String()
 }
 
+// samePath reports whether the envelope's self-identified path is the one we
+// asked for. The server echoes the requested path; we compare the cleaned forms
+// case-insensitively (APFS folds case — invariant 7) so a benign normalisation
+// is not read as a wrong-file response, while a genuinely different file — a
+// cache or proxy returning B's bytes for a request for A — is refused.
+func samePath(got, want string) bool {
+	return strings.EqualFold(stdpath.Clean(got), stdpath.Clean(want))
+}
+
 func (c *Client) ReadFull(ctx context.Context, projectID, path string) (body string, etag string, err error) {
 	var (
 		sb     strings.Builder
 		offset = 0
+		seen   = false
 	)
 	for {
 		args := map[string]any{"project_id": projectID, "path": path}
@@ -176,20 +189,44 @@ func (c *Client) ReadFull(ctx context.Context, projectID, path string) (body str
 		if err != nil {
 			return "", "", fmt.Errorf("%s: %w", path, err)
 		}
+		if !samePath(env.Path, path) {
+			return "", "", fmt.Errorf("%s: read_file returned an envelope for %q; refusing to write another file's bytes to this path", path, env.Path)
+		}
 		if env.Truncated {
 			return "", "", fmt.Errorf("%s: a single line exceeds the 256 KiB read cap; the server cannot return it whole", path)
 		}
-		if etag != "" && env.Etag != etag {
+		if seen && env.Etag != etag {
 			return "", "", fmt.Errorf("%s: changed on the server mid-read (etag %s -> %s); retry", path, etag, env.Etag)
 		}
-		etag = env.Etag
+		seen, etag = true, env.Etag
+
+		// A windowed reply must continue exactly where the previous one ended:
+		// line 1 on the first call, offset (== previous B+1) thereafter. A window
+		// starting late drops the lines in between; one starting early, or not
+		// advancing, is a stall or overlap. This runs before the completeness
+		// short-circuit, which would otherwise hide a gap in the final window.
+		if env.Lines[0] != 0 {
+			want := offset
+			if want == 0 {
+				want = 1
+			}
+			switch {
+			case env.Lines[0] > want:
+				return "", "", fmt.Errorf("%s: read returned lines %d-%d but the next line expected was %d; refusing to reassemble a gapped read", path, env.Lines[0], env.Lines[1], want)
+			case env.Lines[0] < want || env.Lines[1] < want:
+				return "", "", fmt.Errorf("%s: read made no progress at offset %d (returned lines %d-%d)", path, offset, env.Lines[0], env.Lines[1])
+			}
+		}
 		sb.WriteString(env.Body)
 
 		if env.Complete() {
 			return sb.String(), etag, nil
 		}
-		if env.Lines[1] <= offset-1 {
-			return "", "", fmt.Errorf("%s: read made no progress at offset %d", path, offset)
+		// Unconditional backstop: even a window with no `lines` attribute
+		// (Lines[0]==0, unreachable by the gap check above) must advance, or an
+		// incomplete reply loops forever hammering the server.
+		if env.Lines[1]+1 <= offset {
+			return "", "", fmt.Errorf("%s: read made no progress at offset %d (returned lines %d-%d)", path, offset, env.Lines[0], env.Lines[1])
 		}
 		offset = env.Lines[1] + 1
 	}

@@ -316,6 +316,203 @@ func TestParseEnvelopeRefusesMalformedFraming(t *testing.T) {
 	}
 }
 
+// --- Finding #7: the mid-read revision guard must not be disarmed by a missing etag ---
+
+func TestParseEnvelopeRefusesAnEnvelopeWithNoEtag(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"etag attribute absent", wrap(`path="a.css"`, "body{}")},
+		{"etag present but empty", wrap(`path="a.css" etag=""`, "body{}")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseEnvelope(tc.raw)
+			if err == nil {
+				t.Fatal("an envelope with no usable etag was accepted; its revision cannot be pinned across a windowed read")
+			}
+			if !strings.Contains(err.Error(), "etag") {
+				t.Errorf("error should name the missing etag: %v", err)
+			}
+		})
+	}
+}
+
+func TestReadFullRefusesAWindowWhoseEtagWasNeverPinned(t *testing.T) {
+	// Window 1 carries no etag. If the guard reads "etag == \"\"" as "no first
+	// window seen yet" it stays permanently disarmed, so window 2's different
+	// revision is concatenated in silently.
+	window1 := `<untrusted-project-content path="big.txt" lines="1-2" total_lines="4">` +
+		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
+	window2 := `<untrusted-project-content path="big.txt" etag="8" lines="3-4" total_lines="4">` +
+		"\nl3\nl4\n" + "\n</untrusted-project-content>"
+
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		if off, ok := args["offset"]; ok && off.(float64) >= 3 {
+			return mcptest.Reply{Text: window2}
+		}
+		return mcptest.Reply{Text: window1}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
+	if err == nil {
+		t.Fatal("a read whose first window carried no etag was accepted; a mid-read revision change could be spliced undetected")
+	}
+}
+
+func TestReadFullRefusesAMidReadEtagChange(t *testing.T) {
+	window1 := `<untrusted-project-content path="big.txt" etag="7" lines="1-2" total_lines="4">` +
+		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
+	window2 := `<untrusted-project-content path="big.txt" etag="8" lines="3-4" total_lines="4">` +
+		"\nl3\nl4\n" + "\n</untrusted-project-content>"
+
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		if off, ok := args["offset"]; ok && off.(float64) >= 3 {
+			return mcptest.Reply{Text: window2}
+		}
+		return mcptest.Reply{Text: window1}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
+	if err == nil {
+		t.Fatal("a window whose etag differed from the first window was accepted; two revisions were concatenated")
+	}
+	if !strings.Contains(err.Error(), "mid-read") {
+		t.Errorf("error should name the mid-read change: %v", err)
+	}
+}
+
+// --- Finding #8: the envelope's self-identified path must match the request ---
+
+func TestReadFullRefusesAnEnvelopeForADifferentPath(t *testing.T) {
+	// A cache or proxy returning file B's envelope for a request for file A —
+	// B's size matching A's — would otherwise be written to A's local path.
+	reply := `<untrusted-project-content path="other.txt" etag="1">` +
+		"\nbytes of a different file\n</untrusted-project-content>"
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{Text: reply}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "wanted.txt")
+	if err == nil {
+		t.Fatal("read_file returned an envelope self-identifying as a different path and it was accepted")
+	}
+	if !strings.Contains(err.Error(), "other.txt") {
+		t.Errorf("error should name the mismatched path the server returned: %v", err)
+	}
+}
+
+func TestReadFullAcceptsABenignlyNormalisedPathEcho(t *testing.T) {
+	// The comparison tolerates a leading "./" and a case fold (APFS folds case,
+	// invariant 7) so a benign echo is not read as a wrong-file response.
+	cases := []struct {
+		name, echo, want string
+	}{
+		{"dot-slash prefix", "./a.txt", "a.txt"},
+		{"case folded", "A.txt", "a.txt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reply := `<untrusted-project-content path="` + tc.echo + `" etag="1">` + "\nx\n</untrusted-project-content>"
+			f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+				return mcptest.Reply{Text: reply}
+			})
+			body, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", tc.want)
+			if err != nil {
+				t.Fatalf("a benign path echo %q for request %q was refused: %v", tc.echo, tc.want, err)
+			}
+			if body != "x" {
+				t.Errorf("body = %q, want %q", body, "x")
+			}
+		})
+	}
+}
+
+// --- Finding #9: a window must start exactly where the last one left off ---
+
+func TestReadFullRefusesAWindowThatStartsAfterAGap(t *testing.T) {
+	// We continue at offset 3, but the server replies lines 600-700, dropping
+	// 3-599. The window reaches total_lines, so the completeness short-circuit
+	// and the upper-bound progress check both pass; only the lower bound catches it.
+	window1 := `<untrusted-project-content path="big.txt" etag="7" lines="1-2" total_lines="700">` +
+		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
+	window2 := `<untrusted-project-content path="big.txt" etag="7" lines="600-700" total_lines="700">` +
+		"\ntail\n</untrusted-project-content>"
+
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		if off, ok := args["offset"]; ok && off.(float64) >= 3 {
+			return mcptest.Reply{Text: window2}
+		}
+		return mcptest.Reply{Text: window1}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
+	if err == nil {
+		t.Fatal("a window starting past the expected line was accepted; lines 3-599 were dropped silently")
+	}
+}
+
+func TestReadFullRefusesAWindowThatDoesNotAdvance(t *testing.T) {
+	// The server re-serves lines 1-2 after we asked to continue at offset 3.
+	// The window starts before the expected line, so it is a stall, not a gap.
+	repeat := `<untrusted-project-content path="big.txt" etag="7" lines="1-2" total_lines="4">` +
+		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
+
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{Text: repeat}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
+	if err == nil {
+		t.Fatal("a read that repeated the same window was accepted")
+	}
+	if !strings.Contains(err.Error(), "no progress") {
+		t.Errorf("error should name the stall: %v", err)
+	}
+	if n := f.CountTool("read_file"); n != 2 {
+		t.Errorf("read_file calls = %d, want 2 — the loop must break on the repeat", n)
+	}
+}
+
+func TestReadFullRefusesAnIncompleteWindowWithNoLinesAttributeInsteadOfLooping(t *testing.T) {
+	// total_lines is set (so the read is not complete) but the lines attribute is
+	// absent, so Lines==[0,0] and the gap check (guarded on Lines[0]!=0) never
+	// runs. The unconditional no-progress backstop must still break the loop
+	// rather than hammer the server forever.
+	window := `<untrusted-project-content path="big.txt" etag="7" total_lines="4">` +
+		"\nl1\nl2\n" + liveWindowNotice + "\n</untrusted-project-content>"
+
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{Text: window}
+	})
+
+	_, _, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
+	if err == nil {
+		t.Fatal("an incomplete window that never advances was accepted")
+	}
+	if !strings.Contains(err.Error(), "no progress") {
+		t.Errorf("error should name the stall: %v", err)
+	}
+	if n := f.CountTool("read_file"); n != 2 {
+		t.Errorf("read_file calls = %d, want 2 — the loop must break, not hang", n)
+	}
+}
+
+func TestReadFullReturnsACompleteSingleWindow(t *testing.T) {
+	// A complete read carries no lines attribute; the gap check must not fire on it.
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{Text: wrap(`path="a.txt" etag="1"`, "hello\n")}
+	})
+	body, etag, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "a.txt")
+	if err != nil {
+		t.Fatalf("a complete single-window read was refused: %v", err)
+	}
+	if body != "hello\n" || etag != "1" {
+		t.Errorf("body/etag = %q/%q, want %q/%q", body, etag, "hello\n", "1")
+	}
+}
+
 func TestParseAttrsStopsAtTheFirstThingItCannotRead(t *testing.T) {
 	cases := []struct {
 		name string
