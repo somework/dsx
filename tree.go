@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/somework/dsx/internal/mcp"
 )
 
 type remoteEntry struct {
@@ -19,12 +21,12 @@ func (e remoteEntry) isDir() bool { return e.Type == "directory" }
 
 // listDir lists one directory. Pass "" for the project root. The server
 // returns project-relative paths, not basenames.
-func (c *client) listDir(ctx context.Context, projectID, path string) ([]remoteEntry, error) {
+func listDir(ctx context.Context, c *mcp.Client, projectID, path string) ([]remoteEntry, error) {
 	args := map[string]any{"project_id": projectID}
 	if path != "" {
 		args["path"] = path
 	}
-	text, err := c.callTool(ctx, "list_files", args)
+	text, err := c.CallTool(ctx, "list_files", args)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +41,7 @@ func (c *client) listDir(ctx context.Context, projectID, path string) ([]remoteE
 //
 // This is the whole basis of a cheap sync: one listing per directory yields
 // every etag up front, so unchanged files are never requested at all.
-func (c *client) walkTree(ctx context.Context, projectID string, concurrency int) (map[string]remoteEntry, error) {
+func walkTree(ctx context.Context, c *mcp.Client, projectID string, concurrency int) (map[string]remoteEntry, error) {
 	// Clamp here, beside the semaphore, not in the callers. A non-positive size
 	// is not a slow walk, it is no walk: at zero the channel is unbuffered and
 	// walk's send blocks on a receiver that only runs after it, so wg.Wait never
@@ -72,7 +74,7 @@ func (c *client) walkTree(ctx context.Context, projectID string, concurrency int
 		case <-ctx.Done():
 			return
 		}
-		entries, err := c.listDir(ctx, projectID, dir)
+		entries, err := listDir(ctx, c, projectID, dir)
 		<-sem
 
 		if err != nil {

@@ -311,7 +311,7 @@ func TestPutClassifiesAConflictEvenWithACallerSuppliedPlanToken(t *testing.T) {
 
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "x")
-	err := cmdPut(t.Context(), f.client(), []string{
+	err := cmdPut(t.Context(), fakeClient(f), []string{
 		"p1", "a.css", filepath.Join(dir, "a.css"), "--plan", "tok", "--if-match", "stale",
 	})
 	if err == nil {
@@ -349,7 +349,7 @@ func TestSupportJSSelfAuthorisesUsingTheServersDocumentedDefaultPath(t *testing.
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	if err := cmdSupportJS(t.Context(), f.client(), []string{"p1"}); err != nil {
+	if err := cmdSupportJS(t.Context(), fakeClient(f), []string{"p1"}); err != nil {
 		t.Fatalf("support-js with no --path did not recover from needs_project_grant: %v", err)
 	}
 	if !slices.Contains(planned, "support.js") {
@@ -379,43 +379,6 @@ func TestPushAssertsAbsenceForAPathTheListingSaysIsGone(t *testing.T) {
 // ---------------------------------------------------------------------------
 // transport
 // ---------------------------------------------------------------------------
-
-func TestNormalizeSSEUnwrapsAStreamWhateverTheHeaderSays(t *testing.T) {
-	// Deciding on the Content-Type alone traded one failure class for another:
-	// it repaired three inputs and broke four that the old body sniff handled —
-	// an SSE body with an absent, wrong, or text/plain header. Every measured
-	// reply from this endpoint is application/json, so a server that started
-	// framing without relabelling would have died as "malformed response".
-	//
-	// Both signals are now accepted. A JSON-RPC reply always opens with '{', so
-	// the body sniff has no false positives.
-	want := `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`
-	bodies := map[string]string{
-		"comment first": ": ping\n\nevent: message\ndata: " + want + "\n\n",
-		"id first":      "id: 1\nevent: message\ndata: " + want + "\n\n",
-		"retry first":   "retry: 3000\n\ndata: " + want + "\n\n",
-		"plain data":    "data: " + want + "\n\n",
-	}
-	headers := []string{"text/event-stream", "text/event-stream; charset=utf-8", "application/json", "text/plain", ""}
-
-	for name, body := range bodies {
-		for _, h := range headers {
-			t.Run(name+" via "+h, func(t *testing.T) {
-				if got := string(normalizeSSE([]byte(body), h)); got != want {
-					t.Errorf("normalizeSSE(_, %q) = %q, want the response frame", h, got)
-				}
-			})
-		}
-	}
-
-	// Plain JSON is never mistaken for a stream, whatever the header claims.
-	plain := `{"jsonrpc":"2.0","id":1,"result":{}}`
-	for _, h := range headers {
-		if got := string(normalizeSSE([]byte(plain), h)); got != plain {
-			t.Errorf("plain JSON mangled under %q: %q", h, got)
-		}
-	}
-}
 
 func TestHelpAndCompletionHonourJSONLikeEveryOtherCommand(t *testing.T) {
 	// README promises --json on every command with no carve-out. help and

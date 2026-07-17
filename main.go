@@ -13,6 +13,7 @@ import (
 
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 const usage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
@@ -122,7 +123,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	c := newClient(token)
+	c := mcp.New(token)
 
 	if cmd == "doctor" {
 		return cmdDoctor(ctx, c, args)
@@ -221,8 +222,8 @@ func need2(args []string, form string) (string, string, []string, error) {
 // already answer in JSON and are passed through untouched; the few that answer
 // in prose are wrapped rather than handed to a caller that is about to run a
 // parser over them. A guarantee with exceptions is not one an agent can use.
-func emit(ctx context.Context, c *client, tool string, args map[string]any, asJSON bool) error {
-	text, err := c.callTool(ctx, tool, args)
+func emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool) error {
+	text, err := c.CallTool(ctx, tool, args)
 	if err != nil {
 		return err
 	}
@@ -247,7 +248,7 @@ func jsonSafe(text string, asJSON bool) string {
 // emitFlagged parses the standard --json flag, then calls the tool. It is the
 // shape every passthrough command takes: an agent should not have to learn
 // which subcommands happen to accept --json.
-func emitFlagged(ctx context.Context, c *client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
+func emitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
 	flags := newFlagSet(name)
 	asJSON := jsonFlag(flags)
 	pos, err := parseArgs(flags, args)
@@ -382,7 +383,7 @@ func conflictOutcome(conflicts []string, dryRun bool, hint string) error {
 	return dsxerr.Conflict(conflicts, hint)
 }
 
-func cmdSync(ctx context.Context, c *client, mode string, args []string) error {
+func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
 	fs := flag.NewFlagSet(mode, flag.ContinueOnError)
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")

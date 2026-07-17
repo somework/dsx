@@ -65,10 +65,10 @@ func TestWalkTreeClampsNonPositiveConcurrency(t *testing.T) {
 				}
 				return fakeReply{Text: "[]"}
 			})
-			c := f.client()
+			c := fakeClient(f)
 
 			withTimeout(t, 5*time.Second, "walkTree", func() error {
-				files, err := c.walkTree(context.Background(), "p1", jobs)
+				files, err := walkTree(context.Background(), c, "p1", jobs)
 				if err != nil {
 					return fmt.Errorf("walkTree(-j %d): %w", jobs, err)
 				}
@@ -96,7 +96,7 @@ func TestRunPullClampsNonPositiveConcurrency(t *testing.T) {
 			dir := t.TempDir()
 
 			withTimeout(t, 5*time.Second, "runPull", func() error {
-				rep, err := runPull(context.Background(), f.client(), pullOpts{
+				rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 					projectID:   "p1",
 					dir:         dir,
 					concurrency: jobs,

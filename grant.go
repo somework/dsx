@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/somework/dsx/internal/fmtutil"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/fmtutil"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 // The finalize_plan self-authorisation path.
@@ -25,8 +26,8 @@ import (
 // what a missing token means: a missing plan_token is a protocol fault, not a
 // tool error -- the server answered without the one field the call exists to
 // produce.
-func planToken(ctx context.Context, c *client, args map[string]any) (string, error) {
-	text, err := c.callTool(ctx, "finalize_plan", args)
+func planToken(ctx context.Context, c *mcp.Client, args map[string]any) (string, error) {
+	text, err := c.CallTool(ctx, "finalize_plan", args)
 	if err != nil {
 		return "", fmt.Errorf("finalize_plan: %w", err)
 	}
@@ -41,7 +42,7 @@ func planToken(ctx context.Context, c *client, args map[string]any) (string, err
 }
 
 // planFor authorises writes to exactly these paths.
-func (c *client) planFor(ctx context.Context, projectID string, paths []string) (string, error) {
+func planFor(ctx context.Context, c *mcp.Client, projectID string, paths []string) (string, error) {
 	return planToken(ctx, c, map[string]any{"project_id": projectID, "writes": paths})
 }
 
@@ -56,17 +57,17 @@ func (c *client) planFor(ctx context.Context, projectID string, paths []string) 
 // It is shared because push had it and put did not: the same write that push
 // completed left `dsx put` at exit 1 with no next step. Two copies would drift
 // again.
-func (c *client) callWithGrant(ctx context.Context, tool string, args map[string]any, projectID string, paths []string) (string, error) {
-	text, err := c.callTool(ctx, tool, args)
+func callWithGrant(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string) (string, error) {
+	text, err := c.CallTool(ctx, tool, args)
 
-	var ge *grantError
+	var ge *mcp.GrantError
 	if errors.As(err, &ge) {
-		token, planErr := c.planFor(ctx, projectID, paths)
+		token, planErr := planFor(ctx, c, projectID, paths)
 		if planErr != nil {
 			return "", fmt.Errorf("%w; and could not self-authorise: %v", err, planErr)
 		}
 		args["plan_token"] = token
-		return c.callTool(ctx, tool, args)
+		return c.CallTool(ctx, tool, args)
 	}
 	return text, err
 }

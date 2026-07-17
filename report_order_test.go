@@ -77,7 +77,7 @@ func TestPullReportFieldsAreSortedInEveryMode(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			rep, err := runPull(context.Background(), orderFake(t).client(), pullOpts{
+			rep, err := runPull(context.Background(), fakeClient(orderFake(t)), pullOpts{
 				projectID:   "p1",
 				dir:         dir,
 				concurrency: 4,
@@ -143,7 +143,7 @@ func TestPullConflictsAreSortedAcrossTheUnionInEveryMode(t *testing.T) {
 				return fakeReply{Text: "[]"}
 			})
 
-			rep, err := runPull(context.Background(), f.client(), pullOpts{
+			rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 				projectID:   "p1",
 				dir:         dir,
 				concurrency: 4,
@@ -199,7 +199,7 @@ func TestPushReportFieldsAreSorted(t *testing.T) {
 				return fakeReply{Text: "[]"}
 			})
 
-			rep, err := runPush(context.Background(), f.client(), pushOpts{
+			rep, err := runPush(context.Background(), fakeClient(f), pushOpts{
 				projectID: "p1",
 				dir:       dir,
 				dryRun:    dry,

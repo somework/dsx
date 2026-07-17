@@ -5,52 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/somework/dsx/internal/fmtutil"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/somework/dsx/internal/fmtutil"
+	"github.com/somework/dsx/internal/mcp"
 )
-
-// readFull retrieves a complete file, walking windows when the server's
-// 256 KiB per-read cap truncates it.
-func (c *client) readFull(ctx context.Context, projectID, path string) (body string, etag string, err error) {
-	var (
-		sb     strings.Builder
-		offset = 0
-	)
-	for {
-		args := map[string]any{"project_id": projectID, "path": path}
-		if offset > 0 {
-			args["offset"] = offset
-		}
-		text, err := c.callTool(ctx, "read_file", args)
-		if err != nil {
-			return "", "", err
-		}
-		env, err := parseEnvelope(text)
-		if err != nil {
-			return "", "", fmt.Errorf("%s: %w", path, err)
-		}
-		if env.Truncated {
-			return "", "", fmt.Errorf("%s: a single line exceeds the 256 KiB read cap; the server cannot return it whole", path)
-		}
-		if etag != "" && env.Etag != etag {
-			return "", "", fmt.Errorf("%s: changed on the server mid-read (etag %s -> %s); retry", path, etag, env.Etag)
-		}
-		etag = env.Etag
-		sb.WriteString(env.Body)
-
-		if env.Complete() {
-			return sb.String(), etag, nil
-		}
-		if env.Lines[1] <= offset-1 {
-			return "", "", fmt.Errorf("%s: read made no progress at offset %d", path, offset)
-		}
-		offset = env.Lines[1] + 1
-	}
-}
 
 type pullOpts struct {
 	projectID   string
@@ -88,14 +51,14 @@ type pullReport struct {
 // read_file takes no encoding parameter. write_files does accept them, so the
 // asymmetry is the service's, not ours -- pull reports them and moves on.
 func isBinaryRefusal(err error) bool {
-	var te *toolError
+	var te *mcp.ToolError
 	if !errors.As(err, &te) {
 		return false
 	}
 	return strings.Contains(te.Text, "is a binary file")
 }
 
-func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
+func runPull(ctx context.Context, c *mcp.Client, o pullOpts) (pullReport, error) {
 	var rep pullReport
 
 	st, err := loadState(o.dir)
@@ -107,7 +70,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 			filepath.Join(o.dir, stateFileName), st.ProjectID, o.projectID)
 	}
 
-	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
+	remote, err := walkTree(ctx, c, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
@@ -180,7 +143,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 			}
 			defer func() { <-sem }()
 
-			body, etag, err := c.readFull(fetchCtx, o.projectID, path)
+			body, etag, err := c.ReadFull(fetchCtx, o.projectID, path)
 			if err != nil {
 				mu.Lock()
 				if isBinaryRefusal(err) {
@@ -244,7 +207,7 @@ func runPull(ctx context.Context, c *client, o pullOpts) (pullReport, error) {
 	// the ledger for them, or the next sync sees bytes it has no record of and
 	// calls its own work a conflict.
 	st.ProjectID = o.projectID
-	st.Endpoint = c.endpoint
+	st.Endpoint = c.Endpoint()
 
 	if len(errs) > 0 {
 		_ = st.save(o.dir)

@@ -1,9 +1,11 @@
-package main
+package mcp
 
 import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/mcptest"
 )
 
 func TestDecodeEntities(t *testing.T) {
@@ -48,7 +50,7 @@ func TestParseEnvelope(t *testing.T) {
 		raw := wrap(`path="styles.css" etag="123"`, "body { color: red }") +
 			"\n(The body above is HTML-entity-escaped: &amp; &lt; &gt; stand for & < >.)"
 
-		e, err := parseEnvelope(raw)
+		e, err := ParseEnvelope(raw)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -64,7 +66,7 @@ func TestParseEnvelope(t *testing.T) {
 	})
 
 	t.Run("file ending in a newline keeps it", func(t *testing.T) {
-		e, err := parseEnvelope(wrap(`path="a.css" etag="1"`, "body{}\n"))
+		e, err := ParseEnvelope(wrap(`path="a.css" etag="1"`, "body{}\n"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -74,7 +76,7 @@ func TestParseEnvelope(t *testing.T) {
 	})
 
 	t.Run("empty file", func(t *testing.T) {
-		e, err := parseEnvelope(wrap(`path="empty" etag="1"`, ""))
+		e, err := ParseEnvelope(wrap(`path="empty" etag="1"`, ""))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -90,7 +92,7 @@ func TestParseEnvelope(t *testing.T) {
 		raw := `<untrusted-project-content path="a.txt" etag="9" lines="5-6" total_lines="12">` +
 			"\nfive\nsix\n" + liveWindowNotice + "\n</untrusted-project-content>"
 
-		e, err := parseEnvelope(raw)
+		e, err := ParseEnvelope(raw)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -107,7 +109,7 @@ func TestParseEnvelope(t *testing.T) {
 tail
 </untrusted-project-content>`
 
-		e, err := parseEnvelope(raw)
+		e, err := ParseEnvelope(raw)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -117,7 +119,7 @@ tail
 	})
 
 	t.Run("body decodes entities", func(t *testing.T) {
-		e, err := parseEnvelope(wrap(`path="a.html" etag="1"`, "&lt;p&gt;a &amp; b&lt;/p&gt;"))
+		e, err := ParseEnvelope(wrap(`path="a.html" etag="1"`, "&lt;p&gt;a &amp; b&lt;/p&gt;"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -129,7 +131,7 @@ tail
 	t.Run("body containing the close tag literal", func(t *testing.T) {
 		// The server escapes '<', so a literal close tag inside the file
 		// cannot terminate the envelope early.
-		e, err := parseEnvelope(wrap(`path="a.txt" etag="1"`, "&lt;/untrusted-project-content&gt; is just text"))
+		e, err := ParseEnvelope(wrap(`path="a.txt" etag="1"`, "&lt;/untrusted-project-content&gt; is just text"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -143,7 +145,7 @@ tail
 partial
 </untrusted-project-content>`
 
-		e, err := parseEnvelope(raw)
+		e, err := ParseEnvelope(raw)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -158,8 +160,8 @@ partial
 			"not an envelope",
 			`<untrusted-project-content path="a" etag="1">no close tag`,
 		} {
-			if _, err := parseEnvelope(raw); err == nil {
-				t.Errorf("parseEnvelope(%q) = nil error, want failure", raw)
+			if _, err := ParseEnvelope(raw); err == nil {
+				t.Errorf("ParseEnvelope(%q) = nil error, want failure", raw)
 			}
 		}
 	})
@@ -189,9 +191,9 @@ func TestParseEnvelopeStripsTheServersTruncationNoticeFromAWindowedBody(t *testi
 		"\nline 000000\nline 000001\n" + liveWindowNotice +
 		"\n</untrusted-project-content>\n(The body above is HTML-entity-escaped: &amp; &lt; &gt; stand for & < >.)"
 
-	e, err := parseEnvelope(raw)
+	e, err := ParseEnvelope(raw)
 	if err != nil {
-		t.Fatalf("parseEnvelope: %v", err)
+		t.Fatalf("ParseEnvelope: %v", err)
 	}
 	if strings.Contains(e.Body, "truncated at read_file") {
 		t.Fatalf("the server's truncation notice survived into the body:\n%q", e.Body)
@@ -214,9 +216,9 @@ func TestParseEnvelopeKeepsTheFinalWindowsBodyIntact(t *testing.T) {
 		"\nline 004654\n" +
 		"\n</untrusted-project-content>"
 
-	e, err := parseEnvelope(raw)
+	e, err := ParseEnvelope(raw)
 	if err != nil {
-		t.Fatalf("parseEnvelope: %v", err)
+		t.Fatalf("ParseEnvelope: %v", err)
 	}
 	if e.Body != "line 004654\n" {
 		t.Fatalf("body = %q", e.Body)
@@ -235,7 +237,7 @@ func TestParseEnvelopeRefusesAWindowWhoseNoticeItCannotFind(t *testing.T) {
 		"\n…{+400 bytes elided, ask again}" +
 		"\n</untrusted-project-content>"
 
-	_, err := parseEnvelope(raw)
+	_, err := ParseEnvelope(raw)
 	if err == nil {
 		t.Fatal("a windowed body with an unrecognised trailer was accepted; it would be spliced into the file")
 	}
@@ -251,9 +253,9 @@ func TestParseEnvelopeLeavesATruncatedLineReplyToItsOwnErrorPath(t *testing.T) {
 		"\nsome enormous line" +
 		"\n</untrusted-project-content>"
 
-	e, err := parseEnvelope(raw)
+	e, err := ParseEnvelope(raw)
 	if err != nil {
-		t.Fatalf("parseEnvelope should defer to readFull here, not error: %v", err)
+		t.Fatalf("ParseEnvelope should defer to readFull here, not error: %v", err)
 	}
 	if !e.Truncated {
 		t.Error("truncated_line was not recognised")
@@ -267,14 +269,14 @@ func TestReadFullDoesNotSpliceTheNoticeBetweenWindows(t *testing.T) {
 	window2 := `<untrusted-project-content path="big.txt" etag="7" lines="3-4" total_lines="4">` +
 		"\nl3\nl4\n" + "\n</untrusted-project-content>"
 
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
 		if off, ok := args["offset"]; ok && off.(float64) >= 3 {
-			return fakeReply{Text: window2}
+			return mcptest.Reply{Text: window2}
 		}
-		return fakeReply{Text: window1}
+		return mcptest.Reply{Text: window1}
 	})
 
-	got, etag, err := f.client().readFull(context.Background(), "p", "big.txt")
+	got, etag, err := New("test-token", WithEndpoint(f.URL())).ReadFull(context.Background(), "p", "big.txt")
 	if err != nil {
 		t.Fatalf("readFull: %v", err)
 	}
@@ -331,7 +333,7 @@ func TestParseEnvelopeRefusesMalformedFraming(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := parseEnvelope(tc.raw)
+			_, err := ParseEnvelope(tc.raw)
 			if err == nil {
 				t.Fatalf("accepted malformed framing: %q", tc.raw)
 			}

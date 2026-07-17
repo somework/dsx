@@ -19,6 +19,7 @@ import (
 
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 // Cover for main.go's dispatch/wiring and util.go's argument plumbing.
@@ -90,12 +91,12 @@ func maincliCaptureStderr(t *testing.T, fn func()) string {
 }
 
 // maincliFake wires a client to a fake endpoint answering every tool with text.
-func maincliFake(t *testing.T, text string) (*fakeMCP, *client) {
+func maincliFake(t *testing.T, text string) (*fakeMCP, *mcp.Client) {
 	t.Helper()
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{Text: text}
 	})
-	return f, f.client()
+	return f, fakeClient(f)
 }
 
 func maincliKind(t *testing.T, err error) dsxerr.Kind {
@@ -747,7 +748,7 @@ func TestEmitPrintsNothingWhenTheToolFails(t *testing.T) {
 	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
 		return fakeReply{Text: "project not found", IsError: true}
 	})
-	c := f.client()
+	c := fakeClient(f)
 	out, err := captureStdout(t, func() error {
 		return emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
 	})
@@ -795,7 +796,7 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
-	if n := f.countTool("get_project"); n != 0 {
+	if n := f.CountTool("get_project"); n != 0 {
 		t.Errorf("%d tool calls made despite a usage error", n)
 	}
 }
@@ -809,8 +810,8 @@ func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
-	if len(f.recorded()) != 0 {
-		t.Errorf("the endpoint was contacted: %v", f.recorded())
+	if len(f.Recorded()) != 0 {
+		t.Errorf("the endpoint was contacted: %v", f.Recorded())
 	}
 }
 
@@ -981,7 +982,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 // on disk was edited locally *and* the server moved on. Per invariant 2 the
 // refusal keys off the bytes, not the etag — an etag test alone cannot see this
 // case.
-func maincliConflictedPull(t *testing.T) (*fakeMCP, *client, string) {
+func maincliConflictedPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
 	t.Helper()
 	dir := t.TempDir()
 	const project = "proj-uuid"
@@ -1003,7 +1004,7 @@ func maincliConflictedPull(t *testing.T) (*fakeMCP, *client, string) {
 		}
 		return fakeReply{Text: "{}", IsError: true}
 	})
-	return f, f.client(), dir
+	return f, fakeClient(f), dir
 }
 
 func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
@@ -1073,8 +1074,8 @@ func TestSyncOnAnUnboundDirFailsBeforeTouchingTheNetwork(t *testing.T) {
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Fatalf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
-	if len(f.recorded()) != 0 {
-		t.Errorf("the endpoint was contacted for a directory with no known project: %v", f.recorded())
+	if len(f.Recorded()) != 0 {
+		t.Errorf("the endpoint was contacted for a directory with no known project: %v", f.Recorded())
 	}
 	// It must not have created the directory's ledger as a side effect either.
 	if syncLedgerExists(t, dir) {
@@ -1094,10 +1095,10 @@ func TestStatusReportsBothDirectionsAndTransfersNothing(t *testing.T) {
 	if !strings.Contains(out, "pull:") || !strings.Contains(out, "push:") {
 		t.Errorf("status must report both directions: %q", out)
 	}
-	if n := f.countTool("read_file"); n != 0 {
+	if n := f.CountTool("read_file"); n != 0 {
 		t.Errorf("status fetched %d file(s); it transfers nothing", n)
 	}
-	if n := f.countTool("write_files"); n != 0 {
+	if n := f.CountTool("write_files"); n != 0 {
 		t.Errorf("status wrote %d file(s); it transfers nothing", n)
 	}
 	if b, _ := os.ReadFile(filepath.Join(dir, "a.css")); string(b) != "LOCAL EDIT" {
@@ -1176,8 +1177,8 @@ func TestSyncRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
-	if len(f.recorded()) != 0 {
-		t.Errorf("the endpoint was contacted despite a bad flag: %v", f.recorded())
+	if len(f.Recorded()) != 0 {
+		t.Errorf("the endpoint was contacted despite a bad flag: %v", f.Recorded())
 	}
 }
 

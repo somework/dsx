@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/mcptest"
 )
 
 // Tests for cmds.go -- the thin per-tool wrappers.
@@ -53,9 +55,9 @@ func cmdsWantArgs(t *testing.T, got map[string]any, want map[string]any) {
 }
 
 // cmdsToolCalls returns just the tools/call traffic, in order.
-func cmdsToolCalls(f *fakeMCP) []recordedCall {
-	var out []recordedCall
-	for _, c := range f.recorded() {
+func cmdsToolCalls(f *fakeMCP) []mcptest.Call {
+	var out []mcptest.Call
+	for _, c := range f.Recorded() {
 		if c.Method == "tools/call" {
 			out = append(out, c)
 		}
@@ -64,7 +66,7 @@ func cmdsToolCalls(f *fakeMCP) []recordedCall {
 }
 
 // cmdsOnlyCall asserts exactly one tool was called and returns it.
-func cmdsOnlyCall(t *testing.T, f *fakeMCP) recordedCall {
+func cmdsOnlyCall(t *testing.T, f *fakeMCP) mcptest.Call {
 	t.Helper()
 	calls := cmdsToolCalls(f)
 	if len(calls) != 1 {
@@ -88,7 +90,7 @@ func cmdsTempFile(t *testing.T, name, content string) string {
 	return p
 }
 
-type cmdsFn func(context.Context, *client, []string) error
+type cmdsFn func(context.Context, *mcp.Client, []string) error
 
 // cmdsRun runs a command against a fake server, capturing stdout so the test
 // log stays readable. Callers must not be parallel: captureStdout swaps
@@ -96,7 +98,7 @@ type cmdsFn func(context.Context, *client, []string) error
 func cmdsRun(t *testing.T, f *fakeMCP, fn cmdsFn, argv ...string) (string, error) {
 	t.Helper()
 	return captureStdout(t, func() error {
-		return fn(context.Background(), f.client(), argv)
+		return fn(context.Background(), fakeClient(f), argv)
 	})
 }
 
@@ -494,7 +496,7 @@ func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindProtocol {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindProtocol)
 	}
-	if n := f.countTool("delete_files"); n != 0 {
+	if n := f.CountTool("delete_files"); n != 0 {
 		t.Errorf("delete_files called %d times without a token; nothing may be deleted unauthorised", n)
 	}
 }
@@ -512,7 +514,7 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
-	if n := len(f.recorded()); n != 0 {
+	if n := len(f.Recorded()); n != 0 {
 		t.Errorf("%d requests made for an invocation that could never work", n)
 	}
 }
@@ -542,7 +544,7 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeMCP(t, cmdsReplyJSON(tc.reply))
-			_, err := planToken(context.Background(), f.client(),
+			_, err := planToken(context.Background(), fakeClient(f),
 				map[string]any{"project_id": "p1", "deletes": []string{"a.css"}})
 			if err == nil {
 				t.Fatal("planToken accepted a reply carrying no usable token")
@@ -562,7 +564,7 @@ func TestPlanTokenClassifiesAnUnusableReplyAsProtocolNotTransport(t *testing.T) 
 func TestPlanTokenReturnsTheTokenAndForwardsTheRequestVerbatim(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(`{"plan_token":"tok-abc","expires_in":900}`))
 
-	got, err := planToken(context.Background(), f.client(),
+	got, err := planToken(context.Background(), fakeClient(f),
 		map[string]any{"project_id": "p1", "writes": []string{"a.css", "b.css"}})
 	if err != nil {
 		t.Fatalf("planToken: %v", err)
@@ -589,7 +591,7 @@ func TestPlanTokenKeepsATransportFailureRetryable(t *testing.T) {
 		return fakeReply{HTTPStatus: 503, HTTPBody: "upstream unavailable"}
 	})
 
-	_, err := planToken(context.Background(), f.client(),
+	_, err := planToken(context.Background(), fakeClient(f),
 		map[string]any{"project_id": "p1", "deletes": []string{"a.css"}})
 	if err == nil {
 		t.Fatal("planToken reported success against a 503")
@@ -946,7 +948,7 @@ func TestCmdTreeClampsConcurrencyBelowOneToOne(t *testing.T) {
 	defer cancel()
 
 	out, err := captureStdout(t, func() error {
-		return cmdTree(ctx, f.client(), []string{"p1", "-j", "0", "--json"})
+		return cmdTree(ctx, fakeClient(f), []string{"p1", "-j", "0", "--json"})
 	})
 	if err != nil {
 		t.Fatalf("tree -j 0 failed: %v", err)
@@ -1105,7 +1107,7 @@ func TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer(t 
 		if _, err := cmdsRun(t, f, cmdConvPut, "p1", "--messages", bad); err == nil {
 			t.Errorf("conv-put accepted a messages file holding %q", content)
 		}
-		if n := len(f.recorded()); n != 0 {
+		if n := len(f.Recorded()); n != 0 {
 			t.Errorf("%d requests made for a messages file holding %q", n, content)
 		}
 	}
@@ -1122,7 +1124,7 @@ func TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer(t *testin
 	if _, err := cmdsRun(t, f, cmdConvPut, "p1", "--messages", missing); err == nil {
 		t.Fatal("conv-put succeeded with a missing messages file")
 	}
-	if n := len(f.recorded()); n != 0 {
+	if n := len(f.Recorded()); n != 0 {
 		t.Errorf("%d requests made though the messages file was unreadable", n)
 	}
 }
@@ -1189,7 +1191,7 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 			if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitUsage {
 				t.Errorf("exit code = %d, want %d", got, dsxerr.ExitUsage)
 			}
-			if n := len(f.recorded()); n != 0 {
+			if n := len(f.Recorded()); n != 0 {
 				t.Errorf("%d requests made for an invocation that could never work", n)
 			}
 		})
@@ -1248,9 +1250,9 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 			if out != "" {
 				t.Errorf("stdout = %q, want nothing printed for a failed call", out)
 			}
-			var te *toolError
+			var te *mcp.ToolError
 			if !errors.As(err, &te) {
-				t.Fatalf("error %v is not a *toolError; callers match on the type, not the text", err)
+				t.Fatalf("error %v is not a *mcp.ToolError; callers match on the type, not the text", err)
 			}
 			if te.Text != "path not found" {
 				t.Errorf("text = %q, want the server's own message", te.Text)

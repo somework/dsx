@@ -5,12 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/somework/dsx/internal/fmtutil"
 	"os"
 	"slices"
 	"strings"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/fmtutil"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 // Batch limits. The server accepts up to 256 entries per call; the byte cap is
@@ -50,7 +51,7 @@ type pushReport struct {
 	Bytes     int64    `json:"bytes"`
 }
 
-func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
+func runPush(ctx context.Context, c *mcp.Client, o pushOpts) (pushReport, error) {
 	var rep pushReport
 
 	st, err := loadState(o.dir)
@@ -62,7 +63,7 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 			stateFileName, st.ProjectID, o.projectID)
 	}
 
-	remote, err := c.walkTree(ctx, o.projectID, o.concurrency)
+	remote, err := walkTree(ctx, c, o.projectID, o.concurrency)
 	if err != nil {
 		return rep, err
 	}
@@ -112,17 +113,17 @@ func runPush(ctx context.Context, c *client, o pushOpts) (pushReport, error) {
 	// the guards above short-circuit on it and the next sync could target a
 	// different project against this project's etags.
 	st.ProjectID = o.projectID
-	st.Endpoint = c.endpoint
+	st.Endpoint = c.Endpoint()
 
 	for _, batch := range batches(specs) {
-		if err := c.writeBatch(ctx, o.projectID, batch, &st, &rep); err != nil {
+		if err := writeBatch(ctx, c, o.projectID, batch, &st, &rep); err != nil {
 			_ = st.save(o.dir) // keep whatever succeeded
 			return rep, err
 		}
 	}
 
 	if len(rep.Deleted) > 0 {
-		if err := c.deletePaths(ctx, o.projectID, rep.Deleted, st); err != nil {
+		if err := deletePaths(ctx, c, o.projectID, rep.Deleted, st); err != nil {
 			_ = st.save(o.dir)
 			return rep, err
 		}
@@ -165,7 +166,7 @@ type writeResult struct {
 	URL     string            `json:"url"`
 }
 
-func (c *client) writeBatch(ctx context.Context, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
+func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []writeSpec, st *syncState, rep *pushReport) error {
 	files := make([]map[string]any, 0, len(batch))
 	paths := make([]string, 0, len(batch))
 	for _, s := range batch {
@@ -178,13 +179,13 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 	}
 
 	args := map[string]any{"project_id": projectID, "files": files}
-	text, err := c.callWithGrant(ctx, "write_files", args, projectID, paths)
+	text, err := callWithGrant(ctx, c, "write_files", args, projectID, paths)
 	if err != nil {
 		// A stale if_match is a conflict, and the server is the only party that
 		// can see this one: it lost the race between our listing and our write.
 		// Reporting it as a generic failure would send exit 1 to a caller
 		// watching for exit 3.
-		if paths, ok := conflictFromToolError(err); ok {
+		if paths, ok := mcp.ConflictFromToolError(err); ok {
 			return dsxerr.Conflict(paths, "the server changed while dsx was writing; nothing was written — `dsx pull` first, or --force")
 		}
 		return err
@@ -240,7 +241,7 @@ func (c *client) writeBatch(ctx context.Context, projectID string, batch []write
 
 // deletePaths removes remote files. Deletes always require a path-scoped
 // plan_token; a project-scoped one is refused by the server.
-func (c *client) deletePaths(ctx context.Context, projectID string, paths []string, st syncState) error {
+func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []string, st syncState) error {
 	token, err := planToken(ctx, c, map[string]any{"project_id": projectID, "deletes": paths})
 	if err != nil {
 		return err
@@ -254,7 +255,7 @@ func (c *client) deletePaths(ctx context.Context, projectID string, paths []stri
 		}
 		files = append(files, m)
 	}
-	_, err = c.callTool(ctx, "delete_files", map[string]any{
+	_, err = c.CallTool(ctx, "delete_files", map[string]any{
 		"project_id": projectID,
 		"plan_token": token,
 		"files":      files,

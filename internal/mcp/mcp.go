@@ -1,4 +1,4 @@
-package main
+package mcp
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/somework/dsx/internal/fmtutil"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/fmtutil"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 	maxAttempts     = 4
 )
 
-type client struct {
+type Client struct {
 	endpoint string
 	token    string
 	http     *http.Client
@@ -40,12 +40,31 @@ type client struct {
 	lastServerDate atomic.Int64
 }
 
-func newClient(token string) *client {
+// Option adjusts a Client at construction. The three fields a test needs to
+// control -- endpoint, token, http -- are otherwise unreachable from outside
+// this package, and they must stay that way: token is invariant 8's, and an
+// exported setter for it would put a token writer in the shipped binary.
+type Option func(*Client)
+
+// WithEndpoint points the client at another server. Tests use it to reach a
+// fake; DSX_ENDPOINT does the same for a person.
+func WithEndpoint(url string) Option {
+	return func(c *Client) { c.endpoint = url }
+}
+
+// WithHTTPClient replaces the transport. This is invariant 3's injection point:
+// a test proves an interrupted walk is reported as a failure by cancelling
+// mid-flight, and it needs a RoundTripper of its own to do that.
+func WithHTTPClient(h *http.Client) Option {
+	return func(c *Client) { c.http = h }
+}
+
+func New(token string, opts ...Option) *Client {
 	ep := defaultEndpoint
 	if v := os.Getenv("DSX_ENDPOINT"); v != "" {
 		ep = v
 	}
-	return &client{
+	c := &Client{
 		endpoint: ep,
 		token:    token,
 		http: &http.Client{
@@ -56,6 +75,10 @@ func newClient(token string) *client {
 			},
 		},
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 type rpcError struct {
@@ -76,17 +99,17 @@ type toolResult struct {
 	IsError bool `json:"isError"`
 }
 
-// toolError marks a server-reported tool failure, as opposed to a transport
+// ToolError marks a server-reported tool failure, as opposed to a transport
 // fault. Callers that expect a specific failure (a missing path, a conflict)
 // can match on it instead of on message text.
-type toolError struct {
+type ToolError struct {
 	Tool string
 	Text string
 }
 
-func (e *toolError) Error() string { return e.Tool + ": " + e.Text }
+func (e *ToolError) Error() string { return e.Tool + ": " + e.Text }
 
-// serverConflict is write_files' answer to a stale if_match, measured on
+// ServerConflict is write_files' answer to a stale if_match, measured on
 // 2026-07-17:
 //
 //	{"conflicts":[{"path":"a.css","etag":"1784268009093847","current_content":"…"}],
@@ -101,7 +124,7 @@ func (e *toolError) Error() string { return e.Tool + ": " + e.Text }
 //
 // "Nothing was written" is the server's own word, and it is why this is safe to
 // report as a plain conflict rather than as a partial write.
-type serverConflict struct {
+type ServerConflict struct {
 	Conflicts []struct {
 		Path string `json:"path"`
 		Etag string `json:"etag"`
@@ -111,12 +134,12 @@ type serverConflict struct {
 
 // conflictFromToolError recovers the conflicting paths from a write refusal, or
 // reports false for any other failure.
-func conflictFromToolError(err error) ([]string, bool) {
-	var te *toolError
+func ConflictFromToolError(err error) ([]string, bool) {
+	var te *ToolError
 	if !errors.As(err, &te) {
 		return nil, false
 	}
-	var sc serverConflict
+	var sc ServerConflict
 	if json.Unmarshal([]byte(te.Text), &sc) != nil || len(sc.Conflicts) == 0 {
 		return nil, false
 	}
@@ -127,12 +150,12 @@ func conflictFromToolError(err error) ([]string, bool) {
 	return paths, true
 }
 
-// grantError is the server's 403 demanding a standing write grant for a
+// GrantError is the server's 403 demanding a standing write grant for a
 // project. It is recoverable: a plan_token from finalize_plan authorises the
 // same write without one.
-type grantError struct{ ProjectID string }
+type GrantError struct{ ProjectID string }
 
-func (e *grantError) Error() string {
+func (e *GrantError) Error() string {
 	return "needs_project_grant for project " + e.ProjectID
 }
 
@@ -150,7 +173,7 @@ var readOnlyTools = map[string]bool{
 	"read_file":                true,
 }
 
-func (c *client) rpc(ctx context.Context, method string, params any, idempotent bool) (json.RawMessage, error) {
+func (c *Client) rpc(ctx context.Context, method string, params any, idempotent bool) (json.RawMessage, error) {
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      c.seq.Add(1),
@@ -186,7 +209,7 @@ func (c *client) rpc(ctx context.Context, method string, params any, idempotent 
 	return nil, fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw json.RawMessage, retryable bool, err error) {
+func (c *Client) attempt(ctx context.Context, body []byte, idempotent bool) (raw json.RawMessage, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, false, err
@@ -221,7 +244,7 @@ func (c *client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 			ProjectID string `json:"project_id"`
 		}
 		_ = json.Unmarshal(payload, &g)
-		return nil, false, &grantError{ProjectID: g.ProjectID}
+		return nil, false, &GrantError{ProjectID: g.ProjectID}
 	case resp.StatusCode == http.StatusTooManyRequests:
 		// Rejected before it ran; safe to retry whatever the method.
 		return nil, true, &dsxerr.Error{Kind: dsxerr.KindTransport,
@@ -327,7 +350,7 @@ func isEventStream(contentType string, body []byte) bool {
 }
 
 // callTool invokes an MCP tool and returns its concatenated text content.
-func (c *client) callTool(ctx context.Context, name string, args map[string]any) (string, error) {
+func (c *Client) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
 	raw, err := c.rpc(ctx, "tools/call", map[string]any{"name": name, "arguments": args}, readOnlyTools[name])
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", name, err)
@@ -345,10 +368,56 @@ func (c *client) callTool(ctx context.Context, name string, args map[string]any)
 		sb.WriteString(part.Text)
 	}
 	if res.IsError {
-		return "", &toolError{Tool: name, Text: strings.TrimSpace(sb.String())}
+		return "", &ToolError{Tool: name, Text: strings.TrimSpace(sb.String())}
 	}
 	return sb.String(), nil
 }
 
 // truncate bounds server text for display, cutting on a rune boundary.
 //
+
+// Endpoint is the URL this client talks to. The ledger records it so a later
+// sync against a different endpoint is not silently compared with these etags.
+func (c *Client) Endpoint() string { return c.endpoint }
+
+// LastServerDate is the Date header of the most recent reply, in unix nanos, or
+// zero if no reply has carried one. `dsx doctor` compares it with the local
+// clock: a skewed clock is invisible until it starts rejecting fresh tokens.
+func (c *Client) LastServerDate() int64 { return c.lastServerDate.Load() }
+
+// ToolsList asks the server what it can do.
+//
+// It is exported for `dsx tools` and for doctor's endpoint check, which is the
+// one call that proves the token, the URL and the network in a single
+// read-only request. Callers get the raw JSON because the two of them model the
+// reply differently, and reference/mcp-tools.json is the record of its shape.
+func (c *Client) ToolsList(ctx context.Context) (json.RawMessage, error) {
+	return c.rpc(ctx, "tools/list", map[string]any{}, true)
+}
+
+// ReadOnlyToolNames is the set of tools dsx will retry after a transport fault,
+// as a copy.
+//
+// A copy, not the map: an exported map var is globally mutable, and one write of
+// ReadOnlyTools["write_files"] = true would make dsx re-execute a mutation the
+// server had already applied. Invariant 6 is that only read-only tools may be
+// retried, and a guard that any package can flip is not a guard. The live suite
+// reads this to prove the list has not drifted from the server's own
+// readOnlyHint; nothing in the shipped binary needs it.
+func ReadOnlyToolNames() []string {
+	out := make([]string, 0, len(readOnlyTools))
+	for name := range readOnlyTools {
+		out = append(out, name)
+	}
+	return out
+}
+
+// RPC issues a raw JSON-RPC call. It is the door `dsx raw` documents and the one
+// the live suite uses to ask about methods dsx does not wrap -- resources/list,
+// whose absence is what makes binary files unreadable.
+//
+// idempotent decides retry, and the caller owns that judgement: see
+// readOnlyTools for why a wrong answer can re-apply a mutation.
+func (c *Client) RPC(ctx context.Context, method string, params any, idempotent bool) (json.RawMessage, error) {
+	return c.rpc(ctx, method, params, idempotent)
+}

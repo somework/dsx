@@ -81,7 +81,7 @@ func TestRunPushNeverPrunesAnIgnoredPathFromTheServer(t *testing.T) {
 		return fakeReply{Text: "[]"}
 	})
 
-	if _, err := runPush(context.Background(), f.client(), pushOpts{
+	if _, err := runPush(context.Background(), fakeClient(f), pushOpts{
 		projectID: "p1",
 		dir:       dir,
 		prune:     true,
@@ -134,7 +134,7 @@ func TestRunPullNeverPrunesAnIgnoredPathFromDisk(t *testing.T) {
 		return fakeReply{Text: "[]"}
 	})
 
-	if _, err := runPull(context.Background(), f.client(), pullOpts{
+	if _, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID:   "p1",
 		dir:         dir,
 		concurrency: 4,

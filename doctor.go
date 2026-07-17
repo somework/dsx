@@ -11,6 +11,7 @@ import (
 
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 // The scope the design endpoint actually enforces. The 401 it hands back
@@ -61,7 +62,7 @@ func (r doctorReport) render(asJSON bool) string {
 	return strings.Join(lines, "\n")
 }
 
-func cmdDoctor(ctx context.Context, c *client, args []string) error {
+func cmdDoctor(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := newFlagSet("doctor")
 	asJSON := flags.Bool("json", false, "JSON output")
 	if _, err := parseArgs(flags, args); err != nil {
@@ -76,7 +77,7 @@ func cmdDoctor(ctx context.Context, c *client, args []string) error {
 	return nil
 }
 
-func runDoctor(ctx context.Context, c *client) doctorReport {
+func runDoctor(ctx context.Context, c *mcp.Client) doctorReport {
 	var rep doctorReport
 
 	// Diagnose the credential dsx will actually send, not the one it has stored.
@@ -110,18 +111,18 @@ func runDoctor(ctx context.Context, c *client) doctorReport {
 	// Endpoint. tools/list is read-only and cheap, and a reply proves the
 	// token, the URL and the network in one call.
 	started := time.Now()
-	raw, err := c.rpc(ctx, "tools/list", map[string]any{}, true)
+	raw, err := c.ToolsList(ctx)
 	latency := time.Since(started)
 	if err != nil {
-		rep.Checks = append(rep.Checks, newCheck("endpoint", checkFail, "%s: %v", c.endpoint, err))
+		rep.Checks = append(rep.Checks, newCheck("endpoint", checkFail, "%s: %v", c.Endpoint(), err))
 	} else {
 		var list struct {
 			Tools []struct{} `json:"tools"`
 		}
 		_ = json.Unmarshal(raw, &list)
 		rep.Checks = append(rep.Checks,
-			newCheck("endpoint", checkOK, "%s (%d tools, %dms)", c.endpoint, len(list.Tools), latency.Milliseconds()),
-			clockCheck(c.lastServerDate.Load(), time.Now()),
+			newCheck("endpoint", checkOK, "%s (%d tools, %dms)", c.Endpoint(), len(list.Tools), latency.Milliseconds()),
+			clockCheck(c.LastServerDate(), time.Now()),
 		)
 	}
 

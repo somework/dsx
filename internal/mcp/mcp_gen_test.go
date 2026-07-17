@@ -1,4 +1,4 @@
-package main
+package mcp
 
 import (
 	"bytes"
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcptest"
 )
 
 // Transport tests for mcp.go.
@@ -24,13 +25,13 @@ import (
 // reaches the wire, and what classification a caller ends up branching on.
 // Both are things a mistake in mcp.go breaks silently.
 
-// mcpGenRawServer returns a client pointed at a bare handler, for the cases
-// fakeMCP cannot express: an exact Date header, a suppressed one, a raw status.
-func mcpGenRawServer(t *testing.T, h http.HandlerFunc) *client {
+// mcpGenRawServer returns a Client pointed at a bare handler, for the cases
+// mcptest.Server cannot express: an exact Date header, a suppressed one, a raw status.
+func mcpGenRawServer(t *testing.T, h http.HandlerFunc) *Client {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	c := newClient("test-token")
+	c := New("test-token")
 	c.endpoint = srv.URL
 	return c
 }
@@ -48,7 +49,7 @@ type mcpGenManifest struct {
 
 func mcpGenLoadManifest(t *testing.T) mcpGenManifest {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("reference", "mcp-tools.json"))
+	b, err := os.ReadFile(filepath.Join("..", "..", "reference", "mcp-tools.json"))
 	if err != nil {
 		t.Fatalf("reading the recorded tools/list: %v", err)
 	}
@@ -118,19 +119,19 @@ func TestNoToolWhoseNameImpliesMutationIsMarkedReadOnly(t *testing.T) {
 func TestReadOnlyToolIsRetriedAfterA500(t *testing.T) {
 	t.Parallel()
 	var seen atomic.Int32
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
 		if seen.Add(1) == 1 {
-			return fakeReply{HTTPStatus: http.StatusInternalServerError, HTTPBody: "upstream boom"}
+			return mcptest.Reply{HTTPStatus: http.StatusInternalServerError, HTTPBody: "upstream boom"}
 		}
-		return fakeReply{Text: envelopeFor("a.txt", "e1", "hello")}
+		return mcptest.Reply{Text: mcptest.EnvelopeFor("a.txt", "e1", "hello")}
 	})
 
-	got, err := f.client().callTool(context.Background(), "read_file",
+	got, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "read_file",
 		map[string]any{"project_id": "p", "path": "a.txt"})
 	if err != nil {
 		t.Fatalf("read_file should have survived one 500: %v", err)
 	}
-	if n := f.countTool("read_file"); n != 2 {
+	if n := f.CountTool("read_file"); n != 2 {
 		t.Errorf("read_file reached the server %d times, want 2 (one 500, one retry)", n)
 	}
 	if !strings.Contains(got, "hello") {
@@ -146,16 +147,16 @@ func TestReadOnlyToolIsRetriedAfterA500(t *testing.T) {
 // stops failing under that edit, it has stopped testing anything.
 func TestMutatingToolIsNotRetriedAfterA500(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{HTTPStatus: http.StatusInternalServerError, HTTPBody: "upstream boom"}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{HTTPStatus: http.StatusInternalServerError, HTTPBody: "upstream boom"}
 	})
 
-	_, err := f.client().callTool(context.Background(), "write_files",
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "write_files",
 		map[string]any{"project_id": "p", "files": []any{}})
 	if err == nil {
 		t.Fatal("write_files returned nil error after a 500")
 	}
-	if n := f.countTool("write_files"); n != 1 {
+	if n := f.CountTool("write_files"); n != 1 {
 		t.Fatalf("write_files reached the server %d times, want exactly 1; "+
 			"a replayed write re-applies a mutation the server may already have made", n)
 	}
@@ -170,19 +171,19 @@ func TestMutatingToolIsNotRetriedAfterA500(t *testing.T) {
 func TestMutatingToolIsRetriedAfterA429(t *testing.T) {
 	t.Parallel()
 	var seen atomic.Int32
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
 		if seen.Add(1) == 1 {
-			return fakeReply{HTTPStatus: http.StatusTooManyRequests, HTTPBody: "slow down"}
+			return mcptest.Reply{HTTPStatus: http.StatusTooManyRequests, HTTPBody: "slow down"}
 		}
-		return fakeReply{Text: `{"etags":{"a.txt":"e2"}}`}
+		return mcptest.Reply{Text: `{"etags":{"a.txt":"e2"}}`}
 	})
 
-	got, err := f.client().callTool(context.Background(), "write_files",
+	got, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "write_files",
 		map[string]any{"project_id": "p", "files": []any{}})
 	if err != nil {
 		t.Fatalf("write_files should have been retried past a 429: %v", err)
 	}
-	if n := f.countTool("write_files"); n != 2 {
+	if n := f.CountTool("write_files"); n != 2 {
 		t.Errorf("write_files reached the server %d times, want 2; a 429 never ran, so it is safe to replay", n)
 	}
 	if got != `{"etags":{"a.txt":"e2"}}` {
@@ -196,15 +197,15 @@ func TestMutatingToolIsRetriedAfterA429(t *testing.T) {
 // agent branching on the kind would stop retrying a fault that was retryable.
 func TestRetryExhaustionKeepsTheTransportClassification(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{HTTPStatus: http.StatusBadGateway, HTTPBody: "no upstream"}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{HTTPStatus: http.StatusBadGateway, HTTPBody: "no upstream"}
 	})
 
-	_, err := f.client().callTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
 	if err == nil {
 		t.Fatal("list_files returned nil error after every attempt 502'd")
 	}
-	if n := f.countTool("list_files"); n != maxAttempts {
+	if n := f.CountTool("list_files"); n != maxAttempts {
 		t.Errorf("list_files reached the server %d times, want maxAttempts=%d", n, maxAttempts)
 	}
 	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindTransport {
@@ -219,15 +220,15 @@ func TestRetryExhaustionKeepsTheTransportClassification(t *testing.T) {
 // it as transport tells a caller to retry something that can never succeed.
 func TestBadRequestIsProtocolAndIsNotRetried(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{HTTPStatus: http.StatusBadRequest, HTTPBody: "bad arguments"}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{HTTPStatus: http.StatusBadRequest, HTTPBody: "bad arguments"}
 	})
 
-	_, err := f.client().callTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
 	if err == nil {
 		t.Fatal("a 400 produced no error")
 	}
-	if n := f.countTool("list_files"); n != 1 {
+	if n := f.CountTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1; a 400 will say the same thing every time", n)
 	}
 	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
@@ -243,15 +244,15 @@ func TestBadRequestIsProtocolAndIsNotRetried(t *testing.T) {
 // that knows a 401 happened. Retrying it would just spend the backoff.
 func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{HTTPStatus: http.StatusUnauthorized, HTTPBody: `{"error":"unauthorized"}`}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{HTTPStatus: http.StatusUnauthorized, HTTPBody: `{"error":"unauthorized"}`}
 	})
 
-	_, err := f.client().callTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
 	if err == nil {
 		t.Fatal("a 401 produced no error")
 	}
-	if n := f.countTool("list_files"); n != 1 {
+	if n := f.CountTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1; a rejected token stays rejected", n)
 	}
 	de := dsxerr.Classify(err)
@@ -270,38 +271,38 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 
 // The grant refusal is recoverable and push.go recovers from it by name --
 // `errors.As(err, &ge)` at push.go:185, through callTool's %w wrap. If it
-// arrived as a plain dsxerr.Error or a toolError, push would surface the 403 to the
+// arrived as a plain dsxerr.Error or a ToolError, push would surface the 403 to the
 // user instead of self-authorising with a plan_token.
 func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{
 			HTTPStatus: http.StatusForbidden,
 			HTTPBody:   `{"error":"needs_project_grant","project_id":"proj-42"}`,
 		}
 	})
 
-	_, err := f.client().callTool(context.Background(), "write_files",
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "write_files",
 		map[string]any{"project_id": "proj-42", "files": []any{}})
 	if err == nil {
 		t.Fatal("the grant refusal produced no error")
 	}
 
-	var ge *grantError
+	var ge *GrantError
 	if !errors.As(err, &ge) {
-		t.Fatalf("errors.As did not find a *grantError in %v; push cannot self-authorise", err)
+		t.Fatalf("errors.As did not find a *GrantError in %v; push cannot self-authorise", err)
 	}
 	if ge.ProjectID != "proj-42" {
-		t.Errorf("grantError.ProjectID = %q, want %q; finalize_plan needs the id", ge.ProjectID, "proj-42")
+		t.Errorf("GrantError.ProjectID = %q, want %q; finalize_plan needs the id", ge.ProjectID, "proj-42")
 	}
 
 	// It is a transport-layer refusal, not a tool result, and conflating the two
 	// would send push down the wrong recovery path.
-	var te *toolError
+	var te *ToolError
 	if errors.As(err, &te) {
-		t.Errorf("the grant refusal also matched *toolError (%v)", te)
+		t.Errorf("the grant refusal also matched *ToolError (%v)", te)
 	}
-	if n := f.countTool("write_files"); n != 1 {
+	if n := f.CountTool("write_files"); n != 1 {
 		t.Errorf("write_files reached the server %d times, want 1; the 403 is deterministic and write_files mutates", n)
 	}
 }
@@ -311,39 +312,39 @@ func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 // because it is the only description of what went wrong.
 func TestToolErrorSurvivesTheCallToolWrap(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{IsError: true, Text: "  file not found: nope.txt  "}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{IsError: true, Text: "  file not found: nope.txt  "}
 	})
 
-	_, err := f.client().callTool(context.Background(), "read_file",
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "read_file",
 		map[string]any{"project_id": "p", "path": "nope.txt"})
 	if err == nil {
 		t.Fatal("isError:true produced no error")
 	}
 
-	var te *toolError
+	var te *ToolError
 	if !errors.As(err, &te) {
-		t.Fatalf("errors.As did not find a *toolError in %v", err)
+		t.Fatalf("errors.As did not find a *ToolError in %v", err)
 	}
 	if te.Tool != "read_file" {
-		t.Errorf("toolError.Tool = %q, want read_file", te.Tool)
+		t.Errorf("ToolError.Tool = %q, want read_file", te.Tool)
 	}
 	if te.Text != "file not found: nope.txt" {
-		t.Errorf("toolError.Text = %q, want the server's text trimmed and otherwise intact", te.Text)
+		t.Errorf("ToolError.Text = %q, want the server's text trimmed and otherwise intact", te.Text)
 	}
 	// A tool error is the server's considered answer; replaying it changes nothing.
-	if n := f.countTool("read_file"); n != 1 {
+	if n := f.CountTool("read_file"); n != 1 {
 		t.Errorf("read_file reached the server %d times, want 1", n)
 	}
 }
 
 func TestRPCErrorObjectIsProtocolAndIsNotRetried(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid params"}}`}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{RawBody: `{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid params"}}`}
 	})
 
-	_, err := f.client().callTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
 	if err == nil {
 		t.Fatal("an rpc error object produced no error")
 	}
@@ -352,29 +353,29 @@ func TestRPCErrorObjectIsProtocolAndIsNotRetried(t *testing.T) {
 	}
 	// list_files is read-only, so nothing but the classification stops a replay
 	// of a call the server has already judged malformed.
-	if n := f.countTool("list_files"); n != 1 {
+	if n := f.CountTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1", n)
 	}
-	var te *toolError
+	var te *ToolError
 	if errors.As(err, &te) {
-		t.Errorf("an rpc-level error matched *toolError; it is not a tool result")
+		t.Errorf("an rpc-level error matched *ToolError; it is not a tool result")
 	}
 }
 
 func TestMalformedBodyIsProtocolNotTransport(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":`}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{RawBody: `{"jsonrpc":"2.0","id":1,"result":`}
 	})
 
-	_, err := f.client().callTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
 	if err == nil {
 		t.Fatal("a truncated body produced no error")
 	}
 	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindProtocol {
 		t.Errorf("dsxerr.Classify(err).Kind = %q, want %q; unparseable is not the same as retryable", k, dsxerr.KindProtocol)
 	}
-	if n := f.countTool("list_files"); n != 1 {
+	if n := f.CountTool("list_files"); n != 1 {
 		t.Errorf("list_files reached the server %d times, want 1", n)
 	}
 }
@@ -385,12 +386,12 @@ func TestMalformedBodyIsProtocolNotTransport(t *testing.T) {
 // decode had already gone wrong.
 func TestCallToolConcatenatesEveryTextPart(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":{"content":[` +
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{RawBody: `{"jsonrpc":"2.0","id":1,"result":{"content":[` +
 			`{"type":"text","text":"head"},{"type":"text","text":"-tail"}],"isError":false}}`}
 	})
 
-	got, err := f.client().callTool(context.Background(), "read_file",
+	got, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "read_file",
 		map[string]any{"project_id": "p", "path": "a.txt"})
 	if err != nil {
 		t.Fatalf("callTool: %v", err)
@@ -406,11 +407,11 @@ func TestCallToolConcatenatesEveryTextPart(t *testing.T) {
 // write_files whose etags are quietly never recorded.
 func TestCallToolRefusesAResultShapeItCannotParse(t *testing.T) {
 	t.Parallel()
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":"not a tool result"}`}
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{RawBody: `{"jsonrpc":"2.0","id":1,"result":"not a tool result"}`}
 	})
 
-	got, err := f.client().callTool(context.Background(), "read_file",
+	got, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "read_file",
 		map[string]any{"project_id": "p", "path": "a.txt"})
 	if err == nil {
 		t.Fatalf("callTool returned (%q, nil) for a result it cannot parse", got)
@@ -431,11 +432,11 @@ func TestNewClientPrefersTheEndpointFromTheEnvironment(t *testing.T) {
 	// makes the default case deterministic even if the developer running the
 	// suite has DSX_ENDPOINT exported.
 	t.Setenv("DSX_ENDPOINT", "")
-	if got := newClient("tok").endpoint; got != defaultEndpoint {
+	if got := New("tok").endpoint; got != defaultEndpoint {
 		t.Errorf("endpoint = %q, want the default %q when the env is empty", got, defaultEndpoint)
 	}
 	t.Setenv("DSX_ENDPOINT", "http://127.0.0.1:1/mcp")
-	if got := newClient("tok").endpoint; got != "http://127.0.0.1:1/mcp" {
+	if got := New("tok").endpoint; got != "http://127.0.0.1:1/mcp" {
 		t.Errorf("endpoint = %q, want DSX_ENDPOINT to win", got)
 	}
 }
@@ -451,15 +452,15 @@ func TestBackoffHonoursContextCancellationInsteadOfSleepingThroughIt(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
 		// Cancel while the first attempt is in flight, so the loop meets a done
 		// context exactly when it reaches its first backoff.
 		cancel()
-		return fakeReply{HTTPStatus: http.StatusInternalServerError}
+		return mcptest.Reply{HTTPStatus: http.StatusInternalServerError}
 	})
 
 	started := time.Now()
-	_, err := f.client().callTool(ctx, "read_file", map[string]any{"project_id": "p", "path": "a.txt"})
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(ctx, "read_file", map[string]any{"project_id": "p", "path": "a.txt"})
 	elapsed := time.Since(started)
 
 	if !errors.Is(err, context.Canceled) {
@@ -481,7 +482,7 @@ func TestServerDateLandsInLastServerDate(t *testing.T) {
 	want := time.Date(2024, 3, 1, 12, 0, 0, 0, time.UTC)
 	c := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Date", want.Format(http.TimeFormat))
-		writeJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
+		mcptest.WriteJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
 	})
 
 	if _, err := c.rpc(context.Background(), "tools/list", map[string]any{}, true); err != nil {
@@ -493,35 +494,13 @@ func TestServerDateLandsInLastServerDate(t *testing.T) {
 	}
 }
 
-// Zero is the sentinel doctor turns into "skew unknown". Storing time.Now() as
-// a stand-in would make the clock check compare the local clock against itself
-// and report ok on precisely the skewed machine the check exists to find.
-func TestReplyWithoutADateLeavesLastServerDateZero(t *testing.T) {
-	t.Parallel()
-	c := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header()["Date"] = nil // suppress net/http's automatic Date
-		writeJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
-	})
-
-	if _, err := c.rpc(context.Background(), "tools/list", map[string]any{}, true); err != nil {
-		t.Fatalf("rpc: %v", err)
-	}
-	if got := c.lastServerDate.Load(); got != 0 {
-		t.Fatalf("lastServerDate = %d, want 0 for a reply carrying no Date", got)
-	}
-	// The sentinel only matters through what doctor does with it.
-	if ch := clockCheck(c.lastServerDate.Load(), time.Now()); ch.Status != checkWarn {
-		t.Errorf("clock check = %+v, want a warn rather than an invented verdict", ch)
-	}
-}
-
 // An unparseable Date must not be stored either -- a garbage value is worse
 // than none, because doctor would report a decades-wide skew as a hard failure.
 func TestUnparseableDateLeavesLastServerDateZero(t *testing.T) {
 	t.Parallel()
 	c := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Date", "not a date")
-		writeJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
+		mcptest.WriteJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
 	})
 
 	if _, err := c.rpc(context.Background(), "tools/list", map[string]any{}, true); err != nil {

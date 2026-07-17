@@ -21,34 +21,6 @@ import (
 // data loss
 // ---------------------------------------------------------------------------
 
-func TestTruncationStripCannotReachIntoAFilesOwnContent(t *testing.T) {
-	// The strip regexp was unanchored, and FindStringIndex returns the LEFTMOST
-	// match. The server's notice contains exactly one ']' — its final character
-	// — so `[^\]]*` would span from a *user's* line that merely looks like a
-	// notice, straight through the server's real trailer, and body[:loc[0]]
-	// deleted everything in between.
-	//
-	// The file that triggers it is not exotic: PROTOCOL.md itself documents the
-	// notice, and any file over 256 KiB describing read_file's windowing hits it.
-	// `dsx pull` refuses it (invariant 1 catches the length mismatch), so the
-	// file becomes unpullable forever; `dsx cat` wrote the damage out.
-	content := "# how read_file windows a big file\n" +
-		"a windowed reply ends with a line like:\n" +
-		"…[+54400 bytes truncated at the cap — continue\n" + // no ']' anywhere after
-		"tail line one\n" +
-		"tail line two\n"
-	raw := `<untrusted-project-content path="notes.md" etag="1" lines="1-5" total_lines="9">` +
-		"\n" + content + liveWindowNotice + "\n</untrusted-project-content>"
-
-	e, err := parseEnvelope(raw)
-	if err != nil {
-		t.Fatalf("parseEnvelope: %v", err)
-	}
-	if e.Body != content {
-		t.Fatalf("the strip ate the file's own content:\n want %q\n  got %q", content, e.Body)
-	}
-}
-
 func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	// Found independently by three axes. The prune loop returned bare, skipping
 	// the st.save nine lines below, so a single failed os.Remove discarded the
@@ -94,7 +66,7 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	_, err := runPull(t.Context(), f.client(), pullOpts{
+	_, err := runPull(t.Context(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 2, prune: true,
 	})
 	if err == nil {
@@ -353,7 +325,7 @@ func TestDoctorDiagnosesTheCredentialDsxWillActuallySend(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: "{}"}
 	})
-	rep := runDoctor(t.Context(), f.client())
+	rep := runDoctor(t.Context(), fakeClient(f))
 
 	for _, c := range rep.Checks {
 		if c.Name == "credentials" && c.Status == checkFail {
@@ -398,7 +370,7 @@ func TestServerDetectedConflictExitsThreeLikeALocallyDetectedOne(t *testing.T) {
 		Files:     map[string]fileState{"a.css": {Etag: "e1", Size: 1, SHA: sha256hex([]byte("x"))}},
 	})
 
-	_, err := runPush(t.Context(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 1})
+	_, err := runPush(t.Context(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 1})
 	if err == nil {
 		t.Fatal("the server refused the write and dsx reported success")
 	}
@@ -438,7 +410,7 @@ func TestPutSelfAuthorisesLikePushDoes(t *testing.T) {
 
 	dir := t.TempDir()
 	mkfile(t, dir, "a.css", "body{}")
-	err := cmdPut(t.Context(), f.client(), []string{"p1", "a.css", filepath.Join(dir, "a.css")})
+	err := cmdPut(t.Context(), fakeClient(f), []string{"p1", "a.css", filepath.Join(dir, "a.css")})
 	if err != nil {
 		t.Fatalf("put did not recover from needs_project_grant the way push does: %v", err)
 	}
@@ -487,38 +459,6 @@ func TestVersionHonoursJSON(t *testing.T) {
 // ---------------------------------------------------------------------------
 // protocol
 // ---------------------------------------------------------------------------
-
-func TestNormalizeSSEAcceptsEveryFrameTheGrammarAllows(t *testing.T) {
-	// The entry guard demanded the body open with "event:" or "data:", but the
-	// SSE grammar the parse loop itself cites allows a comment, an id: or a
-	// retry: first — and servers send `: ping` as a keepalive. Such a stream
-	// was returned raw and died as "malformed response", non-retryable.
-	want := `{"jsonrpc":"2.0","id":1,"result":{"ok":true}}`
-	cases := []struct {
-		name string
-		body string
-	}{
-		{"comment first", ": ping\n\nevent: message\ndata: " + want + "\n\n"},
-		{"id first", "id: 1\nevent: message\ndata: " + want + "\n\n"},
-		{"retry first", "retry: 3000\n\ndata: " + want + "\n\n"},
-		{"plain data", "data: " + want + "\n\n"},
-		{"crlf", "event: message\r\ndata: " + want + "\r\n\r\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := string(normalizeSSE([]byte(tc.body), "text/event-stream"))
-			if got != want {
-				t.Errorf("normalizeSSE = %q, want %q", got, want)
-			}
-		})
-	}
-
-	// Plain JSON must still pass through untouched, whatever the header says.
-	plain := []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)
-	if got := string(normalizeSSE(plain, "application/json")); got != string(plain) {
-		t.Errorf("plain JSON was mangled: %q", got)
-	}
-}
 
 func jsonUnmarshalString(s string, v any) error { return json.Unmarshal([]byte(s), v) }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/somework/dsx/internal/auth"
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/mcptest"
 )
 
 // Tests for doctor.go and completion.go -- the two commands a user runs when
@@ -447,7 +450,7 @@ func TestAWarnAloneKeepsTheReportOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rep := runDoctor(context.Background(), diagHealthyServer(t).client())
+	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
 	// Guard against a vacuous pass: if the mode check ever stops firing, this
 	// test would still be green while asserting nothing.
@@ -473,7 +476,7 @@ func TestReportIsNotOKExactlyWhenSomeCheckFails(t *testing.T) {
 		Scopes:      []string{enforcedScope},
 	})
 
-	rep := runDoctor(context.Background(), diagHealthyServer(t).client())
+	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
 	if got := diagCheckNamed(t, rep, "token").Status; got != checkFail {
 		t.Fatalf("expired token check = %q, want %q", got, checkFail)
@@ -488,7 +491,7 @@ func TestReportIsNotOKExactlyWhenSomeCheckFails(t *testing.T) {
 func TestAHealthyRunReportsTheEndpointItReachedAndWhatItSaw(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, diagHealthyCreds())
-	c := diagHealthyServer(t).client()
+	c := fakeClient(diagHealthyServer(t))
 
 	rep := runDoctor(context.Background(), c)
 
@@ -499,7 +502,7 @@ func TestAHealthyRunReportsTheEndpointItReachedAndWhatItSaw(t *testing.T) {
 	if ep.Status != checkOK {
 		t.Fatalf("endpoint check = %q (%s)", ep.Status, ep.Detail)
 	}
-	if !strings.Contains(ep.Detail, c.endpoint) {
+	if !strings.Contains(ep.Detail, c.Endpoint()) {
 		t.Errorf("endpoint detail does not name the URL it used: %q", ep.Detail)
 	}
 	// The fake's tools/list answers with exactly two tools.
@@ -523,7 +526,7 @@ func TestARejectedTokenFailsTheEndpointCheck(t *testing.T) {
 	writeCreds(t, dir, diagHealthyCreds())
 
 	// 401 is not retryable, so this returns without walking the backoff.
-	c := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+	c := diagRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 
@@ -550,7 +553,7 @@ func TestARejectedTokenFailsTheEndpointCheck(t *testing.T) {
 func TestNoLoginAnywhereFailsTheCredentialsCheck(t *testing.T) {
 	diagPinCredentialStore(t) // pinned at an empty dir: no keychain item, no file
 
-	rep := runDoctor(context.Background(), diagHealthyServer(t).client())
+	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
 	if got := diagCheckNamed(t, rep, "credentials").Status; got != checkFail {
 		t.Fatalf("credentials check = %q, want %q when no login exists", got, checkFail)
@@ -584,8 +587,11 @@ func TestDoctorNeverRendersTheToken(t *testing.T) {
 	writeCreds(t, dir, creds)
 	t.Setenv("DSX_TOKEN", secret+"-from-env")
 
-	c := diagHealthyServer(t).client()
-	c.token = secret // the bearer dsx would actually send
+	// The bearer dsx would actually send. New takes the token as its first
+	// argument, so this needs no way in past the boundary: Client.token stays
+	// unexported, and there is no setter for it anywhere -- which is invariant 8
+	// stated as an absence rather than as a rule.
+	c := mcp.New(secret, mcp.WithEndpoint(diagHealthyServer(t).URL()))
 
 	for _, asJSON := range []bool{false, true} {
 		args := []string{}
@@ -684,7 +690,7 @@ func TestAnEmptyReportRendersWithoutPanicking(t *testing.T) {
 func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 	dir := diagPinCredentialStore(t)
 	writeCreds(t, dir, diagHealthyCreds())
-	healthy := diagHealthyServer(t).client()
+	healthy := fakeClient(diagHealthyServer(t))
 
 	out, err := captureStdout(t, func() error { return cmdDoctor(context.Background(), healthy, nil) })
 	if err != nil {
@@ -694,7 +700,7 @@ func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 		t.Error("doctor printed nothing on a healthy install")
 	}
 
-	broken := mcpGenRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+	broken := diagRawServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 	out, err = captureStdout(t, func() error { return cmdDoctor(context.Background(), broken, nil) })
@@ -715,7 +721,7 @@ func TestCmdDoctorFailsExactlyWhenTheReportIsNotOK(t *testing.T) {
 func TestCmdDoctorRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	// A bad invocation must not reach the network, and must not be reported as
 	// a diagnosis.
-	err := cmdDoctor(context.Background(), diagHealthyServer(t).client(), []string{"--nope"})
+	err := cmdDoctor(context.Background(), fakeClient(diagHealthyServer(t)), []string{"--nope"})
 	if err == nil {
 		t.Fatal("an unknown flag was accepted")
 	}
@@ -931,4 +937,41 @@ func TestUsageDocumentsEveryCompletableCommand(t *testing.T) {
 			t.Errorf("command %q is completable but undocumented in `dsx help`", n)
 		}
 	}
+}
+
+// Moved out of the transport's own suite: it asserts what clockCheck makes of a
+// reply that carried no Date header, and clockCheck is doctor's. The transport's
+// half -- that lastServerDate stays zero -- is reachable through the exported
+// LastServerDate, so nothing here needs mcp's internals.
+
+// Zero is the sentinel doctor turns into "skew unknown". Storing time.Now() as
+// a stand-in would make the clock check compare the local clock against itself
+// and report ok on precisely the skewed machine the check exists to find.
+func TestReplyWithoutADateLeavesLastServerDateZero(t *testing.T) {
+	t.Parallel()
+	c := diagRawServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header()["Date"] = nil // suppress net/http's automatic Date
+		mcptest.WriteJSON(w, map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"tools": []any{}}})
+	})
+
+	if _, err := c.ToolsList(context.Background()); err != nil {
+		t.Fatalf("rpc: %v", err)
+	}
+	if got := c.LastServerDate(); got != 0 {
+		t.Fatalf("LastServerDate = %d, want 0 for a reply carrying no Date", got)
+	}
+	// The sentinel only matters through what doctor does with it.
+	if ch := clockCheck(c.LastServerDate(), time.Now()); ch.Status != checkWarn {
+		t.Errorf("clock check = %+v, want a warn rather than an invented verdict", ch)
+	}
+}
+
+// diagRawServer wires a client to a bare HTTP handler, for the checks that care
+// about headers rather than about JSON-RPC. WithEndpoint is the only way in from
+// outside the transport's package -- Client.endpoint stays unexported.
+func diagRawServer(t *testing.T, h http.HandlerFunc) *mcp.Client {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	return mcp.New("test-token", mcp.WithEndpoint(srv.URL))
 }

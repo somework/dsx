@@ -1,6 +1,7 @@
-package main
+package mcp
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -27,11 +28,11 @@ func (e envelope) Complete() bool {
 	return e.TotalLines == 0 || e.Lines[1] >= e.TotalLines
 }
 
-// parseEnvelope decodes the read_file wrapper.
+// ParseEnvelope decodes the read_file wrapper.
 //
 // The server entity-escapes the body, so no raw '<' or '>' can occur inside it.
 // That is what makes the closing tag an unambiguous terminator.
-func parseEnvelope(raw string) (envelope, error) {
+func ParseEnvelope(raw string) (envelope, error) {
 	var e envelope
 
 	if !strings.HasPrefix(raw, openTagPrefix) {
@@ -130,7 +131,7 @@ func parseEnvelope(raw string) (envelope, error) {
 // to trigger that; PROTOCOL.md is such a file.
 //
 // It is also deliberately narrow. If the server rewords the notice this stops
-// matching and parseEnvelope refuses the read: dsx failing loudly on files over
+// matching and ParseEnvelope refuses the read: dsx failing loudly on files over
 // 256 KiB is recoverable, dsx quietly rewriting one is not.
 var truncationNotice = regexp.MustCompile(`^…\[\+\d+ bytes truncated[^\]]*\]$`)
 
@@ -210,4 +211,43 @@ func decodeEntities(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// readFull retrieves a complete file, walking windows when the server's
+// 256 KiB per-read cap truncates it.
+func (c *Client) ReadFull(ctx context.Context, projectID, path string) (body string, etag string, err error) {
+	var (
+		sb     strings.Builder
+		offset = 0
+	)
+	for {
+		args := map[string]any{"project_id": projectID, "path": path}
+		if offset > 0 {
+			args["offset"] = offset
+		}
+		text, err := c.CallTool(ctx, "read_file", args)
+		if err != nil {
+			return "", "", err
+		}
+		env, err := ParseEnvelope(text)
+		if err != nil {
+			return "", "", fmt.Errorf("%s: %w", path, err)
+		}
+		if env.Truncated {
+			return "", "", fmt.Errorf("%s: a single line exceeds the 256 KiB read cap; the server cannot return it whole", path)
+		}
+		if etag != "" && env.Etag != etag {
+			return "", "", fmt.Errorf("%s: changed on the server mid-read (etag %s -> %s); retry", path, etag, env.Etag)
+		}
+		etag = env.Etag
+		sb.WriteString(env.Body)
+
+		if env.Complete() {
+			return sb.String(), etag, nil
+		}
+		if env.Lines[1] <= offset-1 {
+			return "", "", fmt.Errorf("%s: read made no progress at offset %d", path, offset)
+		}
+		offset = env.Lines[1] + 1
+	}
 }

@@ -2,154 +2,39 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
-	"strings"
-	"sync"
 	"testing"
+
+	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/mcptest"
 )
 
-// A fake endpoint, and what it is and is not for.
+// The fake endpoint moved to internal/mcptest so that every package's tests can
+// reach it. What stays here is what mcptest deliberately does not know:
 //
-// It exercises dsx's own handling: retry and idempotency, batching, envelope
-// decoding, error classification, ledger bookkeeping. It does NOT establish
-// protocol facts, and no test here should be read as evidence about the server.
-// A mock can only repeat what we already believe -- it could never have
-// discovered that write_files replies with a map rather than a list, that
-// needs_project_grant arrives as HTTP 403 rather than a tool error, or that
-// binary detection is by content rather than by extension. Each of those was
-// guessed wrong first and corrected only by probing the live service, and a
-// green mock would have hidden all three.
+//   - how to build a client (mcptest does not import mcp, so mcp's own internal
+//     tests can import mcptest without a cycle)
+//   - the domain shapes: a listing is []remoteEntry, and remoteEntry belongs to
+//     the sync side, not to the transport
+//   - captureStdout, which is about this process's os.Stdout
 //
-// Every reply shape below is copied from a recorded live response; PROTOCOL.md
-// is the record. Protocol truth is live_test.go's job.
+// mcptest's own doc records what a fake is and is not for; that argument has not
+// changed by moving.
 
-type recordedCall struct {
-	Method string
-	Tool   string
-	Args   map[string]any
-}
-
-// fakeMCP answers JSON-RPC the way the design endpoint does.
-type fakeMCP struct {
-	t   *testing.T
-	srv *httptest.Server
-
-	mu    sync.Mutex
-	calls []recordedCall
-
-	// tool answers a tools/call. Returning isError models a server-side tool
-	// failure; returning an httpStatus models a transport-level one.
-	tool func(name string, args map[string]any) fakeReply
-}
-
-// fakeReply is one answer. Exactly one of its lanes is used: an HTTP status
-// short-circuits before the JSON-RPC layer, mirroring how the real endpoint
-// reports 401, 403 and 429.
-type fakeReply struct {
-	Text       string
-	IsError    bool
-	HTTPStatus int
-	HTTPBody   string
-	RawBody    string // bypasses the envelope entirely (SSE framing, garbage)
-}
+type fakeMCP = mcptest.Server
+type fakeReply = mcptest.Reply
 
 func newFakeMCP(t *testing.T, tool func(name string, args map[string]any) fakeReply) *fakeMCP {
-	t.Helper()
-	f := &fakeMCP{t: t, tool: tool}
-	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
-	t.Cleanup(f.srv.Close)
-	return f
+	return mcptest.New(t, tool)
 }
 
-func (f *fakeMCP) serve(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
-	var req struct {
-		ID     any             `json:"id"`
-		Method string          `json:"method"`
-		Params json.RawMessage `json:"params"`
-	}
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
+var envelopeFor = mcptest.EnvelopeFor
 
-	var p struct {
-		Name      string         `json:"name"`
-		Arguments map[string]any `json:"arguments"`
-	}
-	_ = json.Unmarshal(req.Params, &p)
-
-	f.mu.Lock()
-	f.calls = append(f.calls, recordedCall{Method: req.Method, Tool: p.Name, Args: p.Arguments})
-	f.mu.Unlock()
-
-	if req.Method == "tools/list" {
-		writeJSON(w, map[string]any{
-			"jsonrpc": "2.0", "id": req.ID,
-			"result": map[string]any{"tools": []map[string]any{
-				{"name": "list_files", "description": "List files\nin a project"},
-				{"name": "read_file", "description": "Read a file"},
-			}},
-		})
-		return
-	}
-
-	rep := f.tool(p.Name, p.Arguments)
-	switch {
-	case rep.HTTPStatus != 0:
-		w.WriteHeader(rep.HTTPStatus)
-		_, _ = io.WriteString(w, rep.HTTPBody)
-	case rep.RawBody != "":
-		_, _ = io.WriteString(w, rep.RawBody)
-	default:
-		writeJSON(w, map[string]any{
-			"jsonrpc": "2.0", "id": req.ID,
-			"result": map[string]any{
-				"content": []map[string]any{{"type": "text", "text": rep.Text}},
-				"isError": rep.IsError,
-			},
-		})
-	}
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-// client returns a dsx client pointed at the fake.
-func (f *fakeMCP) client() *client {
-	c := newClient("test-token")
-	c.endpoint = f.srv.URL
-	return c
-}
-
-func (f *fakeMCP) recorded() []recordedCall {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return append([]recordedCall(nil), f.calls...)
-}
-
-func (f *fakeMCP) countTool(name string) int {
-	n := 0
-	for _, c := range f.recorded() {
-		if c.Tool == name {
-			n++
-		}
-	}
-	return n
-}
-
-// envelopeFor renders a read_file reply exactly as the server frames one: a
-// newline after the open tag and one before the close tag, neither belonging to
-// the file, and the body escaped for & < > only.
-func envelopeFor(path, etag, body string) string {
-	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace(body)
-	return fmt.Sprintf("<untrusted-project-content path=%q etag=%q>\n%s\n</untrusted-project-content>", path, etag, esc)
+// fakeClient points a real client at the fake. WithEndpoint is the only legal
+// way in: Client.endpoint is unexported and stays that way.
+func fakeClient(f *fakeMCP) *mcp.Client {
+	return mcp.New("test-token", mcp.WithEndpoint(f.URL()))
 }
 
 // listingFor renders a list_files reply: project-relative paths, one directory

@@ -96,7 +96,7 @@ func TestRawRefusesANullArgumentInsteadOfSendingIt(t *testing.T) {
 	})
 
 	for _, bad := range []string{"null", "[1,2]", `"a string"`, "7"} {
-		err := cmdRaw(t.Context(), f.client(), []string{"some_tool", bad})
+		err := cmdRaw(t.Context(), fakeClient(f), []string{"some_tool", bad})
 		if err == nil {
 			t.Errorf("raw accepted %s as arguments", bad)
 			continue
@@ -116,7 +116,7 @@ func TestMalformedToolResultIsAProtocolErrorLikeItsSibling(t *testing.T) {
 		return fakeReply{RawBody: `{"jsonrpc":"2.0","id":1,"result":"a bare string, not a tool result"}`}
 	})
 
-	_, err := f.client().callTool(t.Context(), "list_files", map[string]any{})
+	_, err := fakeClient(f).CallTool(t.Context(), "list_files", map[string]any{})
 	if err == nil {
 		t.Fatal("a malformed tool result was accepted")
 	}
@@ -149,7 +149,7 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := runPush(t.Context(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 2})
+	_, err := runPush(t.Context(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 2})
 	if err == nil {
 		t.Fatal("a partial write reply was accepted silently")
 	}
@@ -184,8 +184,8 @@ func TestCommandsRefuseArgumentsTheyDoNotTake(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{"prompt", func() error { return cmdPrompt(t.Context(), f.client(), []string{"bbbbbbbb-bbbb"}) }},
-		{"tools", func() error { return cmdTools(t.Context(), f.client(), []string{"list_files"}) }},
+		{"prompt", func() error { return cmdPrompt(t.Context(), fakeClient(f), []string{"bbbbbbbb-bbbb"}) }},
+		{"tools", func() error { return cmdTools(t.Context(), fakeClient(f), []string{"list_files"}) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

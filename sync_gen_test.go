@@ -16,6 +16,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/mcptest"
 )
 
 // End-to-end cover for pull.go, push.go and tree.go against the fake endpoint.
@@ -94,20 +97,20 @@ func syncArgFiles(args map[string]any) []map[string]any {
 	return out
 }
 
-func syncFirstCall(t *testing.T, f *fakeMCP, tool string) recordedCall {
+func syncFirstCall(t *testing.T, f *fakeMCP, tool string) mcptest.Call {
 	t.Helper()
-	for _, c := range f.recorded() {
+	for _, c := range f.Recorded() {
 		if c.Tool == tool {
 			return c
 		}
 	}
-	t.Fatalf("%s was never called; calls: %v", tool, f.recorded())
-	return recordedCall{}
+	t.Fatalf("%s was never called; calls: %v", tool, f.Recorded())
+	return mcptest.Call{}
 }
 
 func syncToolOrder(f *fakeMCP) []string {
 	var out []string
-	for _, c := range f.recorded() {
+	for _, c := range f.Recorded() {
 		if c.Tool != "" {
 			out = append(out, c.Tool)
 		}
@@ -160,16 +163,24 @@ func (rt *syncCancelAfterRT) RoundTrip(req *http.Request) (*http.Response, error
 	return resp, nil
 }
 
-// syncCancelAfter wires c to cancel a fresh context once n replies have been
-// fully received, and returns that context.
-func syncCancelAfter(t *testing.T, c *client, n int64) context.Context {
+// syncCancelAfter builds a client against f that cancels a fresh context once n
+// replies have been fully received, and returns both.
+//
+// This is invariant 3's injection point: cancelling mid-flight is the only way
+// to prove an interrupted walk is reported as a failure rather than as a short
+// success, which --prune would read as "deleted on the server". The transport is
+// replaced at construction because Client.http is unexported and has no setter --
+// mcp.WithHTTPClient exists for exactly this test and says so.
+func syncCancelAfter(t *testing.T, f *fakeMCP, n int64) (*mcp.Client, context.Context) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	c.http = &http.Client{Transport: &syncCancelAfterRT{
-		base: http.DefaultTransport, after: n, cancel: cancel,
-	}}
-	return ctx
+	c := mcp.New("test-token",
+		mcp.WithEndpoint(f.URL()),
+		mcp.WithHTTPClient(&http.Client{Transport: &syncCancelAfterRT{
+			base: http.DefaultTransport, after: n, cancel: cancel,
+		}}))
+	return c, ctx
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +209,7 @@ func TestWalkTreeReturnsProjectRelativePathsFromEveryDepth(t *testing.T) {
 		return fakeReply{Text: "no such dir", IsError: true}
 	})
 
-	got, err := f.client().walkTree(context.Background(), "p1", 4)
+	got, err := walkTree(context.Background(), fakeClient(f), "p1", 4)
 	if err != nil {
 		t.Fatalf("walkTree: %v", err)
 	}
@@ -255,7 +266,7 @@ func TestWalkTreeDescendsSiblingDirectoriesConcurrently(t *testing.T) {
 		return fakeReply{Text: "unexpected", IsError: true}
 	})
 
-	got, err := f.client().walkTree(context.Background(), "p1", 4)
+	got, err := walkTree(context.Background(), fakeClient(f), "p1", 4)
 	if err != nil {
 		t.Fatalf("walkTree: %v", err)
 	}
@@ -274,19 +285,18 @@ func TestWalkTreeInterruptedBetweenListingsIsAFailureNotAShortListing(t *testing
 		// green result here would come strictly from the missing parent check.
 		return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 3))}
 	})
-	c := f.client()
-	ctx := syncCancelAfter(t, c, 1)
+	c, ctx := syncCancelAfter(t, f, 1)
 
-	got, err := c.walkTree(ctx, "p1", 4)
+	got, err := walkTree(ctx, c, "p1", 4)
 	if err == nil {
 		t.Fatalf("walkTree returned %v and no error — an interrupted walk must not report success", sortedPaths(got))
 	}
 	if got != nil {
 		t.Errorf("listing = %v, want nil — a caller must not be handed a tree it can diff against", sortedPaths(got))
 	}
-	if f.countTool("list_files") != 1 {
+	if f.CountTool("list_files") != 1 {
 		t.Fatalf("list_files calls = %d, want 1 — the scenario relies on there being no failing call",
-			f.countTool("list_files"))
+			f.CountTool("list_files"))
 	}
 }
 
@@ -298,7 +308,7 @@ func TestWalkTreeReturnsNoListingWhenADirectoryFails(t *testing.T) {
 		return fakeReply{Text: "permission denied", IsError: true}
 	})
 
-	got, err := f.client().walkTree(context.Background(), "p1", 4)
+	got, err := walkTree(context.Background(), fakeClient(f), "p1", 4)
 	if err == nil {
 		t.Fatal("walkTree succeeded despite a failed directory")
 	}
@@ -313,16 +323,16 @@ func TestListDirOmitsThePathForTheRootAndSendsItForASubdirectory(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: listingFor()}
 	})
-	c := f.client()
+	c := fakeClient(f)
 
-	if _, err := c.listDir(context.Background(), "p1", ""); err != nil {
+	if _, err := listDir(context.Background(), c, "p1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.listDir(context.Background(), "p1", "tokens"); err != nil {
+	if _, err := listDir(context.Background(), c, "p1", "tokens"); err != nil {
 		t.Fatal(err)
 	}
 
-	calls := f.recorded()
+	calls := f.Recorded()
 	if _, ok := calls[0].Args["path"]; ok {
 		// "" is not the root; omitting the argument is.
 		t.Errorf("root listing sent path=%v, want the argument omitted", calls[0].Args["path"])
@@ -336,7 +346,7 @@ func TestListDirReportsAMalformedListingRatherThanAnEmptyOne(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: "not json at all"}
 	})
-	entries, err := f.client().listDir(context.Background(), "p1", "")
+	entries, err := listDir(context.Background(), fakeClient(f), "p1", "")
 	if err == nil {
 		t.Fatalf("listDir accepted garbage and returned %v — an empty tree drives --prune", entries)
 	}
@@ -365,7 +375,7 @@ func TestReadFullConcatenatesEveryWindowAndAsksForTheNextByLine(t *testing.T) {
 		return fakeReply{Text: syncWindow("a.css", "e1", 3, 4, 4, "gamma\ndelta\n")}
 	})
 
-	body, etag, err := f.client().readFull(context.Background(), "p1", "a.css")
+	body, etag, err := fakeClient(f).ReadFull(context.Background(), "p1", "a.css")
 	if err != nil {
 		t.Fatalf("readFull: %v", err)
 	}
@@ -375,7 +385,7 @@ func TestReadFullConcatenatesEveryWindowAndAsksForTheNextByLine(t *testing.T) {
 	if etag != "e1" {
 		t.Errorf("etag = %q, want e1", etag)
 	}
-	calls := f.recorded()
+	calls := f.Recorded()
 	if len(calls) != 2 {
 		t.Fatalf("read_file calls = %d, want 2 — the read must walk to completion", len(calls))
 	}
@@ -392,7 +402,7 @@ func TestReadFullRefusesATruncatedLineRatherThanReturningIt(t *testing.T) {
 		return fakeReply{Text: `<untrusted-project-content path="a.css" etag="e1" truncated_line="true">` +
 			"\nhalf of a very long line\n</untrusted-project-content>"}
 	})
-	body, _, err := f.client().readFull(context.Background(), "p1", "a.css")
+	body, _, err := fakeClient(f).ReadFull(context.Background(), "p1", "a.css")
 	if err == nil {
 		t.Fatalf("readFull returned %q for a truncated line", body)
 	}
@@ -414,7 +424,7 @@ func TestReadFullRefusesAnEtagThatChangesMidRead(t *testing.T) {
 		}
 		return fakeReply{Text: syncWindow("a.css", "e2", 3, 4, 4, "gamma\ndelta\n")}
 	})
-	body, etag, err := f.client().readFull(context.Background(), "p1", "a.css")
+	body, etag, err := fakeClient(f).ReadFull(context.Background(), "p1", "a.css")
 	if err == nil {
 		t.Fatalf("readFull stitched two versions together and returned %q", body)
 	}
@@ -434,14 +444,14 @@ func TestReadFullRefusesAReadThatMakesNoProgress(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: syncWindow("a.css", "e1", 1, 2, 4, "alpha\nbeta\n")}
 	})
-	_, _, err := f.client().readFull(context.Background(), "p1", "a.css")
+	_, _, err := fakeClient(f).ReadFull(context.Background(), "p1", "a.css")
 	if err == nil {
 		t.Fatal("readFull accepted a window that repeated itself")
 	}
 	if !strings.Contains(err.Error(), "no progress") {
 		t.Errorf("error = %v, want it to name the stall", err)
 	}
-	if n := f.countTool("read_file"); n != 2 {
+	if n := f.CountTool("read_file"); n != 2 {
 		t.Errorf("read_file calls = %d, want 2 — the loop must break on the repeat", n)
 	}
 }
@@ -466,7 +476,7 @@ func TestPullRefusesToWriteAFileWhoseDecodedLengthDisagreesWithTheListing(t *tes
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPull(context.Background(), f.client(), pullOpts{
+	rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 4,
 	})
 	if err == nil {
@@ -517,7 +527,7 @@ func TestPullSavesTheLedgerForAFileAlreadyWrittenWhenALaterFetchFails(t *testing
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := runPull(context.Background(), f.client(), pullOpts{
+	_, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 4,
 	})
 	if err == nil {
@@ -563,9 +573,8 @@ func TestPullInterruptedAfterAFetchIsAFailureThatStillRecordsTheFetch(t *testing
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
-	c := f.client()
 	// Round trip 1 is the listing, 2 is the read: cancel lands after both.
-	ctx := syncCancelAfter(t, c, 2)
+	c, ctx := syncCancelAfter(t, f, 2)
 
 	rep, err := runPull(ctx, c, pullOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err == nil {
@@ -591,7 +600,7 @@ func TestPullRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: listingFor()}
 	})
-	_, err := runPull(context.Background(), f.client(), pullOpts{
+	_, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "project-b", dir: dir, concurrency: 4,
 	})
 	if err == nil {
@@ -602,7 +611,7 @@ func TestPullRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 			t.Errorf("error = %v, want it to name %q", err, want)
 		}
 	}
-	if n := len(f.recorded()); n != 0 {
+	if n := len(f.Recorded()); n != 0 {
 		t.Errorf("%d requests were made before the pin was checked, want 0", n)
 	}
 }
@@ -614,7 +623,7 @@ func TestPushRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: listingFor()}
 	})
-	_, err := runPush(context.Background(), f.client(), pushOpts{
+	_, err := runPush(context.Background(), fakeClient(f), pushOpts{
 		projectID: "project-b", dir: dir, concurrency: 4,
 	})
 	if err == nil {
@@ -625,7 +634,7 @@ func TestPushRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 			t.Errorf("error = %v, want it to name %q", err, want)
 		}
 	}
-	if n := len(f.recorded()); n != 0 {
+	if n := len(f.Recorded()); n != 0 {
 		t.Errorf("%d requests were made before the pin was checked, want 0", n)
 	}
 }
@@ -643,7 +652,7 @@ func TestPullBinaryRefusalIsRecordedAgainstItsEtagAndRetriedWhenItChanges(t *tes
 			return fakeReply{Text: "unexpected " + name, IsError: true}
 		})
 
-		rep, err := runPull(context.Background(), f.client(), pullOpts{
+		rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 			projectID: "p1", dir: dir, concurrency: 4,
 		})
 		if err != nil {
@@ -677,13 +686,13 @@ func TestPullBinaryRefusalIsRecordedAgainstItsEtagAndRetriedWhenItChanges(t *tes
 			return fakeReply{Text: "unexpected " + name, IsError: true}
 		})
 
-		rep, err := runPull(context.Background(), f.client(), pullOpts{
+		rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 			projectID: "p1", dir: dir, concurrency: 4,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := f.countTool("read_file"); n != 0 {
+		if n := f.CountTool("read_file"); n != 0 {
 			t.Errorf("read_file calls = %d, want 0 — a known refusal at a known etag costs nothing", n)
 		}
 		if !slices.Equal(rep.Binary, []string{"logo.png"}) {
@@ -707,13 +716,13 @@ func TestPullBinaryRefusalIsRecordedAgainstItsEtagAndRetriedWhenItChanges(t *tes
 			return fakeReply{Text: "unexpected " + name, IsError: true}
 		})
 
-		rep, err := runPull(context.Background(), f.client(), pullOpts{
+		rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 			projectID: "p1", dir: dir, concurrency: 4,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n := f.countTool("read_file"); n != 1 {
+		if n := f.CountTool("read_file"); n != 1 {
 			t.Fatalf("read_file calls = %d, want 1 — a changed etag must be re-asked", n)
 		}
 		if !slices.Equal(rep.Fetched, []string{"logo.png"}) {
@@ -751,7 +760,7 @@ func TestPullTreatsANonBinaryFetchFailureAsAnErrorNotAsABinaryFile(t *testing.T)
 				return tc.reply
 			})
 
-			rep, err := runPull(context.Background(), f.client(), pullOpts{
+			rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 				projectID: "p1", dir: dir, concurrency: 4,
 			})
 			if err != nil && !strings.Contains(err.Error(), "a.css") {
@@ -793,7 +802,7 @@ func TestPullNeverWritesOutsideTheTargetDirectory(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := runPull(context.Background(), f.client(), pullOpts{
+	_, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 4,
 	})
 	if err == nil {
@@ -819,7 +828,7 @@ func TestPullDryRunTransfersNothingAndLeavesNoLedger(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPull(context.Background(), f.client(), pullOpts{
+	rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 4, dryRun: true,
 	})
 	if err != nil {
@@ -831,7 +840,7 @@ func TestPullDryRunTransfersNothingAndLeavesNoLedger(t *testing.T) {
 	if rep.Bytes != 17 {
 		t.Errorf("bytes = %d, want 17 — the size comes from the listing, not from a read", rep.Bytes)
 	}
-	if n := f.countTool("read_file"); n != 0 {
+	if n := f.CountTool("read_file"); n != 0 {
 		t.Errorf("read_file calls = %d, want 0 — `status` must transfer nothing", n)
 	}
 	if syncLedgerExists(t, dir) {
@@ -857,7 +866,7 @@ func TestPullPruneRemovesATrackedUnmodifiedFileFromDiskAndLedger(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPull(context.Background(), f.client(), pullOpts{
+	rep, err := runPull(context.Background(), fakeClient(f), pullOpts{
 		projectID: "p1", dir: dir, concurrency: 4, prune: true,
 	})
 	if err != nil {
@@ -892,7 +901,7 @@ func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
-	c := f.client()
+	c := fakeClient(f)
 
 	rep, err := runPush(context.Background(), c, pushOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err != nil {
@@ -924,8 +933,8 @@ func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 	}
 
 	st := syncLoadState(t, dir)
-	if st.ProjectID != "p1" || st.Endpoint != c.endpoint {
-		t.Errorf("ledger pin = %q/%q, want p1/%s", st.ProjectID, st.Endpoint, c.endpoint)
+	if st.ProjectID != "p1" || st.Endpoint != c.Endpoint() {
+		t.Errorf("ledger pin = %q/%q, want p1/%s", st.ProjectID, st.Endpoint, c.Endpoint())
 	}
 	want := fileState{Etag: "e9", Size: int64(len(body)), SHA: sha256hex([]byte(body))}
 	if got := st.Files["a.css"]; got != want {
@@ -950,7 +959,7 @@ func TestPushPinsTheProjectIntoTheLedgerBeforeTheFirstWrite(t *testing.T) {
 		}
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
-	c := f.client()
+	c := fakeClient(f)
 
 	if _, err := runPush(context.Background(), c, pushOpts{projectID: "p1", dir: dir, concurrency: 4}); err == nil {
 		t.Fatal("push reported success although write_files failed")
@@ -989,7 +998,7 @@ func TestPushSelfAuthorisesWithAPlanTokenWhenTheServerDemandsAGrant(t *testing.T
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPush(context.Background(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
+	rep, err := runPush(context.Background(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err != nil {
 		t.Fatalf("push: %v — a grant refusal is recoverable without a browser", err)
 	}
@@ -1031,7 +1040,7 @@ func TestPushReportsBothFailuresWhenItCannotSelfAuthorise(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	_, err := runPush(context.Background(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
+	_, err := runPush(context.Background(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err == nil {
 		t.Fatal("push reported success although it was never authorised")
 	}
@@ -1068,7 +1077,7 @@ func TestPushRefusesToRecordAnEtagItNeverSaw(t *testing.T) {
 				return fakeReply{Text: "unexpected " + name, IsError: true}
 			})
 
-			rep, err := runPush(context.Background(), f.client(), pushOpts{
+			rep, err := runPush(context.Background(), fakeClient(f), pushOpts{
 				projectID: "p1", dir: dir, concurrency: 4,
 			})
 			if err == nil {
@@ -1103,7 +1112,7 @@ func TestPushDryRunSendsNothingAndLeavesNoLedger(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPush(context.Background(), f.client(), pushOpts{
+	rep, err := runPush(context.Background(), fakeClient(f), pushOpts{
 		projectID: "p1", dir: dir, concurrency: 4, dryRun: true,
 	})
 	if err != nil {
@@ -1112,7 +1121,7 @@ func TestPushDryRunSendsNothingAndLeavesNoLedger(t *testing.T) {
 	if !slices.Equal(rep.Written, []string{"a.css"}) {
 		t.Errorf("written = %v, want [a.css] reported", rep.Written)
 	}
-	if n := f.countTool("write_files"); n != 0 {
+	if n := f.CountTool("write_files"); n != 0 {
 		t.Errorf("write_files calls = %d, want 0", n)
 	}
 	if syncLedgerExists(t, dir) {
@@ -1138,7 +1147,7 @@ func TestPushPruneDeletesWithTheLedgersEtagAndThenForgetsThePath(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPush(context.Background(), f.client(), pushOpts{
+	rep, err := runPush(context.Background(), fakeClient(f), pushOpts{
 		projectID: "p1", dir: dir, concurrency: 4, prune: true,
 	})
 	if err != nil {
@@ -1190,7 +1199,7 @@ func TestPushIgnoresAnEtagForAPathItDidNotSend(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPush(context.Background(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
+	rep, err := runPush(context.Background(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1225,12 +1234,12 @@ func TestPushKeepsTheLedgerWhenTheDeleteFails(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	if _, err := runPush(context.Background(), f.client(), pushOpts{
+	if _, err := runPush(context.Background(), fakeClient(f), pushOpts{
 		projectID: "p1", dir: dir, concurrency: 4, prune: true,
 	}); err == nil {
 		t.Fatal("push reported success although the delete was never authorised")
 	}
-	if n := f.countTool("delete_files"); n != 0 {
+	if n := f.CountTool("delete_files"); n != 0 {
 		t.Errorf("delete_files calls = %d, want 0 — no token, no delete", n)
 	}
 
@@ -1276,7 +1285,7 @@ func TestPushKeepsTheLedgerForBatchesThatLandedBeforeOneFailed(t *testing.T) {
 		return fakeReply{Text: "unexpected " + name, IsError: true}
 	})
 
-	rep, err := runPush(context.Background(), f.client(), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
+	rep, err := runPush(context.Background(), fakeClient(f), pushOpts{projectID: "p1", dir: dir, concurrency: 4})
 	if err == nil {
 		t.Fatal("push reported success although the second batch failed")
 	}

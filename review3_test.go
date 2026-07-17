@@ -13,40 +13,6 @@ import (
 // Residuals the round-two audits reported but did not themselves reach. Each is
 // a case the fix it belongs to still misses.
 
-func TestTruncationStripRefusesAFramingItCannotAccountFor(t *testing.T) {
-	// stripTruncationNotice cuts at the last newline, which is right for the
-	// framing measured on 2026-07-17: content ends at a complete line, then a
-	// blank line, then the notice. The "fail loud if the server changes" promise
-	// covered the notice's WORDING but not its FRAMING — if the server keeps the
-	// notice and drops the blank separator, the cut eats the content's own final
-	// newline and readFull welds two windows mid-line, silently and one byte
-	// short per boundary.
-	//
-	// "The body ends at a complete line" is the server's own claim, so asserting
-	// it costs nothing and turns that into a refusal.
-	raw := `<untrusted-project-content path="big.txt" etag="1" lines="1-2" total_lines="9">` +
-		"\nl1\nl2" + // no trailing newline: the separator is gone
-		liveWindowNotice + "\n</untrusted-project-content>"
-
-	_, err := parseEnvelope(raw)
-	if err == nil {
-		t.Fatal("a windowed body whose content does not end at a complete line was accepted; " +
-			"readFull would weld the next window onto the end of line 2")
-	}
-	if !strings.Contains(err.Error(), "complete line") {
-		t.Errorf("the error should name what it could not account for: %v", err)
-	}
-}
-
-func TestTruncationStripRefusesANoticeOnlyBody(t *testing.T) {
-	raw := `<untrusted-project-content path="big.txt" etag="1" lines="0-0" total_lines="9">` +
-		"\n…[+9 bytes truncated at read_file's cap; continue with offset=1]" +
-		"\n</untrusted-project-content>"
-	if _, err := parseEnvelope(raw); err == nil {
-		t.Fatal("a window carrying nothing but the notice was accepted as an empty body")
-	}
-}
-
 func TestPushSaysSomethingTrueAndActionableAboutABinaryConflict(t *testing.T) {
 	// Every push conflict printed "server moved ahead; `dsx pull` first, or
 	// --force". For a binary path whose etag has NOT moved, all of that is
@@ -119,7 +85,7 @@ func TestPullReportsAPruneFailureRatherThanTheLedgerSaveThatFollowedIt(t *testin
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	_, err := runPull(t.Context(), f.client(), pullOpts{projectID: "p1", dir: dir, concurrency: 1, prune: true})
+	_, err := runPull(t.Context(), fakeClient(f), pullOpts{projectID: "p1", dir: dir, concurrency: 1, prune: true})
 	if err == nil {
 		t.Fatal("a failed prune delete was reported as success")
 	}
