@@ -9,9 +9,16 @@ import (
 type Needs int
 
 const (
+	// NeedClient is the zero value and thus the default for any command that
+	// omits Needs.
 	NeedClient Needs = iota
 	NeedNothing
 	NeedAuth
+	// NeedOptionalClient builds a client from whatever token is available but
+	// does not abort when auth fails: the command runs regardless, with a
+	// tokenless client if need be. `doctor` uses this so it can diagnose the
+	// very auth failures that would otherwise short-circuit dispatch.
+	NeedOptionalClient
 )
 
 type Command struct {

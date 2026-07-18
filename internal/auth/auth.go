@@ -16,6 +16,11 @@ import (
 
 const credentialsFileName = ".credentials.json"
 
+// MsgNoLogin is the user-facing guidance shown when no Claude Code login can
+// be found. It is shared verbatim between authErr and `dsx doctor`'s
+// credentials check so the two surfaces cannot drift.
+const MsgNoLogin = "no Claude Code login found — run `claude` once to sign in, or set DSX_TOKEN"
+
 var ErrNoCredentials = errors.New("no stored credentials")
 
 type Creds struct {
@@ -138,12 +143,8 @@ func tokenFrom(lookup envLookup, read func() (Creds, error)) (string, error) {
 	}
 
 	c, err := read()
-	if errors.Is(err, ErrNoCredentials) {
-		return "", &dsxerr.Error{Kind: dsxerr.KindAuth,
-			Msg: "no Claude Code login found — run `claude` once to sign in, or set DSX_TOKEN"}
-	}
 	if err != nil {
-		return "", &dsxerr.Error{Kind: dsxerr.KindAuth, Msg: "reading Claude Code's credentials failed", Err: err}
+		return "", authErr(err)
 	}
 
 	if c.ExpiresAt > 0 {
@@ -159,7 +160,18 @@ func tokenFrom(lookup envLookup, read func() (Creds, error)) (string, error) {
 func TokenInfo() (scopes []string, expiresAt time.Time, err error) {
 	c, _, err := ReadCredentials()
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, time.Time{}, authErr(err)
 	}
 	return c.Scopes, time.UnixMilli(c.ExpiresAt), nil
+}
+
+// authErr maps a credentials read/parse failure to a leak-free KindAuth error.
+// The underlying cause can carry the credentials file path (hence the OS
+// username) or raw token bytes, so it is never wrapped — invariant 8.
+func authErr(err error) error {
+	if errors.Is(err, ErrNoCredentials) {
+		return &dsxerr.Error{Kind: dsxerr.KindAuth, Msg: MsgNoLogin}
+	}
+	return &dsxerr.Error{Kind: dsxerr.KindAuth,
+		Msg: "Claude Code credentials are unreadable — unlock the login keychain, run `claude` to re-authenticate, or set DSX_TOKEN"}
 }

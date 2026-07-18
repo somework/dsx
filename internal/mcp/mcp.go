@@ -194,7 +194,7 @@ func (c *Client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, false, &dsxerr.Error{Kind: dsxerr.KindAuth,
-			Msg: "401 unauthorized — token rejected; run any `claude` command to refresh, then retry"}
+			Msg: "401 unauthorized — token rejected; run any `claude` command to refresh (or set DSX_TOKEN), then retry"}
 	case resp.StatusCode == http.StatusForbidden && bytes.Contains(payload, []byte("needs_project_grant")):
 		var g struct {
 			ProjectID string `json:"project_id"`

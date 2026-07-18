@@ -10,12 +10,12 @@ import (
 	"github.com/somework/dsx/internal/cmd/members"
 	"github.com/somework/dsx/internal/cmd/plans"
 	"github.com/somework/dsx/internal/cmd/projects"
-
-	sync "github.com/somework/dsx/internal/cmd/sync"
+	// dir sync, package synccmd (avoids shadowing stdlib sync)
+	"github.com/somework/dsx/internal/cmd/sync"
 )
 
 var groups = []cmd.Group{
-	sync.Group, projects.Group, files.Group, plans.Group,
+	synccmd.Group, projects.Group, files.Group, plans.Group,
 	conv.Group, members.Group, escape.Group, diagGroup,
 }
 

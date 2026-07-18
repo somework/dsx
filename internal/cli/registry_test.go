@@ -205,7 +205,15 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 
 					if sel, ok := lit.Type.(*ast.SelectorExpr); ok && sel.Sel.Name == "Group" {
 						if pkg, ok := sel.X.(*ast.Ident); ok && cmdNames[pkg.Name] {
-							declared[qualifier+vs.Names[0].Name] = filepath.Join(dir, name)
+							// Resolve the alias: a package's real name (from its own
+							// package clause) can differ from its directory name —
+							// cmd/sync declares `package synccmd` — so key off that,
+							// not off the directory qualifier.
+							key := vs.Names[0].Name
+							if qualifier != "" {
+								key = file.Name.Name + "." + key
+							}
+							declared[key] = filepath.Join(dir, name)
 						}
 					}
 					if qualifier == "" && vs.Names[0].Name == "groups" {

@@ -24,7 +24,8 @@ func readKeychain(service string) (Creds, error) {
 
 	var blob keychainBlob
 	if err := json.Unmarshal(out, &blob); err != nil {
-		return Creds{}, fmt.Errorf("keychain payload is not the JSON Claude Code writes: %w", err)
+		// The payload is the raw token blob; never wrap it into the error (invariant 8).
+		return Creds{}, errors.New("keychain payload is not the JSON Claude Code writes")
 	}
 	if blob.ClaudeAiOauth.AccessToken == "" {
 		return Creds{}, ErrNoCredentials

@@ -434,8 +434,12 @@ func TestNoLoginAnywhereFailsTheCredentialsCheck(t *testing.T) {
 
 	rep := runDoctor(context.Background(), fakeClient(diagHealthyServer(t)))
 
-	if got := diagCheckNamed(t, rep, "credentials").Status; got != checkFail {
-		t.Fatalf("credentials check = %q, want %q when no login exists", got, checkFail)
+	cc := diagCheckNamed(t, rep, "credentials")
+	if cc.Status != checkFail {
+		t.Fatalf("credentials check = %q, want %q when no login exists", cc.Status, checkFail)
+	}
+	if !strings.Contains(cc.Detail, "DSX_TOKEN") {
+		t.Errorf("credentials detail = %q, want it to name the DSX_TOKEN escape hatch", cc.Detail)
 	}
 	if rep.OK {
 		t.Error("a run that found no login reported OK")

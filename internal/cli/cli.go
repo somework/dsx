@@ -52,6 +52,13 @@ func run() error {
 
 	token, err := auth.LoadToken()
 	if err != nil {
+		// NeedOptionalClient runs regardless: doctor must reach its own
+		// credential and endpoint checks so it can report the auth failure
+		// as a diagnosis rather than have run() abort with the generic
+		// envelope. A tokenless client lets the endpoint check fail naturally.
+		if entry.Needs == cmd.NeedOptionalClient {
+			return entry.Dispatch(ctx, mcp.New(""), args)
+		}
 		return err
 	}
 	return entry.Dispatch(ctx, mcp.New(token), args)

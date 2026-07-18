@@ -395,6 +395,83 @@ func TestSyncRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	}
 }
 
+func TestPushThatFailsMidBatchStillPrintsThePartialReportBeforeTheError(t *testing.T) {
+	dir := t.TempDir()
+	const project = "proj-uuid"
+
+	maincliWriteFile(t, dir, "keep.txt", "same")
+	maincliWriteFile(t, dir, "new.txt", "fresh")
+
+	syncSeedState(t, dir, syncer.State{
+		ProjectID: project,
+		Files: map[string]syncer.FileState{
+			"keep.txt": {Etag: "e1", Size: int64(len("same")), SHA: syncer.SHA256Hex([]byte("same"))},
+		},
+	})
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(fileEntry("keep.txt", "e1", int64(len("same"))))}
+		case "write_files":
+			// Malformed on purpose: writeBatch cannot unmarshal it, so Push
+			// returns an error after the plan (Unchanged etc.) is already set.
+			return fakeReply{Text: "not json"}
+		}
+		return fakeReply{Text: "{}", IsError: true}
+	})
+	c := fakeClient(f)
+
+	out, err := captureStdout(t, func() error {
+		return cmdSync(context.Background(), c, "push", []string{project, dir})
+	})
+	if err == nil {
+		t.Fatalf("push with a malformed write_files reply reported success; output was %q", out)
+	}
+	if !strings.Contains(out, "unchanged 1") {
+		t.Errorf("the partial report was not printed before the error returned: %q", out)
+	}
+}
+
+func TestPullThatFailsMidFetchStillPrintsThePartialReportBeforeTheError(t *testing.T) {
+	dir := t.TempDir()
+	const project = "proj-uuid"
+
+	maincliWriteFile(t, dir, "keep.txt", "same")
+	syncSeedState(t, dir, syncer.State{
+		ProjectID: project,
+		Files: map[string]syncer.FileState{
+			"keep.txt": {Etag: "e1", Size: int64(len("same")), SHA: syncer.SHA256Hex([]byte("same"))},
+		},
+	})
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(
+				fileEntry("keep.txt", "e1", int64(len("same"))),
+				// bad.txt's advertised size disagrees with the body read_file
+				// actually serves below, tripping the decoded-length guard.
+				fileEntry("bad.txt", "e2", 999),
+			)}
+		case "read_file":
+			return fakeReply{Text: envelopeFor("bad.txt", "e2", "short")}
+		}
+		return fakeReply{Text: "{}", IsError: true}
+	})
+	c := fakeClient(f)
+
+	out, err := captureStdout(t, func() error {
+		return cmdSync(context.Background(), c, "pull", []string{project, dir})
+	})
+	if err == nil {
+		t.Fatalf("pull with a size mismatch reported success; output was %q", out)
+	}
+	if !strings.Contains(out, "unchanged 1") {
+		t.Errorf("the partial report was not printed before the error returned: %q", out)
+	}
+}
+
 func TestPullCreatesTheTargetDirectoryButPushDoesNot(t *testing.T) {
 	_, c := maincliFake(t, "unreachable")
 	base := t.TempDir()

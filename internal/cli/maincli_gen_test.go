@@ -530,12 +530,16 @@ func TestAuthProseModeReportsScopesAndExpiryWithoutJSON(t *testing.T) {
 }
 
 func TestAuthReportsAMissingLoginAsAuthNotAsSuccess(t *testing.T) {
+	t.Setenv("DSX_TOKEN", "")
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 
 	out, err := captureStdout(t, func() error { return cmdAuth(nil) })
 	if err == nil {
 		t.Fatalf("cmdAuth with no stored login succeeded, printing %q", out)
+	}
+	if got := maincliKind(t, err); got != dsxerr.KindAuth {
+		t.Errorf("kind = %q, want %q — a missing login must map to auth, the same as every authenticated command", got, dsxerr.KindAuth)
 	}
 	if out != "" {
 		t.Errorf("stdout = %q, want nothing when there is nothing to report", out)

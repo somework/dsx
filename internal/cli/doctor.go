@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -85,7 +86,11 @@ func runDoctor(ctx context.Context, c *mcp.Client) doctorReport {
 	} else {
 		creds, src, err := auth.ReadCredentials()
 		if err != nil {
-			rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
+			if errors.Is(err, auth.ErrNoCredentials) {
+				rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%s", auth.MsgNoLogin))
+			} else {
+				rep.Checks = append(rep.Checks, newCheck("credentials", checkFail, "%v", err))
+			}
 		} else {
 			rep.Checks = append(rep.Checks,
 				newCheck("credentials", checkOK, "%s", describeSource(src)),

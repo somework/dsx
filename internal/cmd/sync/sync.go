@@ -94,31 +94,39 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	}
 
 	if mode == "push" {
+		emit := func(r syncer.PushReport) {
+			if !*quiet {
+				fmt.Println(r.Render(*asJSON))
+			}
+		}
 		rep, err := syncer.Push(ctx, c, syncer.PushOpts{
 			ProjectID: project, Dir: dir, Concurrency: *jobs,
 			Prune: *prune, Force: *force, DryRun: dryRun,
 		})
 		if err != nil {
+			emit(rep)
 			return err
 		}
-		if !*quiet {
-			fmt.Println(rep.Render(*asJSON))
-		}
+		emit(rep)
 		return rep.Outcome(dryRun)
 	}
 
+	emit := func(r syncer.PullReport) {
+		if !*quiet {
+			fmt.Println(r.Render(*asJSON))
+		}
+	}
 	pullRep, err := syncer.Pull(ctx, c, syncer.PullOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
 		Prune: *prune, Force: *force, DryRun: dryRun,
 	})
 	if err != nil {
+		emit(pullRep)
 		return err
 	}
 
 	if mode == "pull" {
-		if !*quiet {
-			fmt.Println(pullRep.Render(*asJSON))
-		}
+		emit(pullRep)
 		return pullRep.Outcome(dryRun)
 	}
 
@@ -127,6 +135,11 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		Prune: *prune, Force: *force, DryRun: true,
 	})
 	if err != nil {
+		// status is a read-only DryRun query — no bytes moved, so unlike
+		// push/pull there is no single report to render here. Rendering
+		// pushRep alone would violate the {pull,push} two-key JSON envelope
+		// TestStatusJSONIsOneDocumentHoldingBothReports expects; bare err
+		// return is deliberate, not a missed render.
 		return err
 	}
 	if *quiet {

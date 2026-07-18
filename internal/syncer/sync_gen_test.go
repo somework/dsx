@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/mcptest"
 )
@@ -515,6 +516,9 @@ func TestPullRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	if err == nil {
 		t.Fatal("pull crossed the pin")
 	}
+	if kind := dsxerr.Classify(err).Kind; kind != dsxerr.KindUsage {
+		t.Errorf("Kind = %q, want %q — a directory bound to another project is a usage error", kind, dsxerr.KindUsage)
+	}
 	for _, want := range []string{"project-a", "project-b"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to name %q", err, want)
@@ -537,6 +541,9 @@ func TestPushRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("push crossed the pin")
+	}
+	if kind := dsxerr.Classify(err).Kind; kind != dsxerr.KindUsage {
+		t.Errorf("Kind = %q, want %q — a directory bound to another project is a usage error", kind, dsxerr.KindUsage)
 	}
 	for _, want := range []string{"project-a", "project-b"} {
 		if !strings.Contains(err.Error(), want) {

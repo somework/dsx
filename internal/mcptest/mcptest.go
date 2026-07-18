@@ -12,9 +12,10 @@ import (
 )
 
 type Call struct {
-	Method string
-	Tool   string
-	Args   map[string]any
+	Method        string
+	Tool          string
+	Args          map[string]any
+	Authorization string
 }
 
 type Server struct {
@@ -62,7 +63,12 @@ func (f *Server) serve(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(req.Params, &p)
 
 	f.mu.Lock()
-	f.calls = append(f.calls, Call{Method: req.Method, Tool: p.Name, Args: p.Arguments})
+	f.calls = append(f.calls, Call{
+		Method:        req.Method,
+		Tool:          p.Name,
+		Args:          p.Arguments,
+		Authorization: r.Header.Get("Authorization"),
+	})
 	f.mu.Unlock()
 
 	if req.Method == "tools/list" {

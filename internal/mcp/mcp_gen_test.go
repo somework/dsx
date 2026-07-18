@@ -216,6 +216,9 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	if !strings.Contains(de.Msg, "claude") {
 		t.Errorf("401 message = %q, want it to name the `claude` command as the fix", de.Msg)
 	}
+	if !strings.Contains(de.Msg, "DSX_TOKEN") {
+		t.Errorf("401 message = %q, want it to name the DSX_TOKEN escape hatch", de.Msg)
+	}
 }
 
 func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {

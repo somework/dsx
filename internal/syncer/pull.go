@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/fmtutil"
 	"github.com/somework/dsx/internal/mcp"
 )
@@ -54,8 +55,9 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, err
 	}
 	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
-		return rep, fmt.Errorf("%s is bound to project %s; refusing to pull %s into it",
-			filepath.Join(o.Dir, StateFileName), st.ProjectID, o.ProjectID)
+		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"%s is bound to project %s; refusing to pull %s into it",
+			filepath.Join(o.Dir, StateFileName), st.ProjectID, o.ProjectID)}
 	}
 
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
@@ -104,9 +106,21 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		errs []error
 	)
 
+	// Kept distinct from fetchCtx so a caller-side interrupt (parent.Err())
+	// can still be told apart from a peer-triggered cancel below (invariant 3).
 	parent := ctx
 	fetchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// One shape for every failure, mirroring WalkTree: record under the lock,
+	// then cancel. Append-then-cancel ordering is load-bearing (invariant 3) —
+	// the error is visible before peers observe fetchCtx.Done().
+	fail := func(err error) {
+		mu.Lock()
+		errs = append(errs, err)
+		mu.Unlock()
+		cancel()
+	}
 
 	for _, path := range d.Fetch {
 		wg.Add(1)
@@ -121,51 +135,37 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 
 			body, etag, err := c.ReadFull(fetchCtx, o.ProjectID, path)
 			if err != nil {
-				mu.Lock()
 				if isBinaryRefusal(err) {
+					mu.Lock()
 					rep.Binary = append(rep.Binary, path)
-
 					st = st.withFile(path, FileState{Etag: remote[path].Etag, Binary: true})
-				} else {
-					errs = append(errs, err)
-					cancel()
+					mu.Unlock()
+					return
 				}
-				mu.Unlock()
+				fail(err)
 				return
 			}
 
 			// A decoded length that disagrees with list_files' size means a
 			// corrupt decode; refuse rather than land a bad file on disk.
 			if want := remote[path].Size; int64(len(body)) != want {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf(
+				fail(fmt.Errorf(
 					"%s: decoded %d bytes, server reports %d — refusing to write",
 					path, len(body), want))
-				mu.Unlock()
-				cancel()
 				return
 			}
 
 			full, err := safeJoin(o.Dir, path)
 			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				cancel()
+				fail(err)
 				return
 			}
 			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				cancel()
+				fail(err)
 				return
 			}
 			if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				cancel()
+				fail(err)
 				return
 			}
 

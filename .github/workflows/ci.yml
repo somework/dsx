@@ -78,12 +78,40 @@ jobs:
         # The floor is a ratchet against silent erosion, not a target to game.
         # plan.go and envelope.go are held higher because that is where a bug
         # costs data rather than convenience.
+        #
+        # The per-file floor is computed the same statement-weighted way as the
+        # overall floor: covered_stmts/total_stmts from cover.out's raw
+        # records, not an unweighted mean of go tool cover -func's per-function
+        # percentages (that mean gives a 1-line helper and a 200-line function
+        # equal votes -- not the ratio it claims to gate). Records are deduped
+        # by (file, block position) before counting: with -coverpkg the same
+        # block can appear once per importing test binary, and summing
+        # numstmt across those duplicates would inflate the denominator.
         run: |
           go tool cover -func=cover.out | tail -1
           total=$(go tool cover -func=cover.out | awk '/^total:/ {print substr($3, 1, length($3)-1)}')
           awk -v t="$total" 'BEGIN { if (t+0 < 80) { printf "::error::total coverage %.1f%% is under the 80%% floor\n", t; exit 1 } }'
           for f in plan.go envelope.go; do
-            pct=$(go tool cover -func=cover.out | awk -v f="$f" '$1 ~ f {c++; s+=substr($NF,1,length($NF)-1)} END {if (c) print s/c; else print 0}')
+            pct=$(awk -v f="$f" '
+              $1 !~ /^mode:/ {
+                split($1, a, ":");
+                path = a[1];
+                if (path == f || path ~ ("/" f "$")) {
+                  key = $1;
+                  if (!(key in stmt)) { stmt[key] = $2 }
+                  cnt[key] += $3;
+                }
+              }
+              END {
+                total = 0; covered = 0;
+                for (k in stmt) {
+                  total += stmt[k];
+                  if (cnt[k] > 0) covered += stmt[k];
+                }
+                if (total == 0) { print 0; exit }
+                printf "%.4f", covered / total * 100;
+              }
+            ' cover.out)
             awk -v p="$pct" -v f="$f" 'BEGIN { if (p+0 < 95) { printf "::error::%s coverage %.1f%% is under its 95%% floor\n", f, p; exit 1 } }'
           done
 

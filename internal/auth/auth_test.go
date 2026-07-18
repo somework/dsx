@@ -208,6 +208,30 @@ func TestTokenFromNeverPutsTheTokenInAnError(t *testing.T) {
 	}
 }
 
+func TestTokenFromSurfacesEscapeHatchesOnACorruptStoreWithoutLeakingThePath(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, credentialsFileName)
+	if err := os.WriteFile(p, []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := tokenFrom(envMap(nil), func() (Creds, error) {
+		return readCredentialsFile(p)
+	})
+	if err == nil {
+		t.Fatal("a corrupt store was accepted as a successful read")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindAuth {
+		t.Fatalf("corrupt store classified %q, want %q", got, dsxerr.KindAuth)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "DSX_TOKEN") {
+		t.Errorf("the error must surface the DSX_TOKEN escape hatch: %q", msg)
+	}
+	if strings.Contains(msg, dir) {
+		t.Fatalf("the credentials path leaked into the error (invariant 8): %q", msg)
+	}
+}
+
 func TestReadCredentialsFallsBackToTheFileWhenTheKeychainHasNothing(t *testing.T) {
 	dir := t.TempDir()
 	writeCreds(t, dir, Creds{AccessToken: "from-file"})

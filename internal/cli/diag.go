@@ -18,7 +18,7 @@ var diagGroup = cmd.Group{
 		{Name: "auth", Form: "auth", Desc: "token scopes and expiry (never the token)",
 			Needs: cmd.NeedAuth, Run: cmd.NoClient(cmdAuth)},
 		{Name: "doctor", Form: "doctor", Desc: "token, endpoint, clock skew",
-			Run: cmdDoctor},
+			Needs: cmd.NeedOptionalClient, Run: cmdDoctor},
 		{Name: "version", Aliases: []string{"-v", "--version"}, Form: "version",
 			Desc: "version, revision, platform", Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdVersion)},
 		{Name: "completion", Form: "completion <bash|zsh|fish>",

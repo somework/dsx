@@ -58,8 +58,9 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		return rep, err
 	}
 	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
-		return rep, fmt.Errorf("%s is bound to project %s; refusing to push it to %s",
-			StateFileName, st.ProjectID, o.ProjectID)
+		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"%s is bound to project %s; refusing to push it to %s",
+			StateFileName, st.ProjectID, o.ProjectID)}
 	}
 
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
