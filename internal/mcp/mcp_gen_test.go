@@ -251,6 +251,9 @@ func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	if n := f.CountTool("write_files"); n != 1 {
 		t.Errorf("write_files reached the server %d times, want 1; the 403 is deterministic and write_files mutates", n)
 	}
+	if !strings.Contains(err.Error(), "dsx plan") {
+		t.Errorf("grant refusal = %q, want it to name `dsx plan` as the remedy, not just the condition", err)
+	}
 }
 
 func TestToolErrorSurvivesTheCallToolWrap(t *testing.T) {

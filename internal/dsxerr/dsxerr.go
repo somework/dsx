@@ -3,6 +3,8 @@ package dsxerr
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +77,16 @@ func Classify(err error) *Error {
 	var de *Error
 	if errors.As(err, &de) {
 		return de
+	}
+
+	// A filesystem syscall failed: the disk, not the server, refused. Both
+	// shapes are needed — *fs.PathError covers the single-path calls
+	// (ReadFile, WriteFile, MkdirAll, Remove, CreateTemp), *os.LinkError the
+	// two-path ones (os.Rename, in the ledger-save path).
+	var pathErr *fs.PathError
+	var linkErr *os.LinkError
+	if errors.As(err, &pathErr) || errors.As(err, &linkErr) {
+		return &Error{Kind: KindLocal, Err: err}
 	}
 
 	return &Error{Kind: KindFailure, Err: err}

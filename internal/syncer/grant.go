@@ -37,7 +37,7 @@ func CallWithGrant(ctx context.Context, c *mcp.Client, tool string, args map[str
 	if errors.As(err, &ge) {
 		token, planErr := planFor(ctx, c, projectID, paths)
 		if planErr != nil {
-			return "", fmt.Errorf("%w; and could not self-authorise: %v", err, planErr)
+			return "", fmt.Errorf("%w; and could not self-authorise: %w", err, planErr)
 		}
 		args["plan_token"] = token
 		return c.CallTool(ctx, tool, args)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -115,5 +116,30 @@ func TestPushReportsAPartialWriteInsteadOfUnderCountingIt(t *testing.T) {
 	}
 	if st.Files["a.css"].Etag != "e1" {
 		t.Errorf("the acknowledged write was not recorded: %+v", st.Files)
+	}
+}
+
+// A disk failure that never reaches the network must still carry the `local`
+// token README publishes, not the generic `error` catch-all.
+func TestLocalDiskFailureCarriesTheLocalToken(t *testing.T) {
+	t.Setenv("DSX_TOKEN", "sk-ant-oat01-OVERRIDE")
+
+	missing := filepath.Join(t.TempDir(), "absent", "styles.css")
+	_, err := maincliRun(t, "put", "p1", "styles.css", missing, "--json")
+	if got := maincliKind(t, err); got != dsxerr.KindLocal {
+		t.Errorf("a failed local read reported %q, want %q", got, dsxerr.KindLocal)
+	}
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitFailure {
+		t.Errorf("exit code = %d, want %d", got, dsxerr.ExitFailure)
+	}
+
+	var env struct {
+		Error dsxerr.Kind `json:"error"`
+	}
+	if jsonErr := json.Unmarshal([]byte(dsxerr.Render(err, true)), &env); jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	if env.Error != dsxerr.KindLocal {
+		t.Errorf("envelope error field = %q, want %q", env.Error, dsxerr.KindLocal)
 	}
 }

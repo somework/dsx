@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -125,5 +127,47 @@ func TestDsxErrorUnwrapsToItsCause(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("message lost: %q", err.Error())
+	}
+}
+
+func TestClassifyLabelsLocalFilesystemErrors(t *testing.T) {
+	dir := t.TempDir()
+
+	_, pathErr := os.ReadFile(filepath.Join(dir, "absent", "file.css"))
+	if pathErr == nil {
+		t.Fatal("reading a nonexistent path succeeded")
+	}
+	linkErr := os.Rename(filepath.Join(dir, "absent", "a"), filepath.Join(dir, "absent", "b"))
+	if linkErr == nil {
+		t.Fatal("renaming a nonexistent path succeeded")
+	}
+
+	cases := []struct {
+		name string
+		err  error
+		want Kind
+	}{
+		{"path error", pathErr, KindLocal},
+		{"path error wrapped twice", fmt.Errorf("save: %w", fmt.Errorf("read: %w", pathErr)), KindLocal},
+		{"link error", linkErr, KindLocal},
+		{"link error wrapped twice", fmt.Errorf("save: %w", fmt.Errorf("rename: %w", linkErr)), KindLocal},
+		{"labelled auth wins", &Error{Kind: KindAuth, Err: pathErr}, KindAuth},
+		{"labelled transport wins", &Error{Kind: KindTransport, Err: linkErr}, KindTransport},
+		{"plain error stays generic", errors.New("boom"), KindFailure},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := Classify(c.err).Kind; got != c.want {
+				t.Errorf("Classify(%v).Kind = %q, want %q", c.err, got, c.want)
+			}
+			if got := ExitCodeFor(c.err); got != c.want.ExitCode() {
+				t.Errorf("ExitCodeFor = %d, want %d", got, c.want.ExitCode())
+			}
+		})
+	}
+
+	if got := ExitCodeFor(pathErr); got != ExitFailure {
+		t.Errorf("a local error changed the exit contract: got %d, want %d", got, ExitFailure)
 	}
 }

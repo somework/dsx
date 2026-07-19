@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
 
@@ -31,7 +32,9 @@ func listDir(ctx context.Context, c *mcp.Client, projectID, path string) ([]Remo
 	}
 	var entries []RemoteEntry
 	if err := json.Unmarshal([]byte(text), &entries); err != nil {
-		return nil, fmt.Errorf("list_files %q: malformed listing: %w", path, err)
+		// The server broke its half of the protocol; the taxonomy names that
+		// specifically, and WalkTree returns this error verbatim to the caller.
+		return nil, &dsxerr.Error{Kind: dsxerr.KindProtocol, Msg: fmt.Sprintf("list_files %q: malformed listing", path), Err: err}
 	}
 	return entries, nil
 }

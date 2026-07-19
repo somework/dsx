@@ -296,6 +296,12 @@ func TestListDirReportsAMalformedListingRatherThanAnEmptyOne(t *testing.T) {
 	if !strings.Contains(err.Error(), "malformed listing") {
 		t.Errorf("error = %v, want it to name the malformed listing", err)
 	}
+	// A listing dsx cannot parse is the server breaking its half of the
+	// protocol, which the taxonomy already names. Falling back to the generic
+	// "error" token tells an agent nothing it can branch on.
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindProtocol {
+		t.Errorf("kind = %q, want %q", got, dsxerr.KindProtocol)
+	}
 }
 
 func TestReadFullConcatenatesEveryWindowAndAsksForTheNextByLine(t *testing.T) {
@@ -950,6 +956,53 @@ func TestPushReportsBothFailuresWhenItCannotSelfAuthorise(t *testing.T) {
 	}
 }
 
+// A self-authorisation that fails for a reason the taxonomy already names must
+// keep that name. The grant refusal itself is terminal, but the finalize_plan
+// failure underneath it is the actionable half: a 5xx says "retry may succeed",
+// a 401 says "refresh the token". Flattening both into exit 1 tells an agent
+// "it failed" and nothing else.
+func TestSelfAuthorisationFailureKeepsItsKind(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   int
+	}{
+		{"finalize_plan hits a 5xx", http.StatusServiceUnavailable, "upstream is down", dsxerr.ExitTransport},
+		{"finalize_plan is rejected", http.StatusUnauthorized, "token rejected", dsxerr.ExitAuth},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mkfile(t, dir, "a.css", "a{}")
+
+			f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+				switch name {
+				case "list_files":
+					return fakeReply{Text: listingFor()}
+				case "finalize_plan":
+					return fakeReply{HTTPStatus: tc.status, HTTPBody: tc.body}
+				case "write_files":
+					return fakeReply{
+						HTTPStatus: http.StatusForbidden,
+						HTTPBody:   `{"error":"needs_project_grant","project_id":"p1"}`,
+					}
+				}
+				return fakeReply{Text: "unexpected " + name, IsError: true}
+			})
+
+			_, err := Push(context.Background(), fakeClient(f), PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 4})
+			if err == nil {
+				t.Fatal("push reported success although it was never authorised")
+			}
+			if got := dsxerr.ExitCodeFor(err); got != tc.want {
+				t.Errorf("exit = %d, want %d — the kind inside the self-authorisation failure was flattened",
+					got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPushRefusesToRecordAnEtagItNeverSaw(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -992,6 +1045,17 @@ func TestPushRefusesToRecordAnEtagItNeverSaw(t *testing.T) {
 			}
 			if _, tracked := syncLoadState(t, dir).Files["a.css"]; tracked {
 				t.Error("an etag we never saw reached the ledger")
+			}
+			// The same failure class as the unacknowledged-etag branch below
+			// it, and it must carry the same name and the same paths: the
+			// reply was unreadable, so every path in the batch is absent from
+			// the ledger.
+			de := dsxerr.Classify(err)
+			if de.Kind != dsxerr.KindProtocol {
+				t.Errorf("kind = %q, want %q", de.Kind, dsxerr.KindProtocol)
+			}
+			if !slices.Contains(de.Paths, "a.css") {
+				t.Errorf("paths = %v, want it to name a.css", de.Paths)
 			}
 		})
 	}

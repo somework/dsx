@@ -117,7 +117,8 @@ func ConflictFromToolError(err error) ([]string, bool) {
 type GrantError struct{ ProjectID string }
 
 func (e *GrantError) Error() string {
-	return "needs_project_grant for project " + e.ProjectID
+	return "needs_project_grant for project " + e.ProjectID +
+		"; mint a token with `dsx plan " + e.ProjectID + " --writes <paths>` and pass plan_token"
 }
 
 var readOnlyTools = map[string]bool{

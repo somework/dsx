@@ -52,6 +52,9 @@ func TestPullSavesTheLedgerWhenAPruneDeleteFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("a failed prune delete was reported as success")
 	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindLocal {
+		t.Errorf("a failed prune delete reported %q, want %q", got, dsxerr.KindLocal)
+	}
 
 	st, loadErr := LoadState(dir)
 	if loadErr != nil {

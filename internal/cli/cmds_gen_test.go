@@ -285,6 +285,40 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 	}
 }
 
+// A project-scoped plan authorises every path, so naming paths alongside it is a
+// contradiction the client can settle itself. Deciding it locally keeps the exit code
+// honest (usage, not failure) and — the load-bearing half — means no over-broad token
+// is ever minted for an invocation the user did not mean.
+func TestPlanRefusesProjectScopeWithPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"--scope project with --writes", []string{"p1", "--scope", "project", "--writes", "a.txt"}},
+		{"--scope project with --deletes", []string{"p1", "--scope", "project", "--deletes", "a.txt"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+				t.Errorf("a contradictory plan still called %q", name)
+				return fakeReply{IsError: true, Text: "unexpected"}
+			})
+
+			_, err := cmdsRun(t, f, "plan", tc.argv...)
+			if err == nil {
+				t.Fatal("the invocation was accepted")
+			}
+			if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+				t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
+			}
+			if calls := cmdsToolCalls(f); len(calls) != 0 {
+				t.Errorf("%d tool calls made; nothing may reach the server, or an over-broad token could be minted: %#v", len(calls), calls)
+			}
+		})
+	}
+}
+
 func TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString(t *testing.T) {
 	body := "h1 { color: red; }"
 	src := cmdsTempFile(t, "a.css", body)
@@ -919,8 +953,31 @@ func TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer(t 
 			return fakeReply{IsError: true}
 		})
 
-		if _, err := cmdsRun(t, f, "conv-put", "p1", "--messages", bad); err == nil {
+		_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", bad)
+		if err == nil {
 			t.Errorf("conv-put accepted a messages file holding %q", content)
+		} else if k := dsxerr.Classify(err).Kind; k != dsxerr.KindUsage {
+			t.Errorf("kind = %q for a messages file holding %q, want %q", k, content, dsxerr.KindUsage)
+		}
+		if n := len(f.Recorded()); n != 0 {
+			t.Errorf("%d requests made for a messages file holding %q", n, content)
+		}
+	}
+}
+
+func TestCmdConvPutRejectsMessagesThatAreNotJSONObjects(t *testing.T) {
+	for _, content := range []string{`[1,2,3]`, `["hi"]`, `[[]]`, `[{"role":"user"},3]`, `[null]`, `[{"a":1},null]`} {
+		bad := cmdsTempFile(t, "m.json", content)
+		f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+			t.Errorf("conv-put called %q with a message element that is not an object", name)
+			return fakeReply{IsError: true}
+		})
+
+		_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", bad)
+		if err == nil {
+			t.Errorf("conv-put accepted a messages file holding %q", content)
+		} else if k := dsxerr.Classify(err).Kind; k != dsxerr.KindUsage {
+			t.Errorf("kind = %q for a messages file holding %q, want %q", k, content, dsxerr.KindUsage)
 		}
 		if n := len(f.Recorded()); n != 0 {
 			t.Errorf("%d requests made for a messages file holding %q", n, content)
@@ -935,8 +992,12 @@ func TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer(t *testin
 	})
 
 	missing := filepath.Join(t.TempDir(), "nope.json")
-	if _, err := cmdsRun(t, f, "conv-put", "p1", "--messages", missing); err == nil {
+	_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", missing)
+	if err == nil {
 		t.Fatal("conv-put succeeded with a missing messages file")
+	}
+	if k := dsxerr.Classify(err).Kind; k != dsxerr.KindUsage {
+		t.Errorf("kind = %q for a missing messages file, want %q", k, dsxerr.KindUsage)
 	}
 	if n := len(f.Recorded()); n != 0 {
 		t.Errorf("%d requests made though the messages file was unreadable", n)
@@ -965,6 +1026,7 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		{"conv-put without a project", "conv-put", []string{}},
 		{"member-add without --role", "member-add", []string{"p1", "--email", "a@b.c"}},
 		{"member-add without --email or --uuid", "member-add", []string{"p1", "--role", "editor"}},
+		{"member-add with both --email and --uuid", "member-add", []string{"p1", "--role", "editor", "--email", "a@b.c", "--uuid", "u1"}},
 		{"member-add without a project", "member-add", []string{}},
 		{"member-rm without a uuid", "member-rm", []string{"p1"}},
 		{"member-role without a role", "member-role", []string{"p1", "u1"}},

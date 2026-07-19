@@ -3,7 +3,6 @@ package conv
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/somework/dsx/internal/cmd"
@@ -15,7 +14,7 @@ var Group = cmd.Group{
 	Title: "CONVERSATION",
 	Cmds: []cmd.Command{
 		{Name: "conv", Form: "conv <project> [--chat id]", Run: cmdConv},
-		{Name: "conv-put", Form: "conv-put <project> --messages <file.json> [--chat id] [--title t] [--append]", Run: cmdConvPut},
+		{Name: "conv-put", Form: "conv-put <project> --messages <file.json> [--chat id] [--title t] [--append] [--synced-through-idx N]", Run: cmdConvPut},
 	},
 }
 
@@ -67,11 +66,20 @@ func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	b, err := os.ReadFile(*msgFile)
 	if err != nil {
-		return err
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "cannot read " + *msgFile, Err: err}
 	}
-	var messages []any
+	// Structural JSON type only. Which keys a message carries is the server's
+	// arg schema; an enum hardcoded here would refuse work a later server accepts.
+	var messages []map[string]any
 	if err := json.Unmarshal(b, &messages); err != nil {
-		return fmt.Errorf("%s must hold a JSON array of messages: %w", *msgFile, err)
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: *msgFile + " must hold a JSON array of message objects", Err: err}
+	}
+	// A JSON null decodes into a nil map without an error, so the type check
+	// above cannot see it; unchecked it is forwarded to the server as null.
+	for _, m := range messages {
+		if m == nil {
+			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: *msgFile + " must hold a JSON array of message objects"}
+		}
 	}
 
 	a := map[string]any{"project_id": project, "messages": messages}

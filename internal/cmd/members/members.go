@@ -22,7 +22,7 @@ var Group = cmd.Group{
 				}
 				return "list_members", map[string]any{"project_id": id}, nil
 			}},
-		{Name: "member-add", Form: "member-add <project> --role <r> [--email e] [--uuid u]", Run: cmdMemberAdd},
+		{Name: "member-add", Form: "member-add <project> --role <r> (--email e | --uuid u)", Run: cmdMemberAdd},
 		{Name: "member-rm", Form: "member-rm <project> <uuid>", Run: cmdMemberRm},
 		{Name: "member-role", Form: "member-role <project> <uuid> <role>", Run: cmdMemberRole},
 		{Name: "sharing", Form: "sharing <project> [--scope s] [--link-permission p]", Run: cmdSharing},
@@ -41,18 +41,18 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "member-add <project> --role <r> [--email e] [--uuid u]")
+	project, rest, err := cmd.Need1(pos, "member-add <project> --role <r> (--email e | --uuid u)")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "member-add <project> --role <r> [--email e] [--uuid u]"); err != nil {
+	if err := cmd.NoExtra(rest, "member-add <project> --role <r> (--email e | --uuid u)"); err != nil {
 		return err
 	}
 	if *role == "" {
-		return dsxerr.Usage("member-add <project> --role <r> [--email e] [--uuid u]")
+		return dsxerr.Usage("member-add <project> --role <r> (--email e | --uuid u)")
 	}
-	if *email == "" && *uuid == "" {
-		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "give --email or --uuid"}
+	if (*email == "") == (*uuid == "") {
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "give --email or --uuid, not both"}
 	}
 	a := map[string]any{"project_id": project, "role": *role}
 	if *email != "" {

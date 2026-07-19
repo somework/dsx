@@ -60,11 +60,11 @@ PLANS / PREVIEW
 
 CONVERSATION
   dsx conv <project> [--chat id]
-  dsx conv-put <project> --messages <file.json> [--chat id] [--title t] [--append]
+  dsx conv-put <project> --messages <file.json> [--chat id] [--title t] [--append] [--synced-through-idx N]
 
 MEMBERS / SHARING
   dsx members <project>
-  dsx member-add <project> --role <r> [--email e] [--uuid u]
+  dsx member-add <project> --role <r> (--email e | --uuid u)
   dsx member-rm <project> <uuid>
   dsx member-role <project> <uuid> <role>
   dsx sharing <project> [--scope s] [--link-permission p]

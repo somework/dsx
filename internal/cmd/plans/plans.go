@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/somework/dsx/internal/cmd"
+	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
 )
 
@@ -34,6 +35,15 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	if err := cmd.NoExtra(rest, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]"); err != nil {
 		return err
+	}
+	// A project-scoped plan already authorises every path; naming paths as well is a
+	// contradiction, and one the client can settle without a round trip. Only this one
+	// scope value is judged — the domain of --scope stays the server's to define.
+	if *scope == "project" && (len(cmd.SplitList(*writes)) > 0 || len(cmd.SplitList(*deletes)) > 0) {
+		return &dsxerr.Error{
+			Kind: dsxerr.KindUsage,
+			Msg:  "--scope project authorises any path; drop --writes/--deletes",
+		}
 	}
 	a := map[string]any{"project_id": project}
 	if v := cmd.SplitList(*writes); len(v) > 0 {

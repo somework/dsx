@@ -180,8 +180,13 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 
 	var res writeResult
 	if jsonErr := json.Unmarshal([]byte(text), &res); jsonErr != nil || len(res.Etags) == 0 {
-		return fmt.Errorf("write reply was unrecognised, so etags were not recorded; "+
-			"run `dsx pull` to resynchronise. reply: %s", fmtutil.Truncate(text, 300))
+		// Same failure class as the unacknowledged-etag branch below: the server
+		// broke its half of the protocol. No etag at all was recorded, so every
+		// path in the batch is absent from the ledger.
+		slices.Sort(paths)
+		return &dsxerr.Error{Kind: dsxerr.KindProtocol, Paths: paths, Msg: fmt.Sprintf(
+			"write reply was unrecognised, so etags were not recorded; "+
+				"run `dsx pull` to resynchronise. reply: %s", fmtutil.Truncate(text, 300))}
 	}
 
 	byPath := make(map[string]writeSpec, len(batch))
