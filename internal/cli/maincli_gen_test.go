@@ -7,6 +7,7 @@ import (
 	"flag"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -864,5 +865,73 @@ func TestParseArgsHelpRequestRendersTheCommandsOwnFlags(t *testing.T) {
 		if leaked != "" {
 			t.Errorf("%s: flag wrote to stderr despite SetOutput(io.Discard): %q", spelling, leaked)
 		}
+	}
+}
+
+// The --json surface has two halves: payloads dsx marshals itself, and tool
+// results it relays untouched. README must say which half carries a promise,
+// and must say it where an agent reading about --json will meet it.
+func TestREADMEScopesJSONPayloadOwnership(t *testing.T) {
+	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(readme)
+
+	const anchor = "**`--json`** makes stdout exactly one JSON document."
+	at := strings.Index(doc, anchor)
+	if at < 0 {
+		t.Fatal("the --json paragraph moved; point this test at it again")
+	}
+	const token = "`error` is a stable token"
+	end := strings.Index(doc, token)
+	if end < at {
+		t.Fatal("the error-token paragraph no longer follows the --json paragraph")
+	}
+	// Prose wraps; a reflow must not redden this.
+	section := strings.Join(strings.Fields(doc[at:end]), " ")
+
+	for _, want := range []string{
+		"dsx neither validates nor pins it",
+		"JSONSafe",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("README's --json section does not say %q — the ownership boundary is "+
+				"undocumented, so an agent reads the stability promise as covering relayed "+
+				"server payloads too", want)
+		}
+	}
+
+	// Tie the prose to the mechanism, so it cannot decay into a decorative
+	// string check: what README claims about relayed payloads is what ships.
+	const relayed = `{"k":1}`
+	if got := cmd.JSONSafe(relayed, true); got != relayed {
+		t.Errorf("JSONSafe(%q) = %q, want it byte-identical — README says a relayed payload "+
+			"is the server's shape, unvalidated and unpinned", relayed, got)
+	}
+	var wrapped struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(cmd.JSONSafe("not json", true)), &wrapped); err != nil {
+		t.Fatalf("a non-JSON tool reply did not wrap: %v", err)
+	}
+	if wrapped.Text != "not json" {
+		t.Errorf("text = %q, want %q", wrapped.Text, "not json")
+	}
+}
+
+// `error` is the chosen catch-all, not an unclassified default: a server-side
+// tool refusal shares its remedy — read the message, report, stop — with any
+// other failure, so it earns no eighth token. The tool name stays on the
+// message because `dsx raw <tool>` is how you reproduce it.
+func TestAToolErrorRendersAsTheCatchAllErrorKind(t *testing.T) {
+	err := &mcp.ToolError{Tool: "read_file", Text: "assets/og.png is a binary file"}
+
+	const want = `{"error":"error","message":"read_file: assets/og.png is a binary file"}`
+	if got := dsxerr.Render(err, true); got != want {
+		t.Errorf("Render = %s, want %s", got, want)
+	}
+	if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitFailure {
+		t.Errorf("ExitCodeFor = %d, want ExitFailure (%d)", got, dsxerr.ExitFailure)
 	}
 }

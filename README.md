@@ -89,14 +89,29 @@ something is the answer it wanted. `dsx status` is a report and always exits `0`
 `--json` for the conflict list.
 
 **`--json`** makes stdout exactly one JSON document. Tools that already answer in JSON pass
-through untouched; the rest are wrapped as `{"text":…}`. Errors go to stderr:
+through untouched; the rest are wrapped as `{"text":…}`.
+
+Which half owns the shape matters. Where dsx computes the answer itself, the payload is dsx's
+and stable. Where it relays a tool result — anything printed through `JSONSafe`, and the raw
+`tools/list` reply behind `dsx tools` — the shape is the server's: dsx neither validates nor
+pins it, and it can change without a dsx release. Only the one-document guarantee spans both.
+
+Errors go to stderr:
 
 ```json
 {"error":"conflict","message":"local differs from the server","paths":["a.css","b.css"]}
 ```
 
 `error` is a stable token (`conflict`, `transport`, `auth`, `usage`, `protocol`, `local`,
-`error`). The message may be reworded; the token may not.
+`error`). The message may be reworded; the token may not. `error` is the catch-all for
+anything with no distinct remedy — including a server-side tool refusal (`isError:true`),
+reported verbatim behind the tool name so `dsx raw <tool>` reproduces it.
+
+`dsx help --json` answers with two keys: `commands`, the registry — one object per command
+carrying its group, name, invocation form, description and aliases — and `flags`, the block
+documenting the flags a Form does not spell (`--if-match`, `--plan`, `--json`, `-q`, `-n`,
+`-j N`) with the commands each reaches, plus the exit codes and env vars. Neither is the
+prose `dsx help` prints.
 
 ## Excluding files
 

@@ -22,11 +22,23 @@ var groups = []cmd.Group{
 var (
 	commandIndex map[string]cmd.Command
 	commandNames []string
+	commandSpecs []commandSpec
 )
 
 func init() {
 	commandIndex = indexCommands(groups)
 	commandNames = commandNamesOf(groups)
+	commandSpecs = commandSpecsOf(groups)
+}
+
+// commandSpec is help --json's shape: the registry as a machine reads it,
+// so per-command invocation syntax does not survive only as prose.
+type commandSpec struct {
+	Group   string   `json:"group"`
+	Name    string   `json:"name"`
+	Form    string   `json:"form"`
+	Desc    string   `json:"desc,omitempty"`
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 func indexCommands(gs []cmd.Group) map[string]cmd.Command {
@@ -50,5 +62,21 @@ func commandNamesOf(gs []cmd.Group) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+func commandSpecsOf(gs []cmd.Group) []commandSpec {
+	var out []commandSpec
+	for _, g := range gs {
+		for _, c := range g.Cmds {
+			out = append(out, commandSpec{
+				Group:   g.Title,
+				Name:    c.Name,
+				Form:    c.Form,
+				Desc:    c.Desc,
+				Aliases: c.Aliases,
+			})
+		}
+	}
 	return out
 }

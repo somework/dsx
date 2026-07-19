@@ -84,7 +84,10 @@ func cmdHelp(args []string) error {
 		fmt.Println(usage)
 		return nil
 	}
-	b, err := json.Marshal(map[string]any{"usage": usage, "commands": commandNames})
+	// flags carries usageFooter verbatim: --if-match and --plan are documented
+	// nowhere else — not in put's Form, not in the README — so without it the
+	// machine channel cannot reach the blind-overwrite guard.
+	b, err := json.Marshal(map[string]any{"commands": commandSpecs, "flags": usageFooter})
 	if err != nil {
 		return err
 	}
