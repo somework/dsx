@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"os"
@@ -338,6 +339,22 @@ func TestSplitListKeepsInnerSpacesInAName(t *testing.T) {
 	got := cmd.SplitList(" my file.css ,b.css")
 	if len(got) != 2 || got[0] != "my file.css" {
 		t.Fatalf("splitList = %v, want the inner space preserved", got)
+	}
+}
+
+// TestSplitListCannotExpressACommaInAPath pins a deliberate limit, not a bug:
+// the comma is the only separator and nothing escapes it, so a path containing
+// one is unrepresentable in --writes/--deletes. It is a change-detector by
+// design — it reddens the moment someone adds an escape without updating the
+// prose in cmd.SplitList and cmdPlan that calls the limit deliberate.
+func TestSplitListCannotExpressACommaInAPath(t *testing.T) {
+	got := cmd.SplitList("assets/Q3 Report, Draft.png")
+	if len(got) != 2 {
+		t.Fatalf("splitList = %v, want the comma to split even mid-filename", got)
+	}
+	got = cmd.SplitList(`a\,b`)
+	if len(got) != 2 || got[0] != `a\` || got[1] != "b" {
+		t.Fatalf("splitList = %v, want a backslash not to escape the comma", got)
 	}
 }
 
@@ -717,5 +734,135 @@ func TestRenderErrorOnNilIsEmpty(t *testing.T) {
 	}
 	if got := dsxerr.Render(nil, true); got != "" {
 		t.Errorf("dsxerr.Render(nil, json) = %q", got)
+	}
+}
+
+// TestEveryCommandAnswersItsOwnHelpFlag drives every command in `groups`
+// through run() with -h and --help. A help request is a question, so the
+// answer is exit 0 on stdout, scoped to that command: its own Form, never the
+// whole catalogue. Deriving the table from `groups` rather than a hardcoded
+// list keeps invariant 11 the source and covers new commands for free.
+func TestEveryCommandAnswersItsOwnHelpFlag(t *testing.T) {
+	diagPinCredentialStore(t)
+	t.Setenv("DSX_TOKEN", "")
+
+	for _, g := range groups {
+		for _, c := range g.Cmds {
+			for _, spelling := range []string{"-h", "--help"} {
+				t.Run(c.Name+" "+spelling, func(t *testing.T) {
+					var (
+						out string
+						err error
+					)
+					leaked := maincliCaptureStderr(t, func() {
+						out, err = maincliRun(t, c.Name, spelling)
+					})
+					if err != nil {
+						t.Fatalf("dsx %s %s: %v", c.Name, spelling, err)
+					}
+					if leaked != "" {
+						t.Errorf("flag's own chatter reached stderr: %q", leaked)
+					}
+					if !strings.Contains(out, c.Form) {
+						t.Errorf("stdout = %q, want the command's own form %q", out, c.Form)
+					}
+					for _, other := range groups {
+						if other.Title == g.Title {
+							continue
+						}
+						if strings.Contains(out, other.Title) {
+							t.Errorf("help is not scoped: stdout carries another group's title %q", other.Title)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+// TestPullHelpAnswersBeforeAuth pins the ordering half: `pull` is NeedClient,
+// so without the intercept run() reaches auth.LoadToken and exits 5 on an
+// empty credential store instead of answering the question.
+func TestPullHelpAnswersBeforeAuth(t *testing.T) {
+	diagPinCredentialStore(t)
+	t.Setenv("DSX_TOKEN", "")
+
+	out, err := maincliRun(t, "pull", "-h")
+	if err != nil {
+		t.Fatalf("dsx pull -h without a credential: %v — help must precede auth", err)
+	}
+	if !strings.Contains(out, "--prune") {
+		t.Errorf("stdout = %q, want pull's own flags", out)
+	}
+}
+
+// TestAFlagValueSpelledDashHIsNotAHelpRequest pins the other side of the
+// pre-auth help intercept: a scan of every argument mistakes another flag's
+// VALUE for a help request. `cat p1 a.css --out -h` asks to write a file
+// named "-h"; it is a real invocation and must carry the real credential. If
+// helpRequested matches anywhere in args, dispatch hands cat a tokenless
+// client and the call goes out as a bare "Bearer" — a 401 the agent-facing
+// contract renders as KindAuth, telling an agent to refresh a credential that
+// was never wrong. Only args[0] can be a help request; nothing precedes it.
+func TestAFlagValueSpelledDashHIsNotAHelpRequest(t *testing.T) {
+	diagPinCredentialStore(t)
+	t.Setenv("DSX_TOKEN", "test-token")
+	t.Chdir(t.TempDir()) // `--out -h` writes a file literally named "-h"
+
+	body := "h1 { color: red; }\n"
+	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
+		return fakeReply{Text: envelopeFor("a.css", "e1", body)}
+	})
+	t.Setenv("DSX_ENDPOINT", f.URL())
+
+	if _, err := maincliRun(t, "cat", "p1", "a.css", "--out", "-h"); err != nil {
+		t.Fatalf("dsx cat p1 a.css --out -h: %v", err)
+	}
+	call := syncFirstCall(t, f, "read_file")
+	if want := "Bearer test-token"; call.Authorization != want {
+		t.Errorf("Authorization header = %q, want %q — `-h` as a flag value is not a help request, so the loaded token must reach the wire", call.Authorization, want)
+	}
+	got, err := os.ReadFile("-h")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Errorf("file %q = %q, want %q", "-h", got, body)
+	}
+}
+
+// TestParseArgsHelpRequestRendersTheCommandsOwnFlags checks the kernel half:
+// the FlagSet holds the per-command flag documentation at the moment help is
+// asked for, and ParseArgs must render it rather than discard it. The error
+// unwraps to flag.ErrHelp so cli.run can recognise the request without
+// matching on text, and flag's own "flag: help requested" never surfaces.
+func TestParseArgsHelpRequestRendersTheCommandsOwnFlags(t *testing.T) {
+	const desc = "include each tool's JSON schema"
+
+	for _, spelling := range []string{"-h", "--help"} {
+		var err error
+		leaked := maincliCaptureStderr(t, func() {
+			fs := cmd.NewFlagSet("tools")
+			_ = fs.Bool("schema", false, desc)
+			_, err = cmd.ParseArgs(fs, []string{spelling})
+		})
+		if err == nil {
+			t.Fatalf("%s: parsing continued past a help request", spelling)
+		}
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Errorf("%s: error does not unwrap to flag.ErrHelp: %v", spelling, err)
+		}
+		msg := err.Error()
+		for _, want := range []string{"schema", desc} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: message %q does not name %q", spelling, msg, want)
+			}
+		}
+		if strings.Contains(msg, "help requested") {
+			t.Errorf("%s: flag's sentinel text surfaced to the user: %q", spelling, msg)
+		}
+		if leaked != "" {
+			t.Errorf("%s: flag wrote to stderr despite SetOutput(io.Discard): %q", spelling, leaked)
+		}
 	}
 }

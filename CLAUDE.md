@@ -93,6 +93,7 @@ Untested — do not present as fact.
 - Terse output by default; `--json` for machines; never print file contents unless asked. Output width is a token budget.
 - Errors say what to do next and carry an `errKind` an agent branches on. Reword the message, never the token.
 - **Cite no count that churns.** Test totals, tool counts, line counts move on the next commit and rot into a quiet lie — let the tool that owns the number report it (`dsx help` lists the tools, `go test ./...` runs the suite). A number that pins a *measured* fact — a file size, `2 of 100`, the 256 KiB cap, a coverage floor — is evidence, not a count; it stays.
+- **A command's `Form` carries its positionals and its command-unique flags; a flag several commands share is documented once in `usageFooter`, under a scope naming them.** `--json` set that precedent. Widening a Form is not free — `put`, `cp` and `support-js` repeat their Form text in `Need1`/`Need2` literals printed on every malformed invocation, the agent hot path. `TestEveryDeclaredFlagIsDocumented` walks the real `flags.String/Bool/Int` declarations and accepts either home, so a flag can be discoverable without being spelled three times.
 - Russian in commit messages, English in code and docs.
 
 ## Roadmap

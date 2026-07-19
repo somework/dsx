@@ -488,3 +488,48 @@ func TestPullCreatesTheTargetDirectoryButPushDoesNot(t *testing.T) {
 		t.Error("push created a directory that did not exist; an empty tree pushed with --prune deletes the project")
 	}
 }
+
+// TestStatusForcePreviewsAForcedSync locks a decision rather than catching a
+// defect: status shares one flagset with pull and push, so --force reaches it
+// and suppresses the very conflicts status exists to surface. That is a
+// faithful preview of `pull --force`, not a bug — it transfers nothing and
+// leaves the working tree untouched. Anyone "fixing" it by rejecting --force
+// on status deletes a real capability, and this test says so.
+func TestStatusForcePreviewsAForcedSync(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		args         []string
+		wantConflict bool
+	}{
+		{"plain status surfaces the conflict", nil, true},
+		{"--force previews a forced sync, so none remain", []string{"--force"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c, dir := maincliConflictedPull(t)
+
+			out, err := captureStdout(t, func() error {
+				return cmdSync(context.Background(), c, "status", append([]string{"proj-uuid", dir}, tc.args...))
+			})
+			if err != nil {
+				t.Fatalf("status is a dry run and must not fail: %v", err)
+			}
+			for _, side := range []string{"pull:", "push:"} {
+				line := ""
+				for _, l := range strings.Split(out, "\n") {
+					if strings.HasPrefix(l, side) {
+						line = l
+					}
+				}
+				if line == "" {
+					t.Fatalf("status printed no %s summary: %q", side, out)
+				}
+				if got := strings.Contains(line, "conflicts 1"); got != tc.wantConflict {
+					t.Errorf("%s summary %q reports a conflict = %v, want %v", side, line, got, tc.wantConflict)
+				}
+			}
+			if b, _ := os.ReadFile(filepath.Join(dir, "a.css")); string(b) != "LOCAL EDIT" {
+				t.Fatalf("status touched the working tree: %q — a preview must move no bytes", b)
+			}
+		})
+	}
+}

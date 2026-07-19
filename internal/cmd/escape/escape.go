@@ -15,7 +15,7 @@ var Group = cmd.Group{
 	Title: "ESCAPE HATCH",
 	Cmds: []cmd.Command{
 		{Name: "prompt", Form: "prompt [--project id] [--ds id]", Desc: "the server's own Claude Design prompt", Run: cmdPrompt},
-		{Name: "tools", Form: "tools", Desc: "tool names and schemas from the server", Run: cmdTools},
+		{Name: "tools", Form: "tools [--schema]", Desc: "tool names and schemas from the server", Run: cmdTools},
 		{Name: "raw", Form: "raw <tool> '<json-args>'", Desc: "call any tool verbatim", Run: cmdRaw},
 	},
 }

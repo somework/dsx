@@ -17,7 +17,8 @@ import (
 var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
 	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
-  .dsxignore excludes paths from the sync, in both directions.`,
+  .dsxignore excludes paths from the sync, in both directions.
+  status accepts pull/push's flags and previews them: --force hides conflicts.`,
 	Cmds: []cmd.Command{
 		{Name: "pull", Form: "pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("pull")},

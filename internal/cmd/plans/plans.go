@@ -20,10 +20,12 @@ var Group = cmd.Group{
 func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("plan")
 	var (
-		writes  = flags.String("writes", "", "comma-separated paths to authorise for writing")
-		deletes = flags.String("deletes", "", "comma-separated paths to authorise for deletion")
-		scope   = flags.String("scope", "", `"paths" (default) or "project"`)
-		asJSON  = cmd.JSONFlag(flags)
+		writes = flags.String("writes", "", "paths to authorise for writing, comma-separated;\n"+
+			"\ta path containing a comma cannot be expressed — use --scope project")
+		deletes = flags.String("deletes", "", "paths to authorise for deletion, comma-separated;\n"+
+			"\ta path containing a comma cannot be expressed, and there is no workaround here")
+		scope  = flags.String("scope", "", `"paths" (default) or "project"`)
+		asJSON = cmd.JSONFlag(flags)
 	)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {

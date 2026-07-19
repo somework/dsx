@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,6 +39,7 @@ SYNC (etag-aware; unchanged files cost no request at all)
   dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
   The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.
+  status accepts pull/push's flags and previews them: --force hides conflicts.
 
 PROJECTS
   dsx projects                          list projects
@@ -71,7 +73,7 @@ MEMBERS / SHARING
 
 ESCAPE HATCH
   dsx prompt [--project id] [--ds id]   the server's own Claude Design prompt
-  dsx tools                             tool names and schemas from the server
+  dsx tools [--schema]                  tool names and schemas from the server
   dsx raw <tool> '<json-args>'          call any tool verbatim
 
 DIAGNOSTICS
@@ -81,9 +83,16 @@ DIAGNOSTICS
   dsx version                           version, revision, platform
   dsx completion <bash|zsh|fish>
 
-GLOBAL
-  --json      machine-readable output      -q  suppress the summary line
-  -j N        concurrency (default 8)      -n  dry run
+FLAGS
+  --json      machine-readable output — every command
+  --prune     delete what the other side lacks — pull, push, status
+  --force     overwrite conflicts — pull, push, status
+  -q  -n      suppress the summary line, dry run — pull, push, status
+  -j N        concurrency (default 8) — pull, push, status, tree
+
+WRITE GUARDS
+  --if-match E  etag guard ("0" asserts new) — put, cp, support-js
+  --plan T      plan_token from dsx plan — put, cp, support-js
 
 EXIT CODES
   0 ok   1 failed   2 usage   3 conflict (needs a human)
@@ -260,4 +269,302 @@ func TestEveryDeclaredGroupIsRegistered(t *testing.T) {
 				"`dsx help` and every command in it is rejected as unknown", where, name)
 		}
 	}
+}
+
+// flagTokens pulls the flag names out of one line of help text: any
+// whitespace-delimited token that begins with an ASCII '-', stripped of the
+// brackets, parens and pipes a Form uses to mark it optional or alternative.
+// The em dash that introduces a scope is not an ASCII '-', so it never reads
+// as a flag.
+func flagTokens(s string) []string {
+	var out []string
+	for _, f := range strings.Fields(s) {
+		f = strings.Trim(f, "[]()|,'\"`")
+		if len(f) < 2 || f[0] != '-' {
+			continue
+		}
+		out = append(out, strings.TrimLeft(f, "-"))
+	}
+	return out
+}
+
+const everyCommand = "*"
+
+// footerFlagScopes reads usageFooter as data: every line that names a flag must
+// also name the commands that flag reaches, after an em dash.
+func footerFlagScopes(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+	scopes := map[string]map[string]bool{}
+	for _, line := range strings.Split(usageFooter, "\n") {
+		flags := flagTokens(line)
+		if len(flags) == 0 {
+			continue
+		}
+		i := strings.LastIndex(line, " — ")
+		if i < 0 {
+			t.Errorf("usageFooter documents %v without naming the commands it applies to; "+
+				"append ` — cmd, cmd` or ` — every command`", flags)
+			i = len(line) - len(" — ")
+		}
+		where := map[string]bool{}
+		tail := strings.TrimSpace(line[min(i+len(" — "), len(line)):])
+		if tail == "every command" {
+			// everyCommand is a claim about the kernel, not a list of names:
+			// EmitFlagged and cmd.JSONFlag give --json to commands that never
+			// build a FlagSet of their own, so it has no per-command
+			// declaration to match and is deliberately not name-checked.
+			where[everyCommand] = true
+		} else {
+			for _, name := range strings.Split(tail, ",") {
+				where[strings.TrimSpace(name)] = true
+			}
+		}
+		for _, f := range flags {
+			if scopes[f] == nil {
+				scopes[f] = map[string]bool{}
+			}
+			for k := range where {
+				scopes[f][k] = true
+			}
+		}
+	}
+	return scopes
+}
+
+// TestEveryDeclaredFlagIsDocumented closes the drift between the flags a
+// command declares and the sentences a user can read, in both directions.
+//
+// Forward: Form is hand-written and nothing derives it from the FlagSet, so a
+// flag added later is discoverable nowhere. Every declaration must appear
+// either in its own command's Form or, for flags several commands share, in
+// usageFooter under a scope that names the command.
+//
+// Backward: every command named in a footer scope must actually declare that
+// flag. Without this half the footer's command lists were unchecked prose — a
+// scope was only ever consulted to permit a declaration, so editing usage.go
+// and the wantUsage golden together (exactly what adding a scope looks like)
+// stayed green while documenting a flag for a command that has none.
+//
+// The two halves have different reach, and the difference is the guard's real
+// limit. A FlagSet built from a non-literal name — synccmd's
+// `cmd.NewFlagSet(mode)` serves pull, push and status from one body — cannot be
+// attributed to a single command, so its flags are attributed to every command
+// its package's Group declares. That is exact for synccmd and conservative
+// elsewhere: it can only over-demand documentation, never let a flag through.
+// The one scope not name-checked is `every command`; see footerFlagScopes.
+func TestEveryDeclaredFlagIsDocumented(t *testing.T) {
+	t.Parallel()
+
+	scopes := footerFlagScopes(t)
+	checked := 0
+	declared := map[string]map[string]bool{}
+
+	scan := func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fset := token.NewFileSet()
+		var files []*ast.File
+		for _, e := range entries {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", name, err)
+			}
+			files = append(files, file)
+		}
+
+		// A package's Group names every command it serves; that list is what a
+		// FlagSet with a non-literal name falls back to.
+		var pkgCommands []string
+		for _, file := range files {
+			pkgCommands = append(pkgCommands, groupCommandNames(file, cmdImportNames(file))...)
+		}
+
+		for _, file := range files {
+			name := fset.Position(file.Pos()).Filename
+			cmdNames := cmdImportNames(file)
+			cmdNames["cmd"] = true // internal/cli calls cmd.NewFlagSet; so does every group
+
+			for _, d := range file.Decls {
+				fn, ok := d.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				owner := flagSetOwners(fn, cmdNames, pkgCommands)
+				if len(owner) == 0 {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					call, ok := n.(*ast.CallExpr)
+					if !ok || len(call.Args) == 0 {
+						return true
+					}
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					switch sel.Sel.Name {
+					case "String", "Bool", "Int":
+					default:
+						return true
+					}
+					recv, ok := sel.X.(*ast.Ident)
+					if !ok {
+						return true
+					}
+					commands, ok := owner[recv.Name]
+					if !ok {
+						return true
+					}
+					flagName, ok := stringLit(call.Args[0])
+					if !ok {
+						return true
+					}
+
+					for _, command := range commands {
+						checked++
+						if declared[command] == nil {
+							declared[command] = map[string]bool{}
+						}
+						declared[command][flagName] = true
+
+						c, ok := commandIndex[command]
+						if !ok {
+							t.Errorf("%s declares a FlagSet for %q, which is not a registered command", name, command)
+							continue
+						}
+						if slices.Contains(flagTokens(c.Form), flagName) {
+							continue
+						}
+						where := scopes[flagName]
+						if where[everyCommand] || where[command] {
+							continue
+						}
+						t.Errorf("%s declares --%s but neither `dsx %s`'s Form nor usageFooter "+
+							"documents it for %s: the flag is undiscoverable", command, flagName, command, command)
+					}
+					return true
+				})
+			}
+		}
+	}
+
+	scan(".")
+	pkgs, err := os.ReadDir(filepath.Join("..", "cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pkgs {
+		if p.IsDir() {
+			scan(filepath.Join("..", "cmd", p.Name()))
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("no flag declarations found anywhere; the parser is broken, not the code")
+	}
+
+	// The backward half: a footer scope is a promise about a command, so hold
+	// it to the command's real declarations.
+	for flagName, where := range scopes {
+		if where[everyCommand] {
+			continue
+		}
+		for command := range where {
+			if _, ok := commandIndex[command]; !ok {
+				t.Errorf("usageFooter scopes --%s to %q, which is not a registered command", flagName, command)
+				continue
+			}
+			if declared[command][flagName] {
+				continue
+			}
+			t.Errorf("usageFooter documents --%s for `dsx %s`, but %s declares no such flag: "+
+				"the footer promises a flag that would be rejected as unknown", flagName, command, command)
+		}
+	}
+}
+
+// groupCommandNames reads the Name of every command a file's `cmd.Group`
+// literals declare.
+func groupCommandNames(file *ast.File, cmdNames map[string]bool) []string {
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		sel, ok := lit.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Group" {
+			return true
+		}
+		if pkg, ok := sel.X.(*ast.Ident); !ok || !cmdNames[pkg.Name] {
+			return true
+		}
+		ast.Inspect(lit, func(n ast.Node) bool {
+			kv, ok := n.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			if key, ok := kv.Key.(*ast.Ident); !ok || key.Name != "Name" {
+				return true
+			}
+			if s, ok := stringLit(kv.Value); ok {
+				out = append(out, s)
+			}
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+// flagSetOwners maps a local variable holding a *flag.FlagSet to the commands it
+// belongs to: the one its string-literal name identifies, or — when the name is
+// an expression, as in synccmd's `cmd.NewFlagSet(mode)` — every command the
+// package's Group declares.
+func flagSetOwners(fn *ast.FuncDecl, cmdNames map[string]bool, pkgCommands []string) map[string][]string {
+	owner := map[string][]string{}
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+		lhs, ok := as.Lhs[0].(*ast.Ident)
+		if !ok {
+			return true
+		}
+		call, ok := as.Rhs[0].(*ast.CallExpr)
+		if !ok || len(call.Args) != 1 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "NewFlagSet" {
+			return true
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || !cmdNames[pkg.Name] {
+			return true
+		}
+		if lit, ok := stringLit(call.Args[0]); ok {
+			owner[lhs.Name] = []string{lit}
+		} else if len(pkgCommands) > 0 {
+			owner[lhs.Name] = pkgCommands
+		}
+		return true
+	})
+	return owner
+}
+
+func stringLit(e ast.Expr) (string, bool) {
+	lit, ok := e.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	return s, err == nil
 }

@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -49,10 +51,34 @@ func NewFlagSet(name string) *flag.FlagSet {
 	return fs
 }
 
+// helpError carries the flag documentation the FlagSet holds at the moment
+// help is asked for. It unwraps to flag.ErrHelp so the caller can recognise a
+// question rather than a malformed invocation without matching on text, and it
+// renders that documentation as its own message so flag's internal
+// "flag: help requested" never reaches a user.
+type helpError struct{ flags string }
+
+func (e *helpError) Error() string { return e.flags }
+func (e *helpError) Unwrap() error { return flag.ErrHelp }
+
+// flagDefaults renders fs's own per-flag list. NewFlagSet points fs at
+// io.Discard so flag never chatters to stderr on a parse error; the redirect
+// here is scoped to one call and restores the discard before returning.
+func flagDefaults(fs *flag.FlagSet) string {
+	var buf bytes.Buffer
+	fs.SetOutput(&buf)
+	fs.PrintDefaults()
+	fs.SetOutput(io.Discard)
+	return buf.String()
+}
+
 func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
 	for {
 		if err := fs.Parse(args); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, &helpError{flags: flagDefaults(fs)}
+			}
 			return nil, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "dsx " + fs.Name(), Err: err}
 		}
 		rest := fs.Args()
@@ -64,6 +90,13 @@ func ParseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	}
 }
 
+// SplitList splits a comma-separated flag value, trimming each entry and
+// dropping empties. The comma is the only separator by design and nothing
+// escapes it, so a value that itself contains a comma is unrepresentable;
+// inner spaces, by contrast, are deliberately preserved. A backslash escape or
+// a repeatable accumulating flag were both weighed and rejected: they would
+// break the tests that pin this shape to serve an input we cannot confirm the
+// server accepts. TestSplitListCannotExpressACommaInAPath holds the limit.
 func SplitList(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil
