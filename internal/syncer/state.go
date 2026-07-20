@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/somework/dsx/internal/dsxerr"
 )
@@ -20,24 +21,24 @@ import (
 // it (put's nearby-ledger warning, checkCloneTarget's collision probe).
 const DirName = ".dsx"
 
-// legacyStateFileName is the frozen wire-compatible spelling of the ledger's
-// pre-.dsx/ name. Anything an already-shipped binary must still recognise —
-// tempPrefix, checkRemotePath's ledger refusal, the builtinIgnores glob —
-// reads this literal directly, never through StatePath.
-const legacyStateFileName = ".dsx-state.json"
+// oldStateFileName is the ledger's pre-.dsx/ name. LoadState no longer reads
+// it — there is no installed base of a binary that still writes there. It
+// survives as the source of tempPrefix and of one builtinIgnores glob, so
+// that a directory holding a real pre-migration file at this path (or a
+// writeAtomic temp sibling of it, born anywhere in the tree) is never scanned
+// as an untracked local file and pushed.
+const oldStateFileName = ".dsx-state.json"
+
+// stateBaseName is the ledger's filename inside StateDir.
+const stateBaseName = "state.json"
 
 const caseProbeName = ".dsx-case-probe"
 
 // StateDir is the ledger's home directory.
 func StateDir(dir string) string { return filepath.Join(dir, DirName) }
 
-// StatePath is the ledger's on-disk location. It still resolves to the
-// pre-.dsx/ root path here; a later commit flips it to StateDir.
-func StatePath(dir string) string { return filepath.Join(dir, legacyStateFileName) }
-
-// LegacyStatePath is the frozen pre-.dsx/ ledger location. A later commit
-// reads it as LoadState's fallback once StatePath moves.
-func LegacyStatePath(dir string) string { return filepath.Join(dir, legacyStateFileName) }
+// StatePath is the ledger's on-disk location.
+func StatePath(dir string) string { return filepath.Join(dir, DirName, stateBaseName) }
 
 type FileState struct {
 	Etag   string `json:"etag"`
@@ -54,7 +55,12 @@ type State struct {
 
 func LoadState(dir string) (State, error) {
 	b, err := os.ReadFile(StatePath(dir))
-	if errors.Is(err, fs.ErrNotExist) {
+	// ENOTDIR alongside ErrNotExist: a .dsx that is not a directory makes
+	// StatePath unreachable the same way a missing file does. That shape is a
+	// hazard checkLedgerHome names explicitly in Pull/Push; LoadState's own
+	// job is only to say whether a ledger was read, not to judge the shape of
+	// what stands in its place.
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return State{Files: map[string]FileState{}}, nil
 	}
 	if err != nil {
@@ -62,7 +68,7 @@ func LoadState(dir string) (State, error) {
 	}
 	var s State
 	if err := json.Unmarshal(b, &s); err != nil {
-		return State{}, fmt.Errorf("%s is corrupt: %w", legacyStateFileName, err)
+		return State{}, fmt.Errorf("%s is corrupt: %w", StatePath(dir), err)
 	}
 	if s.Files == nil {
 		s.Files = map[string]FileState{}
@@ -89,7 +95,11 @@ func (s State) save(dir string) error {
 	}
 	b = append(b, '\n')
 
-	tmp, err := os.CreateTemp(dir, legacyStateFileName+".*")
+	if err := ensureLedgerHome(dir); err != nil {
+		return err
+	}
+
+	tmp, err := os.CreateTemp(StateDir(dir), stateBaseName+".*")
 	if err != nil {
 		return err
 	}
@@ -103,6 +113,64 @@ func (s State) save(dir string) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), StatePath(dir))
+}
+
+// checkLedgerHome inspects StateDir and refuses a hazard os.MkdirAll would
+// otherwise silently walk into or through — a symlinked component, possibly
+// resolving into a wholly separate root. It writes nothing and creates
+// nothing; safe to call unconditionally, including on a dry run.
+func checkLedgerHome(dir string) error {
+	home := StateDir(dir)
+	fi, err := os.Lstat(home)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		// Not a string match on "not a directory": os.MkdirAll returns
+		// *fs.PathError{Op:"mkdir", Err: ENOTDIR} naming the offending
+		// component, not home itself, when an ancestor is a regular file.
+		if errors.Is(err, syscall.ENOTDIR) {
+			return &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
+				"%s is not a directory", home)}
+		}
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
+			"%s is a symlink — refusing to create or read the ledger through it", home)}
+	}
+	if !fi.IsDir() {
+		return &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
+			"%s is not a directory", home)}
+	}
+	return checkLedgerHomeWritable(home)
+}
+
+// checkLedgerHomeWritable probes home the way save() will actually use it —
+// create a temp file and remove it — rather than inferring from mode bits,
+// which are wrong under ACLs and for root. A directory that passes every
+// shape check above (not a symlink, not ENOTDIR, IsDir) can still reject
+// save()'s os.CreateTemp, e.g. root-owned after a sudo run: without this
+// probe the fetch or upload runs to completion and only then fails to save,
+// leaving disk and ledger disagreeing about what just happened.
+func checkLedgerHomeWritable(home string) error {
+	f, err := os.CreateTemp(home, stateBaseName+".probe-*")
+	if err != nil {
+		return &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
+			"%s is not writable, so the ledger could not be saved there: %v", home, err)}
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return nil
+}
+
+// ensureLedgerHome creates StateDir and nothing else. No Chmod: the kernel
+// applies umask at creation regardless of the mode passed here, and a
+// corrective Chmod would widen a directory the caller's umask deliberately
+// narrowed — the directory twin of the file trap invariant 15 documents.
+func ensureLedgerHome(dir string) error {
+	return os.MkdirAll(StateDir(dir), 0o755)
 }
 
 func (s State) withFile(path string, fst FileState) State {
@@ -222,7 +290,7 @@ func endpointRefusal(dir, ledger, target, verb string) error {
 // case-insensitive filesystem `.GIT/config` is `.git/config`, so a
 // case-sensitive guard is no guard.
 func checkRemotePath(rel string) error {
-	if strings.EqualFold(rel, legacyStateFileName) {
+	if strings.EqualFold(rel, oldStateFileName) {
 		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {

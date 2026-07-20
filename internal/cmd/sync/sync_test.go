@@ -195,6 +195,9 @@ func TestBoundProjectReadsTheLedgerAndIsSilentWhenThereIsNone(t *testing.T) {
 
 func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(syncer.StateDir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(syncer.StatePath(dir), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}

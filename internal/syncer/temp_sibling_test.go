@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// save() writes through os.CreateTemp(dir, legacyStateFileName+".*") and probes the
+// save() writes through os.CreateTemp(dir, oldStateFileName+".*") and probes the
 // filesystem through os.MkdirTemp(dir, caseProbeName+"-fold-*"). A kill between
 // create and rename leaves the sibling behind. The builtin patterns are
 // compiled anchored, so a bare name never matched these — and an unmatched
@@ -20,8 +20,8 @@ func TestLedgerAndProbeLeftoversAreIgnoredLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{
-		legacyStateFileName + ".2841913057",
-		legacyStateFileName + ".tmp",
+		oldStateFileName + ".2841913057",
+		oldStateFileName + ".tmp",
 		caseProbeName,
 		caseProbeName + "-fold-993421",
 	} {
@@ -55,11 +55,11 @@ func TestLedgerAndProbeLeftoversAreIgnoredLocally(t *testing.T) {
 // indistinguishable from our own leftover on the next run.
 func TestCheckRemotePathRefusesLedgerAndProbeSiblings(t *testing.T) {
 	for _, rel := range []string{
-		legacyStateFileName,
-		legacyStateFileName + ".2841913057",
-		strings.ToUpper(legacyStateFileName) + ".tmp",
+		oldStateFileName,
+		oldStateFileName + ".2841913057",
+		strings.ToUpper(oldStateFileName) + ".tmp",
 		caseProbeName + "-fold-1",
-		"nested/" + legacyStateFileName + ".tmp",
+		"nested/" + oldStateFileName + ".tmp",
 		".git/config",
 		"node_modules/x/index.js",
 	} {
@@ -95,7 +95,7 @@ func TestFilterRemoteDropsLedgerSiblings(t *testing.T) {
 	}
 	remote := remoteOf(
 		RemoteEntry{Path: "tokens.css", Etag: "e1"},
-		RemoteEntry{Path: legacyStateFileName + ".tmp", Etag: "e2"},
+		RemoteEntry{Path: oldStateFileName + ".tmp", Etag: "e2"},
 		RemoteEntry{Path: caseProbeName + "-fold-7", Etag: "e3"},
 	)
 	out := filterRemote(remote, ig)
@@ -117,7 +117,7 @@ func TestBothConsumersOfBuiltinIgnoresAgree(t *testing.T) {
 	}
 	for _, name := range []string{
 		".git", "node_modules", ".DS_Store",
-		legacyStateFileName, legacyStateFileName + ".55", ignoreFileName,
+		oldStateFileName, oldStateFileName + ".55", ignoreFileName,
 		caseProbeName, caseProbeName + "-fold-2",
 	} {
 		t.Run(name, func(t *testing.T) {

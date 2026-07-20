@@ -7,6 +7,24 @@ import (
 	"testing"
 )
 
+// checkRemotePath's ledger-specific comparison must stay pinned to
+// oldStateFileName. stateBaseName ("state.json") is a perfectly legitimate
+// remote filename now that the ledger lives inside .dsx/, and repointing the
+// comparison there would refuse it. The accept half is what catches a
+// repoint: the refuse half stays true either way, because the general
+// builtinIgnores glob already refuses oldStateFileName independently of this
+// comparison.
+func TestCheckRemotePathStaysPinnedToTheOldLedgerName(t *testing.T) {
+	if err := checkRemotePath("state.json"); err != nil {
+		t.Errorf("a legitimate remote file named state.json was refused: %v", err)
+	}
+	for _, bad := range []string{oldStateFileName, ".dsx", ".dsx/state.json", "a/.dsx/x"} {
+		if err := checkRemotePath(bad); err == nil {
+			t.Errorf("checkRemotePath(%q) = nil, want a refusal", bad)
+		}
+	}
+}
+
 func TestSafeJoinRefusesEscapes(t *testing.T) {
 	root := t.TempDir()
 
@@ -83,6 +101,9 @@ func TestLoadStateMissingIsEmptyNotError(t *testing.T) {
 
 func TestLoadStateCorruptIsAnError(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(StateDir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(StatePath(dir), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +126,7 @@ func TestScanLocalSkipsLedgerAndVCS(t *testing.T) {
 	}
 	write("a.css", "body{}")
 	write("tokens/colors.css", ":root{}")
-	write(legacyStateFileName, "{}")
+	write(oldStateFileName, "{}")
 	write(".git/config", "[core]")
 	write("node_modules/pkg/index.js", "x")
 

@@ -49,6 +49,9 @@ func goldenState() State {
 
 func TestLedgerGoldenDecodes(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(StateDir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(StatePath(dir), []byte(goldenLedger), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +130,9 @@ func TestLedgerUnknownFieldsSurvive(t *testing.T) {
   "schema_version": 9
 }
 `
+	if err := os.MkdirAll(StateDir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(StatePath(dir), []byte(future), 0o600); err != nil {
 		t.Fatal(err)
 	}

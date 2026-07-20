@@ -103,6 +103,9 @@ func SeedState(t *testing.T, dir string, st syncer.State) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(syncer.StateDir(dir), 0o755); err != nil {
+		t.Fatalf("seeding ledger: %v", err)
+	}
 	if err := os.WriteFile(syncer.StatePath(dir), b, 0o644); err != nil {
 		t.Fatalf("seeding ledger: %v", err)
 	}

@@ -19,7 +19,7 @@ const ignoreFileName = ".dsxignore"
 // uploads — for the ledger sibling, dsx's own project id and file map.
 var builtinIgnores = []string{
 	".git", ".svn", ".hg", "node_modules", ".DS_Store",
-	".dsx", legacyStateFileName + "*", ignoreFileName, caseProbeName + "*",
+	".dsx", oldStateFileName + "*", ignoreFileName, caseProbeName + "*",
 }
 
 // builtinIgnoreSet is the builtins compiled once, so that every consumer of

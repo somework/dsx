@@ -121,7 +121,7 @@ func TestCloneIgnoresWhatSyncIgnores(t *testing.T) {
 	for _, name := range []string{
 		".DS_Store",
 		".dsxignore",
-		filepath.Base(syncer.LegacyStatePath("")) + ".8412",
+		".dsx-state.json.8412",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "target")

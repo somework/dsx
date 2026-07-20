@@ -111,7 +111,7 @@ func TestRemotePathsCannotTouchVCSOrLedger(t *testing.T) {
 	for _, p := range []string{
 		".git/config",
 		".git/hooks/pre-commit",
-		legacyStateFileName,
+		oldStateFileName,
 		"node_modules/x/index.js",
 		"a/.git/config",
 	} {

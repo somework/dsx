@@ -75,6 +75,9 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	if st.Endpoint != "" && !sameEndpoint(st.Endpoint, c.Endpoint()) {
 		return rep, endpointRefusal(o.Dir, st.Endpoint, c.Endpoint(), "push")
 	}
+	if err := checkLedgerHome(o.Dir); err != nil {
+		return rep, err
+	}
 
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
 	if err != nil {

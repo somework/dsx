@@ -75,6 +75,9 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	if st.Endpoint != "" && !sameEndpoint(st.Endpoint, c.Endpoint()) {
 		return rep, endpointRefusal(o.Dir, st.Endpoint, c.Endpoint(), "pull")
 	}
+	if err := checkLedgerHome(o.Dir); err != nil {
+		return rep, err
+	}
 
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
 	if err != nil {

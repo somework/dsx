@@ -13,6 +13,9 @@ import (
 // writeRawLedger puts arbitrary bytes where the ledger lives.
 func writeRawLedger(t *testing.T, dir, body string) {
 	t.Helper()
+	if err := os.MkdirAll(StateDir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(StatePath(dir), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +44,7 @@ func TestLoadStateRefusesAFilesMapWithNoProject(t *testing.T) {
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindLocal {
 		t.Errorf("kind=%v, want %v", got, dsxerr.KindLocal)
 	}
-	if !strings.Contains(err.Error(), legacyStateFileName) {
+	if !strings.Contains(err.Error(), stateBaseName) {
 		t.Errorf("refusal does not name the file: %s", err)
 	}
 }

@@ -12,14 +12,14 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// tempPrefix is frozen to legacyStateFileName, not derived from anything that
-// can change: it is a compatibility artifact, recognised by an already-shipped
-// binary's compile-time builtinIgnores, which can never learn a string
-// invented later. Repointing this at a new name wedges the versions — a new
-// binary drops a file the old one does not know, the old one pushes that
-// fragment to the server, and the new one then refuses the whole pull until
-// it is deleted by hand.
-const tempPrefix = legacyStateFileName + ".part-"
+// tempPrefix reuses oldStateFileName rather than DirName or stateBaseName: a
+// writeAtomic temp is born beside its destination, anywhere in the tree, so
+// whatever prefix it carries must be matched by a builtinIgnores entry that
+// covers any depth. The bare ".dsx" entry does not — it compiles anchored to
+// the ".dsx" segment itself and never matches ".dsx.part-ff" — while
+// oldStateFileName+"*" already does, and stays in builtinIgnores regardless
+// for the pre-existing on-disk ledger it also has to keep hiding.
+const tempPrefix = oldStateFileName + ".part-"
 
 // writeAtomic replaces path's contents in one step. os.WriteFile opens with
 // O_TRUNC, so its destroying step strictly precedes its creating one: a kill
