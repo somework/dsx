@@ -33,15 +33,13 @@ func except(all []string, excluded ...[]string) []string {
 }
 
 // Outcome is the conflict error the command emits. It keeps each conflict class
-// distinct in the machine-facing hint so an agent is never told to do the
-// impossible: a binary conflict cannot be pulled (read_file serves text only),
-// and a pull prune-conflict resolved with --force DELETES the only copy.
+// distinct in the machine-facing hint.
 func (r PushReport) Outcome(dryRun bool) error {
 	if dryRun || len(r.Conflicts) == 0 {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.BinaryConflicts, r.PruneConflicts)
+	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -52,6 +50,12 @@ func (r PushReport) Outcome(dryRun bool) error {
 			"binary conflicts (%s) cannot be pulled — dsx cannot read the server's copy to merge; "+
 				"--force overwrites it and the only copy is gone",
 			strings.Join(r.BinaryConflicts, ", ")))
+	}
+	if len(r.BinaryGone) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"binary paths (%s) are gone from the server and dsx did not re-create them — "+
+				"delete them here, or --force to re-upload",
+			strings.Join(r.BinaryGone, ", ")))
 	}
 	if len(r.PruneConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

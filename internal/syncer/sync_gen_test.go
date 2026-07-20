@@ -577,14 +577,10 @@ func TestPushInterruptedBeforeThePruneDeletesSendsNoDelete(t *testing.T) {
 	if !strings.Contains(err.Error(), "interrupted") {
 		t.Errorf("error = %v, want it to name the interruption", err)
 	}
-	// This loop does not prove invariant 4: the fake appends to f.calls at the top of
-	// its handler, when the request arrives, before any reply is written — but the
-	// cancelled call here never reaches that handler. syncCancelAfterRT cancels ctx
-	// only after base.RoundTrip returns for the Nth call, so the next call's request
-	// is rejected by net/http before transmission and dies inside the transport,
-	// never reaching the fake at all. So delete_files/finalize_plan would be absent
-	// from f.Recorded() even if push.go ignored the cancellation. The assertion that
-	// actually reds on a real violation is the "interrupted" message check above.
+	// This loop does not prove invariant 3: the cancelled call dies inside the
+	// transport and never reaches the fake, so delete_files/finalize_plan would
+	// be absent from f.Recorded() even if push.go ignored the cancellation. The
+	// "interrupted" check above is what reds on a real violation.
 	for _, call := range f.Recorded() {
 		if call.Tool == "delete_files" || call.Tool == "finalize_plan" {
 			t.Errorf("%s ran after the push was interrupted; --prune deleted against a tree the user cancelled", call.Tool)

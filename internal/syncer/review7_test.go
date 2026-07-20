@@ -151,9 +151,9 @@ func TestWalkTreeWalksALegitimateDeepAndWideTree(t *testing.T) {
 
 // --- S2: deletePaths conflict hint on the runtime path -----------------------
 
-// A refused prune-delete surfaces a conflict. These are prune-deletes: on a
-// --force rerun planPush routes them to Delete, DESTROYING the server's newer
-// copy (invariant 4). The machine hint must say so, not tell the agent to pull.
+// A refused prune-delete surfaces a conflict. On a --force rerun the path is
+// deleted, DESTROYING the server's newer copy (invariant 4). The machine hint
+// must say so, not tell the agent to pull.
 func TestDeletePathsConflictHintWarnsForceWouldDelete(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		switch name {
@@ -288,10 +288,8 @@ func parityMatrix() []parityScenario {
 		// tracked binary gone locally: must never be pruned (unpullable).
 		{path: "binary-gone-local.png", onRemote: true, remoteEtag: "e1", onLocal: false, tracked: true, stateEtag: "e1", stateSHA: "s1", stateBinary: true},
 		// The shape a FORCED push leaves behind: binary:true carried through
-		// beside a real SHA, and the local file still matching it. Every
-		// conditional guard passes here -- the sha check sees equality -- so P4
-		// has nothing to catch this cell with but the unconditional
-		// `if prev.Binary`. It is the one that actually loses data.
+		// beside a real SHA, and the local file still matching it, so the sha
+		// check sees equality.
 		{path: "binary-forced-push.png", onRemote: false, onLocal: true, localSHA: "s1", tracked: true, stateEtag: "e1", stateSHA: "s1", stateBinary: true},
 		// tracked binary gone from the server, a file sitting at that path
 		// locally.
@@ -388,20 +386,19 @@ func TestPlannerParitySharedSafetyProperties(t *testing.T) {
 					}
 				}
 
-				// P4 binary non-prunability: invariant 4 -- neither the absence
-				// of a local file nor the
-				// presence of one is proof the path was ours, so neither planner
-				// may schedule it for deletion -- and unlike the etag/sha guards
-				// this one is unconditional: --force does not unlock it.
+				// P4 binary non-prunability (invariant 4): neither planner may
+				// schedule a tracked binary path for deletion, and unlike the
+				// etag/sha guards this one is unconditional — --force does not
+				// unlock it.
 				for _, s := range scen {
 					if !s.tracked || !s.stateBinary {
 						continue
 					}
 					if slices.Contains(pb["Delete"], s.path) {
-						t.Errorf("planPush schedules binary-marked %q for deletion (nothing was ever written there; the server copy is the only one)", s.path)
+						t.Errorf("planPush schedules binary-marked %q for deletion", s.path)
 					}
 					if slices.Contains(lb["Delete"], s.path) {
-						t.Errorf("planPull schedules binary-marked %q for deletion (nothing was ever written there; the local bytes are user-authored)", s.path)
+						t.Errorf("planPull schedules binary-marked %q for deletion", s.path)
 					}
 				}
 

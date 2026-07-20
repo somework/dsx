@@ -44,6 +44,8 @@ type PushReport struct {
 
 	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
 
+	BinaryGone []string `json:"binary_gone,omitempty"`
+
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
 
 	Irregular []string `json:"irregular,omitempty"`
@@ -77,17 +79,15 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	rep.Unchanged = d.Unchanged
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.PruneConflicts...)
+	rep.Conflicts = append(rep.Conflicts, d.BinaryGone...)
 	slices.Sort(rep.Conflicts)
 	rep.BinaryConflicts = d.BinaryConflicts
+	rep.BinaryGone = d.BinaryGone
 	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
 
-	// Deleted and Bytes name ACTS, so they are bound to locals here and
-	// assigned to rep only where the act has actually happened (or, in the
-	// DryRun branch, where the caller asked for the plan itself). Written is
-	// the model: it is appended only after the server acks an etag. Every
-	// error return between here and the act would otherwise turn an intention
-	// into a claimed outcome — sync.go emits the report before returning err.
+	// Deleted and Bytes name acts: bound to locals here, assigned to rep only
+	// where the act has happened, or in the DryRun branch (invariant 12).
 	toDelete := d.Delete
 	var plannedBytes int64
 
@@ -122,8 +122,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
-	// Save the ledger whenever bytes moved, error paths included: a file on disk
-	// with no ledger entry becomes a conflict next run, pushing the user to --force.
+	// Save the ledger whenever bytes moved, error paths included (invariant 5).
 	for _, batch := range batches(specs) {
 		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
 			_ = st.save(o.Dir)
@@ -132,11 +131,9 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		}
 	}
 
-	// A cancel that lands after the last call returns leaves every loop above
-	// with a nil error, and Push would report a short success — the thing
-	// invariant 3 forbids. push's batch loop is sequential and derives no
-	// context, so ctx is already the parent: the pull/WalkTree parent-vs-derived
-	// split is unnecessary here, not missing. Checked before the deletes so
+	// A cancel landing after the last call returns leaves every loop above with
+	// a nil error (invariant 3). The batch loop is sequential and derives no
+	// context, so ctx is already the parent. Checked before the deletes so
 	// --prune cannot run against a tree the user already cancelled.
 	if err := ctx.Err(); err != nil {
 		_ = st.save(o.Dir)
@@ -156,7 +153,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		}
 	}
 
-	// Again after the deletes: the same tail cancel, one call later.
+	// Again after the deletes.
 	if err := ctx.Err(); err != nil {
 		_ = st.save(o.Dir)
 		return rep, fmt.Errorf("push interrupted after %d of %d files: %w",
@@ -169,15 +166,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	return rep, nil
 }
 
-// addConflicts folds a server-side conflict's paths into the report. writeBatch
-// and deletePaths build their own dsxerr.Conflict, and that error is the only
-// place those paths travel; without this, a run that failed for no reason but a
-// conflict emits "conflicts":null and an agent branching on len(conflicts)==0
-// concludes "no conflicts" on the one run where the conflict IS the outcome.
-//
-// Outcome() derives its error entirely from Conflicts, so populating Conflicts
-// late would make Outcome() non-nil for such a run. That is inert only because
-// sync.go returns this raw err before Outcome is ever reached — keep that order.
+// addConflicts folds a server-side conflict's paths into the report.
 func (r *PushReport) addConflicts(err error) {
 	e := dsxerr.Classify(err)
 	if e == nil || e.Kind != dsxerr.KindConflict {
@@ -191,14 +180,8 @@ func (r *PushReport) addConflicts(err error) {
 	slices.Sort(r.Conflicts)
 }
 
-// addPruneConflicts is addConflicts for the delete lane. A conflict raised by
-// deletePaths is a PRUNE conflict, and the two lanes want opposite advice:
-// Render's ladder is BinaryConflicts -> PruneConflicts -> generic, so a path
-// left in Conflicts alone gets the generic "`dsx pull` first, or --force" line
-// — while deletePaths' own error text says something else.
-//
-// Not merged into addConflicts: writeBatch shares that call site and its
-// conflicts genuinely are pull-first.
+// addPruneConflicts is addConflicts for the delete lane; it also records the
+// paths in PruneConflicts, which Render and Outcome word differently.
 func (r *PushReport) addPruneConflicts(err error) {
 	r.addConflicts(err)
 	e := dsxerr.Classify(err)
@@ -256,9 +239,6 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 
 	var res writeResult
 	if jsonErr := json.Unmarshal([]byte(text), &res); jsonErr != nil || len(res.Etags) == 0 {
-		// Same failure class as the unacknowledged-etag branch below: the server
-		// broke its half of the protocol. No etag at all was recorded, so every
-		// path in the batch is absent from the ledger.
 		slices.Sort(paths)
 		return &dsxerr.Error{Kind: dsxerr.KindProtocol, Paths: paths, Msg: fmt.Sprintf(
 			"write reply was unrecognised, so etags were not recorded; "+
@@ -274,10 +254,8 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 		if !ok {
 			continue
 		}
-		// Symmetry with ParseEnvelope, which refuses a read whose etag is empty:
-		// an empty etag is not a usable ledger key — recorded, it reads as
-		// unchanged (empty-vs-empty) next run. Skip it here and let it fall into
-		// the unacknowledged set below so the caller resynchronises with a pull.
+		// An empty etag is not a usable ledger key; skipped here, it falls into
+		// the unacknowledged set below.
 		if etag == "" {
 			continue
 		}
@@ -285,8 +263,8 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 		if err != nil {
 			return err
 		}
-		// Carry the Binary marker through.
-		// Pushing binary bytes does not make them text.
+		// withFile REPLACES the entry wholesale rather than merging fields, so
+		// the Binary marker has to be carried across by hand.
 		*st = st.withFile(path, FileState{
 			Etag: etag, Size: int64(len(raw)), SHA: SHA256Hex(raw),
 			Binary: st.Files[path].Binary,
@@ -333,10 +311,8 @@ func deletePaths(ctx context.Context, c *mcp.Client, projectID string, paths []s
 	})
 	if err != nil {
 		if paths, ok := mcp.ConflictFromToolError(err); ok {
-			// A prune-delete refusal means the server moved this path ahead of the
-			// ledger. On a --force rerun planPush routes it to Delete, so --force
-			// DELETES the server's newer copy — do not say "pull first" (invariant
-			// 4). Wording mirrors Outcome()/Render for the same prune-conflict.
+			// Do not say "pull first": on a --force rerun this path is deleted,
+			// so --force DELETES the server's newer copy (invariant 4).
 			return dsxerr.Conflict(paths, "the server moved ahead of a path dsx was pruning; nothing was deleted — --force would DELETE the server's newer copy")
 		}
 		return err
@@ -362,6 +338,11 @@ func (r PushReport) Render(asJSON bool) string {
 		if slices.Contains(r.BinaryConflicts, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — dsx cannot read the server's copy, so it cannot merge; "+
 				"--force overwrites it and the only copy is gone", p)
+			continue
+		}
+		if slices.Contains(r.BinaryGone, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — gone from the server; dsx did not re-create it "+
+				"— delete it here, or --force to re-upload it", p)
 			continue
 		}
 		if slices.Contains(r.PruneConflicts, p) {

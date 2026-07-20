@@ -26,8 +26,7 @@ type pullDecision struct {
 
 	PruneConflicts []string
 
-	// Gone from the server, tracked binary:true, still on disk. Never deleted --
-	// but never silent either; see the prune loop.
+	// Gone from the server, tracked binary:true, still on disk.
 	PruneBinary []string
 }
 
@@ -39,8 +38,7 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 		prev, tracked := st.Files[path]
 		onDisk, present := local[path]
 
-		// localDirty compares bytes (SHA), not etag: an etag-only guard cannot
-		// see the both-sides-changed case, which is the canonical conflict.
+		// localDirty compares bytes (SHA), not etag (invariant 2).
 		localDirty := present && (!tracked || onDisk.SHA != prev.SHA)
 
 		switch {
@@ -57,9 +55,7 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 		}
 	}
 
-	// --prune deletes only what we can prove was ours and unmodified: untracked
-	// is not ours, locally-edited is a conflict, and an Irregular (symlink, etc.)
-	// was never a plain file here, so its absence is not proof of a deletion.
+	// --prune deletes only what we can prove was ours and unmodified (invariant 4).
 	if prune {
 		for _, path := range SortedPaths(local) {
 			if _, stillRemote := remote[path]; stillRemote {
@@ -69,24 +65,9 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			if !tracked {
 				continue
 			}
-			// Mirrors planPush's guard, and is likewise
-			// unconditional -- but NOT because --force is the only way in. A
-			// forced push of such a path leaves {Binary: true, SHA: <real>}
-			// (writeBatch carries the marker), and against that ledger the local
-			// bytes MATCH, so the SHA check below does not divert: this line is
-			// the only thing standing between a plain, non-force `pull --prune`
-			// and deleting the user's only copy of a file dsx can never re-fetch.
-			// TestForcedPushOfABinaryEntryDoesNotArmAPlainPullPrune.
-			//
-			// Reported, not skipped. `continue` would keep the file and tell the
-			// user nothing, and the silence is not free: the next plain `dsx push`
-			// sees local+tracked+prev.Binary with onServer FALSE, so planPush's
-			// BinaryConflicts case cannot fire, and the path falls through to
-			// Write with if_match "0" -- a silent re-upload.
-			// Its own slice, not PruneConflicts: this guard sits ABOVE the force
-			// check, so --force will not delete it either, and PruneConflicts'
-			// wording promises exactly that deletion.
-			// TestPlainPullPruneReportsAnUnprunableBinaryPath.
+			// Above the force check: --force does not unlock this. Reported
+			// rather than skipped, in its own slice — PruneConflicts' wording
+			// promises a deletion this path never gets.
 			if prev.Binary {
 				d.PruneBinary = append(d.PruneBinary, path)
 				continue
@@ -119,6 +100,9 @@ type pushDecision struct {
 
 	BinaryConflicts []string
 
+	// Tracked binary:true, on disk, gone from the server.
+	BinaryGone []string
+
 	PruneConflicts []string
 }
 
@@ -135,9 +119,7 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 
 		switch {
 		case lf.Irregular:
-			// Record it regardless of whether the server has the path: a
-			// local-only symlink dropped from every field leaves the user with
-			// "pushed 0" and no trace it was skipped. It is never pushable.
+			// Recorded regardless of whether the server has the path.
 			d.Irregular = append(d.Irregular, path)
 			continue
 		case tracked && !localChanged && onServer && !remoteMoved:
@@ -146,14 +128,19 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 		case tracked && !localChanged && remoteMoved:
 			d.Unchanged++
 			continue
+		// Above the generic remoteMoved arm, so a moved binary gets the binary
+		// wording rather than "`dsx pull` first".
+		case !force && tracked && prev.Binary && onServer && (prev.SHA == "" || remoteMoved):
+			d.BinaryConflicts = append(d.BinaryConflicts, path)
+			continue
 		case !force && remoteMoved:
 			d.Conflicts = append(d.Conflicts, path)
 			continue
 		case !force && !tracked && onServer:
 			d.Conflicts = append(d.Conflicts, path)
 			continue
-		case !force && tracked && prev.Binary && onServer:
-			d.BinaryConflicts = append(d.BinaryConflicts, path)
+		case !force && tracked && prev.Binary && !onServer:
+			d.BinaryGone = append(d.BinaryGone, path)
 			continue
 		}
 
@@ -163,7 +150,7 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			switch {
 			case !onServer:
 				cand.IfMatch = "0"
-			case tracked && !prev.Binary:
+			case tracked && prev.Etag != "":
 				cand.IfMatch = prev.Etag
 			}
 		}
@@ -179,20 +166,12 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			if !tracked {
 				continue
 			}
-			// Silent by design, unlike planPull's mirror of this guard. There, the
-			// shape (tracked binary AND on disk) is an anomaly worth a word.
-			// Here it is the STEADY STATE of
-			// every binary file the project has ever had -- pulled, never landed
-			// on disk, so localCovers is false on every run. Reporting it would
-			// put a conflict and exit 3 on every `push --prune` of any project
-			// holding a single image.
+			// Silent by design; see TestPlainPushPruneIsSilentAboutASteadyStateBinaryPath.
 			if prev.Binary {
 				continue
 			}
-			// The server moved this path ahead of the ledger since the last
-			// sync: deleting it with a stale if_match would drop a change the
-			// user never pulled. Mirror planPull's prune-conflict — a conflict,
-			// not a delete, unless --force.
+			// The server moved this path ahead of the ledger: a conflict, not a
+			// delete, unless --force.
 			if !force && remote[path].Etag != prev.Etag {
 				d.PruneConflicts = append(d.PruneConflicts, path)
 				continue

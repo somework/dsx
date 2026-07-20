@@ -8,19 +8,12 @@ import (
 )
 
 // A prune delete the SERVER refuses (it moved the path ahead between the
-// listing and the delete) reaches the report only through addConflicts, which
-// merged it into Conflicts alone. Render's ladder is BinaryConflicts ->
-// PruneConflicts -> generic, so such a path fell through to the generic line
-// and stdout told the user to `dsx pull` first — while the returned error, from
-// deletePaths, said something else. Two channels, opposite advice.
-//
-// planPush cannot produce this state (a remote whose etag matches the ledger is
-// routed to Delete, not PruneConflicts), so only a runtime refusal reaches it.
+// listing and the delete) reaches the report through addPruneConflicts. Its
+// rendered line must carry the prune remedy, not the pull one.
 func TestRefusedPruneDeleteRendersThePruneRemedyNotThePullOne(t *testing.T) {
 	dir := t.TempDir()
-	// No local files: gone.css exists on the server and in the ledger only, so
-	// planPush's prune loop routes it to Delete. The etag MATCHES the ledger,
-	// which is what keeps it out of d.PruneConflicts at plan time.
+	// No local files: gone.css exists on the server and in the ledger only, and
+	// its etag MATCHES the ledger, so it is planned as a Delete.
 	syncSeedState(t, dir, State{ProjectID: "p1", Files: map[string]FileState{
 		"gone.css": {Etag: "e1", Size: 6, SHA: SHA256Hex([]byte("orig{}"))},
 	}})
@@ -48,7 +41,7 @@ func TestRefusedPruneDeleteRendersThePruneRemedyNotThePullOne(t *testing.T) {
 		t.Fatal("Push returned nil after the server refused the prune delete")
 	}
 	if len(rep.Deleted) != 0 {
-		t.Errorf("Deleted = %v, want empty — the server deleted nothing", rep.Deleted)
+		t.Errorf("Deleted = %v, want empty", rep.Deleted)
 	}
 
 	out := rep.Render(false)
@@ -62,14 +55,12 @@ func TestRefusedPruneDeleteRendersThePruneRemedyNotThePullOne(t *testing.T) {
 		t.Fatalf("Render printed no line for the refused path:\n%s", out)
 	}
 	if strings.Contains(line, "dsx pull") {
-		t.Errorf("stdout offers the pull remedy for a refused PRUNE delete, "+
-			"contradicting the error text: %q", line)
+		t.Errorf("stdout offers the pull remedy for a refused PRUNE delete: %q", line)
 	}
 	if !strings.Contains(line, "DELETE") {
 		t.Errorf("stdout does not warn that --force DELETES the server's newer copy: %q", line)
 	}
-	// The machine-facing slice must carry it too, or --json readers keep the
-	// same wrong classification stdout just shed.
+	// The machine-facing slice must carry it too.
 	if !slices.Contains(rep.PruneConflicts, "gone.css") {
 		t.Errorf("PruneConflicts = %v, want it to name gone.css", rep.PruneConflicts)
 	}

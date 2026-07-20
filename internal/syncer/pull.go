@@ -34,9 +34,7 @@ type PullReport struct {
 
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
 
-	// Gone from the server but not prunable at any force level. Distinct from
-	// PruneConflicts because --force resolves that one by deleting and cannot
-	// resolve this one at all.
+	// Gone from the server but not prunable at any force level.
 	PruneBinary []string `json:"prune_binary,omitempty"`
 
 	Irregular []string `json:"irregular,omitempty"`
@@ -91,8 +89,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	rep.Irregular = d.Irregular
 
 	if o.DryRun {
-		// The one place a plan may legitimately be reported as an outcome:
-		// the caller asked for a preview, not for the bytes to move.
+		// DryRun: the plan is the requested outcome (invariant 12).
 		rep.Deleted = d.Delete
 		for _, path := range d.Fetch {
 			rep.Fetched = append(rep.Fetched, path)
@@ -121,9 +118,8 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	fetchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// One shape for every failure, mirroring WalkTree: record under the lock,
-	// then cancel. Append-then-cancel ordering is load-bearing (invariant 3) —
-	// the error is visible before peers observe fetchCtx.Done().
+	// Record under the lock, then cancel. The append-then-cancel ordering is
+	// load-bearing (invariant 3).
 	fail := func(err error) {
 		mu.Lock()
 		errs = append(errs, err)
@@ -155,8 +151,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 				return
 			}
 
-			// A decoded length that disagrees with list_files' size means a
-			// corrupt decode; refuse rather than land a bad file on disk.
+			// A decoded length must agree with list_files' size (invariant 1).
 			if want := remote[path].Size; int64(len(body)) != want {
 				fail(fmt.Errorf(
 					"%s: decoded %d bytes, server reports %d — refusing to write",
@@ -187,8 +182,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 	wg.Wait()
 
-	// Sorted here, not on the success path alone: the error returns below are
-	// a machine surface too, and goroutine-completion order is churn.
+	// Sorted above the error returns below, which are a machine surface too.
 	slices.Sort(rep.Fetched)
 	slices.Sort(rep.Binary)
 
@@ -215,16 +209,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 			pruneErr = err
 			break
 		}
-		// Ledger and report must not disagree about a path, so
-		// both record the same removal at the same point.
 		delete(st.Files, path)
 		rep.Deleted = append(rep.Deleted, path)
 	}
 
-	// Above the error returns, like Fetched/Binary: --json is a machine surface
-	// on the failure paths too. Inert while d.Delete is built in SortedPaths
-	// order and appended in iteration order (a break leaves a sorted prefix) --
-	// kept so the guarantee is positional, not a property of the planner.
+	// Above the error returns: --json is a machine surface on the failure paths too.
 	slices.Sort(rep.Deleted)
 
 	saveErr := st.save(o.Dir)

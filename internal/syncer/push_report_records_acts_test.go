@@ -8,10 +8,8 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// The report is the agent's only view of the run: internal/cmd/sync/sync.go
-// emits it BEFORE returning the error, so a field naming an ACT ("these were
-// deleted", "these bytes moved") must never be filled from the plan. Written
-// is the model — it is appended only after the server acks an etag.
+// A field naming an ACT ("these were deleted", "these bytes moved") is
+// assigned when the act completes, never when it is only planned (invariant 12).
 
 // pruneFixture stages one new local file and one tracked server-only file, so
 // planPush yields exactly one Write and one prune Delete.
@@ -29,9 +27,7 @@ func pruneListing() string {
 	return listingFor(fileEntry("gone.css", "e1", 3))
 }
 
-// A write failure returns before the deletes are ever attempted. Reporting the
-// planned delete there prints "deleted 1" beside a stderr saying nothing was
-// written — an outcome that never happened.
+// A write failure returns before the deletes are ever attempted.
 func TestPushDeletedIsEmptyWhenTheWriteFailedBeforeTheDeletes(t *testing.T) {
 	dir := pruneFixture(t)
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -54,10 +50,10 @@ func TestPushDeletedIsEmptyWhenTheWriteFailedBeforeTheDeletes(t *testing.T) {
 		t.Fatalf("delete_files called %d times, want 0", got)
 	}
 	if len(rep.Deleted) != 0 {
-		t.Errorf("Deleted = %v, want empty — no delete was attempted, yet the report claims one", rep.Deleted)
+		t.Errorf("Deleted = %v, want empty — no delete was attempted", rep.Deleted)
 	}
 	if rep.Bytes != 0 {
-		t.Errorf("Bytes = %d, want 0 — nothing was written, yet the report counts a payload", rep.Bytes)
+		t.Errorf("Bytes = %d, want 0 — nothing was written", rep.Bytes)
 	}
 }
 
@@ -85,13 +81,12 @@ func TestPushDeletedIsEmptyWhenTheDeleteCallFailed(t *testing.T) {
 		t.Fatal("Push returned nil error, want the delete conflict")
 	}
 	if len(rep.Deleted) != 0 {
-		t.Errorf("Deleted = %v, want empty — the delete was refused, yet the report claims it", rep.Deleted)
+		t.Errorf("Deleted = %v, want empty — the delete was refused", rep.Deleted)
 	}
 	// The inverse face: a run that failed for no reason but a conflict must not
-	// emit "conflicts":null. An agent branching on len(conflicts)==0 would
-	// conclude "no conflicts" on the one run where the conflict IS the outcome.
+	// emit "conflicts":null.
 	if !slices.Contains(rep.Conflicts, "gone.css") {
-		t.Errorf("Conflicts = %v, want it to carry gone.css — the server-side conflict never reached the report", rep.Conflicts)
+		t.Errorf("Conflicts = %v, want it to carry gone.css", rep.Conflicts)
 	}
 }
 
@@ -122,7 +117,7 @@ func TestPushDeletedIsReportedWhenTheDeleteSucceeded(t *testing.T) {
 		t.Errorf("Deleted = %v, want [gone.css]", rep.Deleted)
 	}
 	if rep.Bytes != int64(len("new{}")) {
-		t.Errorf("Bytes = %d, want %d — the write landed", rep.Bytes, len("new{}"))
+		t.Errorf("Bytes = %d, want %d", rep.Bytes, len("new{}"))
 	}
 	st, err := LoadState(dir)
 	if err != nil {
@@ -133,8 +128,7 @@ func TestPushDeletedIsReportedWhenTheDeleteSucceeded(t *testing.T) {
 	}
 }
 
-// DryRun is the one place a plan may legitimately be reported as an outcome:
-// the caller asked for a preview.
+// DryRun: the plan is the requested outcome (invariant 12).
 func TestPushDryRunStillPreviewsTheDeletesAndBytes(t *testing.T) {
 	dir := pruneFixture(t)
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
@@ -151,17 +145,14 @@ func TestPushDryRunStillPreviewsTheDeletesAndBytes(t *testing.T) {
 		t.Fatalf("Push: %v", err)
 	}
 	if len(rep.Deleted) != 1 || rep.Deleted[0] != "gone.css" {
-		t.Errorf("Deleted = %v, want [gone.css] — a preview must show the planned delete", rep.Deleted)
+		t.Errorf("Deleted = %v, want [gone.css]", rep.Deleted)
 	}
 	if rep.Bytes != int64(len("new{}")) {
-		t.Errorf("Bytes = %d, want %d — a preview must show the planned payload", rep.Bytes, len("new{}"))
+		t.Errorf("Bytes = %d, want %d", rep.Bytes, len("new{}"))
 	}
 }
 
-// plan.go's `if prev.Binary { continue }` is the only unconditional prune guard
-// in the codebase — it survives even --force. Clearing the marker on a forced
-// push defeats it, and a later PLAIN `push --prune` then deletes the server's
-// only copy of a file dsx can never restore.
+// The ledger's Binary marker must survive a forced push.
 func TestForcedPushKeepsTheBinaryMarker(t *testing.T) {
 	dir := t.TempDir()
 	mkfile(t, dir, "og.png", "\x89PNGbytes")
@@ -190,14 +181,14 @@ func TestForcedPushKeepsTheBinaryMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !st.Files["og.png"].Binary {
-		t.Fatalf("ledger Binary = false after a forced push; pushing binary bytes does not make them text")
+		t.Fatalf("ledger Binary = false after a forced push")
 	}
 
 	// End to end: the guard must still hold on the next plain prune.
 	d := planPush(map[string]RemoteEntry{"og.png": fileEntry("og.png", "e2", 9)},
 		map[string]localFile{}, st, false, true)
 	if slices.Contains(d.Delete, "og.png") {
-		t.Errorf("planPush routed a tracked binary to Delete: %v — the unconditional prune guard was defeated", d.Delete)
+		t.Errorf("planPush routed a tracked binary to Delete: %v", d.Delete)
 	}
 }
 

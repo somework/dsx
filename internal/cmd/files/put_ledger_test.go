@@ -11,13 +11,11 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// put has no dir argument, so it cannot address a ledger — this is
-// deliberate (README.md's Safety section, CLAUDE.md invariant 5), not a bug.
-// This test pins the resulting shape: put's bytes land on the server without
-// touching .dsx-state.json, and if the local copy was also hand-edited, both
-// sync directions report a conflict even once the bytes agree everywhere —
-// because the ledger, not the bytes, is what a plan compares. --force costs a
-// flag, not data: it writes what is already present on both sides.
+// put has no dir argument, so it cannot address a ledger. This pins the
+// resulting shape: put's bytes land on the server without touching
+// .dsx-state.json, and if the local copy was also hand-edited, both sync
+// directions report a conflict even once the bytes agree everywhere — the
+// ledger, not the bytes, is what a plan compares.
 func TestPutLeavesTheLedgerBehindSoAnEditedPathConflictsBothWays(t *testing.T) {
 	original := []byte("original\n")
 	edited := []byte("edited\n")
@@ -61,15 +59,14 @@ func TestPutLeavesTheLedgerBehindSoAnEditedPathConflictsBothWays(t *testing.T) {
 	}
 	got, ok := st.Files["a.css"]
 	if !ok {
-		t.Fatal("a.css dropped from the ledger — put is not supposed to touch it at all")
+		t.Fatal("a.css dropped from the ledger")
 	}
 	if got.Etag != "e1" || got.SHA != syncer.SHA256Hex(original) {
-		t.Fatalf("ledger entry = %+v, want it unchanged at {e1, sha(original)} — put wrote through the ledger", got)
+		t.Fatalf("ledger entry = %+v, want it unchanged at {e1, sha(original)}", got)
 	}
 
 	// (b) push sees the ledger's old etag against the server's new one: conflict.
-	// Push itself returns (rep, nil) — the conflict error is Outcome()'s job,
-	// computed from the report after the run, exactly as sync.go calls it.
+	// Push itself returns (rep, nil); the conflict error is Outcome()'s.
 	pushRep, err := syncer.Push(context.Background(), client, syncer.PushOpts{
 		ProjectID: "p1", Dir: dir, Concurrency: 4,
 	})
@@ -113,6 +110,6 @@ func TestPutLeavesTheLedgerBehindSoAnEditedPathConflictsBothWays(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(onDisk) != string(edited) {
-		t.Errorf("a.css on disk = %q after --force pull, want it unchanged at %q — --force must cost a flag, not bytes", onDisk, edited)
+		t.Errorf("a.css on disk = %q after --force pull, want it unchanged at %q", onDisk, edited)
 	}
 }

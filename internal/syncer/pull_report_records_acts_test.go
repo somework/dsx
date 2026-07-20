@@ -9,9 +9,8 @@ import (
 	"testing"
 )
 
-// trackedTree writes each file and returns a State that records it as ours and
-// unmodified, so planPull's prune branch proves the delete rather than
-// conflicting on it.
+// trackedTree writes each file and returns a State recording it as ours and
+// unmodified.
 func trackedTree(t *testing.T, dir string, files map[string]string) State {
 	t.Helper()
 	st := State{ProjectID: "p1", Files: map[string]FileState{}}
@@ -41,8 +40,7 @@ func existsIn(t *testing.T, dir, path string) bool {
 	return err == nil
 }
 
-// A fetch error returns before the prune loop ever runs, so nothing was
-// deleted. Deleted names an act; it may not name the plan.
+// A fetch error returns before the prune loop ever runs, so nothing was deleted.
 func TestPullDeletedIsEmptyWhenTheFetchFailedBeforeThePrune(t *testing.T) {
 	dir := t.TempDir()
 	trackedTree(t, dir, map[string]string{"a.css": "aaa", "b.css": "bbb"})
@@ -74,7 +72,7 @@ func TestPullDeletedIsEmptyWhenTheFetchFailedBeforeThePrune(t *testing.T) {
 }
 
 // The prune loop breaks on the first os.Remove failure. Deleted must name the
-// paths actually removed, not the whole plan.
+// paths actually removed.
 func TestPullDeletedNamesOnlyThePathsActuallyRemoved(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: directory permissions do not block os.Remove")
@@ -149,8 +147,7 @@ func TestPullDeletedIsReportedWhenThePruneSucceeded(t *testing.T) {
 	}
 }
 
-// Positive control: --dry-run is the one place a plan is legitimately the
-// reported outcome, because the caller asked for a preview.
+// Positive control: --dry-run reports the plan as the outcome (invariant 12).
 func TestPullDryRunStillPreviewsTheDeletes(t *testing.T) {
 	dir := t.TempDir()
 	trackedTree(t, dir, map[string]string{"a.css": "aaa", "b.css": "bbb"})
@@ -178,9 +175,7 @@ func TestPullDryRunStillPreviewsTheDeletes(t *testing.T) {
 	}
 }
 
-// The success path sorts every slice; the error paths returned raw
-// goroutine-completion order. --json is a machine surface, so an agent
-// diffing two reports of the same set saw spurious churn.
+// The error paths must sort too: --json is a machine surface there as well.
 func TestPullFetchedIsSortedOnTheErrorPath(t *testing.T) {
 	dir := t.TempDir()
 
@@ -229,8 +224,7 @@ func TestPullFetchedIsSortedOnTheErrorPath(t *testing.T) {
 		t.Fatal("want the fetch error, got nil — the fixture stopped failing")
 	}
 	// Not an exact count: fail() cancels fetchCtx, so a peer whose response is
-	// still in flight legitimately loses its body. Any surviving subset still
-	// arrives strictly descending, which is all the sort needs to be exercised.
+	// still in flight legitimately loses its body.
 	if len(rep.Fetched) < 4 {
 		t.Fatalf("fetched %d, want at least 4 — the fixture stopped exercising the sort: %v",
 			len(rep.Fetched), rep.Fetched)

@@ -191,12 +191,9 @@ func TestPushReportFieldsAreSorted(t *testing.T) {
 	}
 }
 
-// rep.Binary has two producers: planPull seeds it with the ledger's known
-// binaries (SortedPaths order), then the fetch goroutines append every fresh
-// read_file refusal. Neither producer knows about the other, so the seeded tail
-// can sort after an appended head — which is exactly what slices.Sort(rep.Binary)
-// is there to fix. Every other Binary assertion in this package runs against an
-// empty slice, so deleting that sort left the suite green.
+// rep.Binary has two producers: the plan seeds it with the ledger's known
+// binaries, then the fetch goroutines append each fresh read_file refusal, so
+// the seeded tail can sort after an appended head.
 func TestPullBinaryIsSortedAcrossPlannedAndRefused(t *testing.T) {
 	dir := t.TempDir()
 
