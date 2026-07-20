@@ -186,7 +186,7 @@ func TestForcedPushKeepsTheBinaryMarker(t *testing.T) {
 
 	// End to end: the guard must still hold on the next plain prune.
 	d := planPush(map[string]RemoteEntry{"og.png": fileEntry("og.png", "e2", 9)},
-		map[string]localFile{}, st, false, true)
+		map[string]localFile{}, st, nil, false, true)
 	if slices.Contains(d.Delete, "og.png") {
 		t.Errorf("planPush routed a tracked binary to Delete: %v", d.Delete)
 	}

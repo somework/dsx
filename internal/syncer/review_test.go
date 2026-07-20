@@ -77,7 +77,7 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 		"assets/hero.png": {Etag: "e1", Binary: true},
 	}}
 
-	d := planPush(remote, local, st, false, false)
+	d := planPush(remote, local, st, nil, false, false)
 	for _, c := range d.Write {
 		if c.Path == "assets/hero.png" && c.IfMatch == "" {
 			t.Fatal("push would overwrite an unreadable server file with no if_match and no conflict")
@@ -89,7 +89,7 @@ func TestPushRefusesToBlindlyOverwriteAFileItCouldNeverHaveRead(t *testing.T) {
 			"cannot tell a replacement from an accident", d.BinaryConflicts)
 	}
 
-	forced := planPush(remote, local, st, true, false)
+	forced := planPush(remote, local, st, nil, true, false)
 	if len(forced.Write) != 1 {
 		t.Errorf("--force must still write: %+v", forced)
 	}
@@ -129,7 +129,7 @@ func TestPushDoesNotPruneAPathThatStoppedBeingARegularFile(t *testing.T) {
 		"logo.svg": {Etag: "e1", Size: 6, SHA: SHA256Hex([]byte("<svg/>"))},
 	}}
 
-	d := planPush(remote, local, st, false, true)
+	d := planPush(remote, local, st, nil, false, true)
 	for _, p := range d.Delete {
 		if p == "logo.svg" {
 			t.Fatal("push --prune deleted a file from the server because it became a symlink here")
@@ -170,7 +170,7 @@ func TestPullDoesNotClobberAPathThatStoppedBeingARegularFile(t *testing.T) {
 	remote := map[string]RemoteEntry{"logo.svg": {Path: "logo.svg", Etag: "e2", Size: 6}}
 	st := State{Files: map[string]FileState{"logo.svg": {Etag: "e1", Size: 6, SHA: "x"}}}
 
-	d := planPull(remote, local, st, false, false)
+	d := planPull(remote, local, st, nil, false, false)
 	for _, p := range d.Fetch {
 		if p == "logo.svg" {
 			t.Fatal("pull would write through a symlink the user put there deliberately")

@@ -41,18 +41,31 @@ type pullDecision struct {
 
 	// Gone from the server, tracked binary:true, still on disk.
 	PruneBinary []string
+
+	// A proven byte match (invariant 17): a determination, not an act.
+	Verified int
 }
 
-func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pullDecision {
+func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pullDecision {
 	var d pullDecision
 
 	for _, path := range SortedPaths(remote) {
 		r := remote[path]
 		prev, tracked := st.Files[path]
 		onDisk, present := local[path]
+		b := baseline[path]
 
 		// localDirty compares bytes (SHA), not etag (invariant 2).
 		localDirty := present && (!tracked || onDisk.SHA != prev.SHA)
+
+		// A real ledger entry always wins (!tracked), so invariant 2's
+		// both-sides-changed case is untouched. An empty etag can never
+		// prove freshness — a missing map key yields the zero BaselineEntry,
+		// which must not be read as proof that a gone-from-the-server path
+		// is identical.
+		proven := present && !tracked && !onDisk.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
+			b.SHA != "" && b.SHA == onDisk.SHA
 
 		switch {
 		case present && onDisk.Irregular:
@@ -61,6 +74,8 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			d.Binary = append(d.Binary, path)
 		case tracked && prev.Etag == r.Etag && present && !localDirty:
 			d.Unchanged++
+		case proven:
+			d.Verified++
 		case localDirty && !force:
 			d.Conflicts = append(d.Conflicts, path)
 		default:
@@ -117,18 +132,27 @@ type pushDecision struct {
 	BinaryGone []string
 
 	PruneConflicts []string
+
+	// A proven byte match (invariant 17): a determination, not an act.
+	Verified int
 }
 
-func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pushDecision {
+func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pushDecision {
 	var d pushDecision
 
 	for _, path := range SortedPaths(local) {
 		lf := local[path]
 		prev, tracked := st.Files[path]
 		r, onServer := remote[path]
+		b := baseline[path]
 
 		localChanged := !tracked || lf.SHA != prev.SHA
 		remoteMoved := onServer && tracked && r.Etag != prev.Etag
+
+		// See planPull for why each conjunct is load-bearing.
+		proven := !tracked && !lf.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
+			b.SHA != "" && b.SHA == lf.SHA
 
 		switch {
 		case lf.Irregular:
@@ -148,6 +172,9 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			continue
 		case !force && remoteMoved:
 			d.Conflicts = append(d.Conflicts, path)
+			continue
+		case proven:
+			d.Verified++
 			continue
 		case !force && !tracked && onServer:
 			d.Conflicts = append(d.Conflicts, path)

@@ -2,8 +2,6 @@ package syncer
 
 import (
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -31,18 +29,23 @@ type Baseline struct {
 }
 
 // loadBaseline reads the baseline, fixing up a nil map the way LoadState
-// does for State.Files. A missing file is an empty baseline, not an error.
+// does for State.Files. A missing file is an empty baseline, not an error —
+// and so is any other unusable one. baseline.json is a cache of what fetch
+// downloaded, not a claim of ownership (see Baseline's doc comment): an
+// unreadable file, a directory at that path, or bytes that fail to decode
+// all cost the same thing either way, one re-verify on the next fetch, so
+// none of them may block pull or push outright. Blocking would send the user
+// toward `rm -rf .dsx`, which also erases state.json.
 func loadBaseline(dir string) (Baseline, error) {
+	empty := Baseline{Verified: map[string]BaselineEntry{}}
+
 	b, err := os.ReadFile(BaselinePath(dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return Baseline{Verified: map[string]BaselineEntry{}}, nil
-	}
 	if err != nil {
-		return Baseline{}, err
+		return empty, nil
 	}
 	var loaded Baseline
 	if err := json.Unmarshal(b, &loaded); err != nil {
-		return Baseline{}, err
+		return empty, nil
 	}
 	if loaded.Verified == nil {
 		loaded.Verified = map[string]BaselineEntry{}

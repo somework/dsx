@@ -70,6 +70,20 @@ func taintedLocals(body ast.Node) map[string]bool {
 			case *ast.AssignStmt:
 				rhsTainted := false
 				for _, r := range x.Rhs {
+					// planPull/planPush are the one sanctioned place a
+					// baseline argument is consumed (C7): their returned
+					// decision must not itself count as tainted merely
+					// because a tainted argument was passed in, or every
+					// caller assigning `d := planPull(..., baseline, ...)`
+					// would taint d, then d.Fetch, then the range variable
+					// ranging over it, all the way into withFile and
+					// st.Files — a false positive, not a real leak. That
+					// leak is what the per-function .Files-write scan below
+					// (run over planPull's and planPush's own bodies too)
+					// and the behavioural half independently prove absent.
+					if isPlanDecisionCall(r) {
+						continue
+					}
 					if isTainted(r, tainted) {
 						rhsTainted = true
 					}
@@ -100,6 +114,21 @@ func taintedLocals(body ast.Node) map[string]bool {
 			return tainted
 		}
 	}
+}
+
+// isPlanDecisionCall reports whether e is a call to planPull or planPush.
+func isPlanDecisionCall(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	switch fn := call.Fun.(type) {
+	case *ast.Ident:
+		return fn.Name == "planPull" || fn.Name == "planPush"
+	case *ast.SelectorExpr:
+		return fn.Sel.Name == "planPull" || fn.Sel.Name == "planPush"
+	}
+	return false
 }
 
 // selectsFiles reports whether e is (or indexes) a selector ending in
@@ -276,7 +305,7 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 			"other1.css": {Etag: "e1", SHA: "s1"},
 			"other2.png": {Etag: "e2", SHA: "s2"},
 			"keep.css":   {Etag: "ek", SHA: "sk"},
-		}), false, true)
+		}), nil, false, true)
 
 		wantDelete := []string{"other1.css", "other2.png"}
 		if !slices.Equal(tracked.Delete, wantDelete) {
@@ -290,9 +319,12 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 		}
 
 		// The identical two paths, this time recorded only in a Baseline, never
-		// in State.Files. planPush takes no baseline parameter (no consumer
-		// yet), so this is the structural claim made observable: the data
-		// exists, and is inert.
+		// in State.Files, and now wired into planPush's baseline parameter
+		// (C7). Neither path is present in local, so planPush's per-path loop
+		// (which iterates SortedPaths(local)) never even reaches them — only
+		// the prune loop, which is keyed off st.Files alone, ever visits a
+		// remote-only path. Passing bl.Verified in makes that structural claim
+		// observable rather than merely inert.
 		bl := Baseline{
 			ProjectID: "p",
 			Verified: map[string]BaselineEntry{
@@ -306,7 +338,7 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 
 		untracked := planPush(remote, local, stateOf(map[string]FileState{
 			"keep.css": {Etag: "ek", SHA: "sk"},
-		}), false, true)
+		}), bl.Verified, false, true)
 
 		if untracked.Delete != nil {
 			t.Errorf("baselined-only paths: Delete=%v, want nil — a baseline entry must never "+

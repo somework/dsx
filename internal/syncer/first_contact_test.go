@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -117,5 +118,65 @@ func TestAForcedFirstPullStillWrites(t *testing.T) {
 	}
 	if len(rep.Fetched) != 2 {
 		t.Errorf("fetched=%v, want both under --force", rep.Fetched)
+	}
+}
+
+// TestFirstContactStillRefusesWhenABaselineExists: one path is baselined and
+// matches (Verified, not a conflict), a second is a real conflict. First
+// contact's "write nothing while a conflict exists" rule must still hold —
+// a baseline redirecting one path out of Conflicts must not disable the
+// refusal that protects every other path.
+func TestFirstContactStillRefusesWhenABaselineExists(t *testing.T) {
+	dir := t.TempDir()
+	verifiedBody := []byte("shared bytes\n")
+	if err := os.WriteFile(filepath.Join(dir, "readme.md"), verifiedBody, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.css"), []byte("MINE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		if name == "list_files" {
+			return fakeReply{Text: listingFor(
+				fileEntry("readme.md", "e1", int64(len(verifiedBody))),
+				fileEntry("other.css", "e2", 5))}
+		}
+		p, _ := args["path"].(string)
+		return fakeReply{Text: envelopeFor(p, "e2", "server")}
+	})
+	c := fakeClient(f)
+
+	bl := Baseline{
+		ProjectID: "proj-A",
+		Endpoint:  c.Endpoint(),
+		Verified: map[string]BaselineEntry{
+			"readme.md": {Etag: "e1", Size: int64(len(verifiedBody)), SHA: SHA256Hex(verifiedBody)},
+		},
+	}
+	if err := bl.save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Pull(context.Background(), c, PullOpts{
+		ProjectID: "proj-A", Dir: dir, Concurrency: 2,
+	})
+	if err != nil {
+		t.Fatalf("Pull errored instead of reporting: %v", err)
+	}
+	if rep.Verified != 1 {
+		t.Errorf("verified=%d, want 1 for the baselined path", rep.Verified)
+	}
+	if !slices.Contains(rep.Conflicts, "other.css") {
+		t.Errorf("conflicts=%v, want other.css present", rep.Conflicts)
+	}
+	if slices.Contains(rep.Conflicts, "readme.md") {
+		t.Errorf("conflicts=%v, readme.md must not be reported as a conflict — it is proven", rep.Conflicts)
+	}
+	if len(rep.Fetched) != 0 {
+		t.Errorf("fetched=%v, want none — first contact must still refuse while a real conflict exists", rep.Fetched)
+	}
+	if LedgerExistsForTest(dir) {
+		t.Error("a refusal wrote a ledger; nothing happened, so nothing should be recorded")
 	}
 }

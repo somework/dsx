@@ -114,7 +114,7 @@ func TestScanLocalDescendsASymlinkedRoot(t *testing.T) {
 		"a.css":             {Etag: "e1", SHA: got["a.css"].SHA},
 		"tokens/colors.css": {Etag: "e2", SHA: got["tokens/colors.css"].SHA},
 	})
-	d := planPush(remote, got, st, false, true)
+	d := planPush(remote, got, st, nil, false, true)
 	if len(d.Delete) != 0 {
 		t.Fatalf("planPush(prune) scheduled %v for deletion over a symlinked root — the whole tree would be destroyed", d.Delete)
 	}
@@ -247,7 +247,7 @@ func TestPlanPushPruneTreatsARemoteThatMovedAheadAsAConflict(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "gone.css", Etag: "e2"}),
 		localOf(),
 		stateOf(map[string]FileState{"gone.css": {Etag: "e1", SHA: "s"}}),
-		false, true)
+		nil, false, true)
 
 	if len(d.Delete) != 0 {
 		t.Errorf("delete=%v, want none — the server moved ahead, deleting it drops an unseen change", d.Delete)
@@ -262,7 +262,7 @@ func TestPlanPushPruneForceStillDeletesAMovedRemote(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "gone.css", Etag: "e2"}),
 		localOf(),
 		stateOf(map[string]FileState{"gone.css": {Etag: "e1", SHA: "s"}}),
-		true, true)
+		nil, true, true)
 
 	if !slices.Equal(d.Delete, []string{"gone.css"}) {
 		t.Errorf("delete=%v, want [gone.css] under --force", d.Delete)
@@ -279,7 +279,7 @@ func TestPlanPushRecordsALocalOnlyIrregular(t *testing.T) {
 	d := planPush(
 		remoteOf(),
 		localOf(localFile{Path: "link", Irregular: true}),
-		stateOf(nil), false, false)
+		stateOf(nil), nil, false, false)
 
 	if !slices.Equal(d.Irregular, []string{"link"}) {
 		t.Errorf("irregular=%v, want [link] — a local-only symlink was silently dropped", d.Irregular)

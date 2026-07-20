@@ -35,6 +35,10 @@ type PullReport struct {
 	Unchanged int      `json:"unchanged"`
 	Deleted   []string `json:"deleted"`
 
+	// A proven byte match (invariant 17): a determination, not an act, so it
+	// is filled from the plan on every path, DryRun included.
+	Verified int `json:"verified"`
+
 	Conflicts []string `json:"conflicts"`
 
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
@@ -79,6 +83,15 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, err
 	}
 
+	bl, err := loadBaseline(o.Dir)
+	if err != nil {
+		return rep, err
+	}
+	baseline := map[string]BaselineEntry{}
+	if bl.bound(o.ProjectID, c.Endpoint()) {
+		baseline = bl.Verified
+	}
+
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
 	if err != nil {
 		return rep, err
@@ -93,8 +106,9 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, err
 	}
 
-	d := planPull(remote, local, st, o.Force, o.Prune)
+	d := planPull(remote, local, st, baseline, o.Force, o.Prune)
 	rep.Unchanged = d.Unchanged
+	rep.Verified = d.Verified
 	rep.Binary = d.Binary
 
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)

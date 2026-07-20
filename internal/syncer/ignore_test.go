@@ -232,7 +232,7 @@ func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
 		"dist/app.js": {Etag: "2", SHA: "abc", Size: 3},
 	}}
 
-	d := planPush(remote, local, st, false, true)
+	d := planPush(remote, local, st, nil, false, true)
 	for _, p := range d.Delete {
 		if p == "dist/app.js" {
 			t.Fatal("push --prune deleted a merely-ignored file from the server")
@@ -246,7 +246,7 @@ func TestIgnoredPathIsNeverPrunedFromDisk(t *testing.T) {
 	local := map[string]localFile{}
 	st := State{Files: map[string]FileState{"dist/app.js": {Etag: "2", SHA: "abc"}}}
 
-	d := planPull(remote, local, st, false, true)
+	d := planPull(remote, local, st, nil, false, true)
 	for _, p := range d.Delete {
 		if p == "dist/app.js" {
 			t.Fatal("pull --prune deleted an ignored file from disk")
