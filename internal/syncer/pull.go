@@ -70,7 +70,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
 		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s is bound to project %s; refusing to pull %s into it",
-			filepath.Join(o.Dir, StateFileName), st.ProjectID, o.ProjectID)}
+			StatePath(o.Dir), st.ProjectID, o.ProjectID)}
 	}
 	if st.Endpoint != "" && !sameEndpoint(st.Endpoint, c.Endpoint()) {
 		return rep, endpointRefusal(o.Dir, st.Endpoint, c.Endpoint(), "pull")

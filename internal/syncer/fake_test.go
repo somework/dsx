@@ -3,7 +3,6 @@ package syncer
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/somework/dsx/internal/mcp"
@@ -41,7 +40,7 @@ func dirEntry(path string) RemoteEntry {
 
 // LedgerExistsForTest reports whether a ledger was written to dir.
 func LedgerExistsForTest(dir string) bool {
-	_, err := os.Stat(filepath.Join(dir, StateFileName))
+	_, err := os.Stat(StatePath(dir))
 	return err == nil
 }
 
@@ -59,7 +58,7 @@ func seedFirstContactLedger(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), append(b, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(StatePath(dir), append(b, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

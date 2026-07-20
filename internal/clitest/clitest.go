@@ -103,13 +103,13 @@ func SeedState(t *testing.T, dir string, st syncer.State) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, syncer.StateFileName), b, 0o644); err != nil {
+	if err := os.WriteFile(syncer.StatePath(dir), b, 0o644); err != nil {
 		t.Fatalf("seeding ledger: %v", err)
 	}
 }
 
 func LedgerExists(t *testing.T, dir string) bool {
 	t.Helper()
-	_, err := os.Stat(filepath.Join(dir, syncer.StateFileName))
+	_, err := os.Stat(syncer.StatePath(dir))
 	return err == nil
 }

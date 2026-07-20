@@ -43,7 +43,7 @@ func syncSeedState(t *testing.T, dir string, st State) {
 
 func syncLedgerExists(t *testing.T, dir string) bool {
 	t.Helper()
-	_, err := os.Stat(filepath.Join(dir, StateFileName))
+	_, err := os.Stat(StatePath(dir))
 	return err == nil
 }
 

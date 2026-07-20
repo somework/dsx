@@ -182,9 +182,9 @@ func warnIfLedgerNearby(project string) {
 	if w == nil {
 		w = os.Stderr
 	}
-	fmt.Fprintf(w, "dsx: note: ./%s is bound to this project — put writes the server "+
+	fmt.Fprintf(w, "dsx: note: ./%s/ is bound to this project — put writes the server "+
 		"without updating it, so `dsx status` here will report a conflict; "+
-		"use `dsx push` to stay in step\n", syncer.StateFileName)
+		"use `dsx push` to stay in step\n", syncer.DirName)
 }
 
 func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {

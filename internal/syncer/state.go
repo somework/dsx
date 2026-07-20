@@ -16,15 +16,28 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-const StateFileName = ".dsx-state.json"
+// DirName is the ledger's home directory; exported because cmd packages need
+// it (put's nearby-ledger warning, checkCloneTarget's collision probe).
+const DirName = ".dsx"
 
 // legacyStateFileName is the frozen wire-compatible spelling of the ledger's
-// name. Anything an already-shipped binary must still recognise — tempPrefix,
-// checkRemotePath's ledger refusal, the builtinIgnores glob — reads this, not
-// StateFileName, so a later repoint of StateFileName cannot drag them along.
+// pre-.dsx/ name. Anything an already-shipped binary must still recognise —
+// tempPrefix, checkRemotePath's ledger refusal, the builtinIgnores glob —
+// reads this literal directly, never through StatePath.
 const legacyStateFileName = ".dsx-state.json"
 
 const caseProbeName = ".dsx-case-probe"
+
+// StateDir is the ledger's home directory.
+func StateDir(dir string) string { return filepath.Join(dir, DirName) }
+
+// StatePath is the ledger's on-disk location. It still resolves to the
+// pre-.dsx/ root path here; a later commit flips it to StateDir.
+func StatePath(dir string) string { return filepath.Join(dir, legacyStateFileName) }
+
+// LegacyStatePath is the frozen pre-.dsx/ ledger location. A later commit
+// reads it as LoadState's fallback once StatePath moves.
+func LegacyStatePath(dir string) string { return filepath.Join(dir, legacyStateFileName) }
 
 type FileState struct {
 	Etag   string `json:"etag"`
@@ -40,7 +53,7 @@ type State struct {
 }
 
 func LoadState(dir string) (State, error) {
-	b, err := os.ReadFile(filepath.Join(dir, StateFileName))
+	b, err := os.ReadFile(StatePath(dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return State{Files: map[string]FileState{}}, nil
 	}
@@ -49,7 +62,7 @@ func LoadState(dir string) (State, error) {
 	}
 	var s State
 	if err := json.Unmarshal(b, &s); err != nil {
-		return State{}, fmt.Errorf("%s is corrupt: %w", StateFileName, err)
+		return State{}, fmt.Errorf("%s is corrupt: %w", legacyStateFileName, err)
 	}
 	if s.Files == nil {
 		s.Files = map[string]FileState{}
@@ -64,7 +77,7 @@ func LoadState(dir string) (State, error) {
 				"they came from; the ledger is damaged — remove it and run "+
 				"`dsx pull <project> %s`, which reports the files as conflicts rather "+
 				"than overwriting them",
-			filepath.Join(dir, StateFileName), len(s.Files), dir)}
+			StatePath(dir), len(s.Files), dir)}
 	}
 	return s, nil
 }
@@ -76,7 +89,7 @@ func (s State) save(dir string) error {
 	}
 	b = append(b, '\n')
 
-	tmp, err := os.CreateTemp(dir, StateFileName+".*")
+	tmp, err := os.CreateTemp(dir, legacyStateFileName+".*")
 	if err != nil {
 		return err
 	}
@@ -89,7 +102,7 @@ func (s State) save(dir string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), filepath.Join(dir, StateFileName))
+	return os.Rename(tmp.Name(), StatePath(dir))
 }
 
 func (s State) withFile(path string, fst FileState) State {
@@ -202,7 +215,7 @@ func endpointRefusal(dir, ledger, target, verb string) error {
 		"%s was synced against %s, but this run targets %s; refusing to %s — "+
 			"that server's listing describes different files, and acting on it would "+
 			"read every tracked path as deleted (unset DSX_ENDPOINT to go back)",
-		filepath.Join(dir, StateFileName), ledger, target, verb)}
+		StatePath(dir), ledger, target, verb)}
 }
 
 // checkRemotePath compares case-insensitively because APFS folds case: on a

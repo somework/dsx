@@ -31,7 +31,7 @@ func seedEndpointLedger(t *testing.T, dir, endpoint string, body []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), append(b, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(StatePath(dir), append(b, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

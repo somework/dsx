@@ -38,8 +38,8 @@ func TestPutWarnsWhenTheWorkingDirectoryIsBoundToTheSameProject(t *testing.T) {
 	if !strings.Contains(got, "dsx push") {
 		t.Errorf("warning does not name the command that stays in step:\n%s", got)
 	}
-	if !strings.Contains(got, syncer.StateFileName) {
-		t.Errorf("warning does not name the ledger it is about:\n%s", got)
+	if !strings.Contains(got, syncer.DirName) {
+		t.Errorf("warning does not name the ledger's home:\n%s", got)
 	}
 }
 

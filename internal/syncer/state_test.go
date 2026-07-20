@@ -83,7 +83,7 @@ func TestLoadStateMissingIsEmptyNotError(t *testing.T) {
 
 func TestLoadStateCorruptIsAnError(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(StatePath(dir), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadState(dir); err == nil {
@@ -105,7 +105,7 @@ func TestScanLocalSkipsLedgerAndVCS(t *testing.T) {
 	}
 	write("a.css", "body{}")
 	write("tokens/colors.css", ":root{}")
-	write(StateFileName, "{}")
+	write(legacyStateFileName, "{}")
 	write(".git/config", "[core]")
 	write("node_modules/pkg/index.js", "x")
 

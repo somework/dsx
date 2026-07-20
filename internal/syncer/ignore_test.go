@@ -31,7 +31,7 @@ func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
 	s := mustParseIgnore(t, "")
 	for _, p := range []string{
 		".git/config", "node_modules/x/index.js", ".DS_Store",
-		"a/b/.git/HEAD", "deep/node_modules/pkg/p.js", StateFileName,
+		"a/b/.git/HEAD", "deep/node_modules/pkg/p.js", legacyStateFileName,
 	} {
 		if !s.match(p) {
 			t.Errorf("built-in exclusion lost: %q is not ignored", p)
@@ -67,8 +67,8 @@ func TestBuiltinDsxIsUnanchoredAndSkipsTheSubtree(t *testing.T) {
 }
 
 func TestIgnoreBuiltInsCannotBeNegated(t *testing.T) {
-	s := mustParseIgnore(t, "!.git\n!"+StateFileName+"\n!node_modules\n")
-	for _, p := range []string{".git/config", StateFileName, "node_modules/x.js"} {
+	s := mustParseIgnore(t, "!.git\n!"+legacyStateFileName+"\n!node_modules\n")
+	for _, p := range []string{".git/config", legacyStateFileName, "node_modules/x.js"} {
 		if !s.match(p) {
 			t.Errorf("%q was un-ignored by a user rule; built-ins are not negotiable", p)
 		}

@@ -3,7 +3,6 @@ package syncer
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -50,7 +49,7 @@ func goldenState() State {
 
 func TestLedgerGoldenDecodes(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte(goldenLedger), 0o600); err != nil {
+	if err := os.WriteFile(StatePath(dir), []byte(goldenLedger), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +86,7 @@ func TestLedgerGoldenRoundTripsByteExact(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	b, err := os.ReadFile(filepath.Join(dir, StateFileName))
+	b, err := os.ReadFile(StatePath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +127,7 @@ func TestLedgerUnknownFieldsSurvive(t *testing.T) {
   "schema_version": 9
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, StateFileName), []byte(future), 0o600); err != nil {
+	if err := os.WriteFile(StatePath(dir), []byte(future), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

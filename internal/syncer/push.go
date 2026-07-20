@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -71,7 +70,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	if st.ProjectID != "" && st.ProjectID != o.ProjectID {
 		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s is bound to project %s; refusing to push it to %s",
-			filepath.Join(o.Dir, StateFileName), st.ProjectID, o.ProjectID)}
+			StatePath(o.Dir), st.ProjectID, o.ProjectID)}
 	}
 	if st.Endpoint != "" && !sameEndpoint(st.Endpoint, c.Endpoint()) {
 		return rep, endpointRefusal(o.Dir, st.Endpoint, c.Endpoint(), "push")
