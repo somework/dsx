@@ -81,7 +81,15 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	rep.BinaryConflicts = d.BinaryConflicts
 	rep.PruneConflicts = d.PruneConflicts
 	rep.Irregular = d.Irregular
-	rep.Deleted = d.Delete
+
+	// Deleted and Bytes name ACTS, so they are bound to locals here and
+	// assigned to rep only where the act has actually happened (or, in the
+	// DryRun branch, where the caller asked for the plan itself). Written is
+	// the model: it is appended only after the server acks an etag. Every
+	// error return between here and the act would otherwise turn an intention
+	// into a claimed outcome — sync.go emits the report before returning err.
+	toDelete := d.Delete
+	var plannedBytes int64
 
 	specs := make([]writeSpec, 0, len(d.Write))
 	for _, cand := range d.Write {
@@ -99,13 +107,15 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 			Encoding: "base64",
 			IfMatch:  cand.IfMatch,
 		})
-		rep.Bytes += int64(len(body))
+		plannedBytes += int64(len(body))
 	}
 
 	if o.DryRun {
 		for _, s := range specs {
 			rep.Written = append(rep.Written, s.Path)
 		}
+		rep.Deleted = toDelete
+		rep.Bytes = plannedBytes
 		return rep, nil
 	}
 
@@ -117,24 +127,90 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	for _, batch := range batches(specs) {
 		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
 			_ = st.save(o.Dir)
+			rep.addConflicts(err)
 			return rep, err
 		}
 	}
 
-	if len(rep.Deleted) > 0 {
-		if err := deletePaths(ctx, c, o.ProjectID, rep.Deleted, st); err != nil {
+	// A cancel that lands after the last call returns leaves every loop above
+	// with a nil error, and Push would report a short success — the thing
+	// invariant 3 forbids. push's batch loop is sequential and derives no
+	// context, so ctx is already the parent: the pull/WalkTree parent-vs-derived
+	// split is unnecessary here, not missing. Checked before the deletes so
+	// --prune cannot run against a tree the user already cancelled.
+	if err := ctx.Err(); err != nil {
+		_ = st.save(o.Dir)
+		return rep, fmt.Errorf("push interrupted after %d of %d files; the rest were not sent: %w",
+			len(rep.Written), len(specs), err)
+	}
+
+	if len(toDelete) > 0 {
+		if err := deletePaths(ctx, c, o.ProjectID, toDelete, st); err != nil {
 			_ = st.save(o.Dir)
+			rep.addPruneConflicts(err)
 			return rep, err
 		}
-		for _, p := range rep.Deleted {
+		rep.Deleted = toDelete
+		for _, p := range toDelete {
 			delete(st.Files, p)
 		}
+	}
+
+	// Again after the deletes: the same tail cancel, one call later.
+	if err := ctx.Err(); err != nil {
+		_ = st.save(o.Dir)
+		return rep, fmt.Errorf("push interrupted after %d of %d files: %w",
+			len(rep.Written), len(specs), err)
 	}
 
 	if err := st.save(o.Dir); err != nil {
 		return rep, err
 	}
 	return rep, nil
+}
+
+// addConflicts folds a server-side conflict's paths into the report. writeBatch
+// and deletePaths build their own dsxerr.Conflict, and that error is the only
+// place those paths travel; without this, a run that failed for no reason but a
+// conflict emits "conflicts":null and an agent branching on len(conflicts)==0
+// concludes "no conflicts" on the one run where the conflict IS the outcome.
+//
+// Outcome() derives its error entirely from Conflicts, so populating Conflicts
+// late would make Outcome() non-nil for such a run. That is inert only because
+// sync.go returns this raw err before Outcome is ever reached — keep that order.
+func (r *PushReport) addConflicts(err error) {
+	e := dsxerr.Classify(err)
+	if e == nil || e.Kind != dsxerr.KindConflict {
+		return
+	}
+	for _, p := range e.Paths {
+		if !slices.Contains(r.Conflicts, p) {
+			r.Conflicts = append(r.Conflicts, p)
+		}
+	}
+	slices.Sort(r.Conflicts)
+}
+
+// addPruneConflicts is addConflicts for the delete lane. A conflict raised by
+// deletePaths is a PRUNE conflict, and the two lanes want opposite advice:
+// Render's ladder is BinaryConflicts -> PruneConflicts -> generic, so a path
+// left in Conflicts alone gets the generic "`dsx pull` first, or --force" line
+// — while deletePaths' own error text says something else.
+//
+// Not merged into addConflicts: writeBatch shares that call site and its
+// conflicts genuinely are pull-first.
+func (r *PushReport) addPruneConflicts(err error) {
+	r.addConflicts(err)
+	e := dsxerr.Classify(err)
+	if e == nil || e.Kind != dsxerr.KindConflict {
+		return
+	}
+	for _, p := range e.Paths {
+		if !slices.Contains(r.PruneConflicts, p) {
+			r.PruneConflicts = append(r.PruneConflicts, p)
+		}
+	}
+	slices.Sort(r.PruneConflicts)
 }
 
 func batches(specs []writeSpec) [][]writeSpec {
@@ -209,8 +285,14 @@ func writeBatch(ctx context.Context, c *mcp.Client, projectID string, batch []wr
 		if err != nil {
 			return err
 		}
-		*st = st.withFile(path, FileState{Etag: etag, Size: int64(len(raw)), SHA: SHA256Hex(raw)})
+		// Carry the Binary marker through.
+		// Pushing binary bytes does not make them text.
+		*st = st.withFile(path, FileState{
+			Etag: etag, Size: int64(len(raw)), SHA: SHA256Hex(raw),
+			Binary: st.Files[path].Binary,
+		})
 		rep.Written = append(rep.Written, path)
+		rep.Bytes += int64(len(raw))
 	}
 	slices.Sort(rep.Written)
 

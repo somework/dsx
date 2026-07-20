@@ -25,6 +25,10 @@ type pullDecision struct {
 	Irregular []string
 
 	PruneConflicts []string
+
+	// Gone from the server, tracked binary:true, still on disk. Never deleted --
+	// but never silent either; see the prune loop.
+	PruneBinary []string
 }
 
 func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, force, prune bool) pullDecision {
@@ -63,6 +67,28 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			}
 			prev, tracked := st.Files[path]
 			if !tracked {
+				continue
+			}
+			// Mirrors planPush's guard, and is likewise
+			// unconditional -- but NOT because --force is the only way in. A
+			// forced push of such a path leaves {Binary: true, SHA: <real>}
+			// (writeBatch carries the marker), and against that ledger the local
+			// bytes MATCH, so the SHA check below does not divert: this line is
+			// the only thing standing between a plain, non-force `pull --prune`
+			// and deleting the user's only copy of a file dsx can never re-fetch.
+			// TestForcedPushOfABinaryEntryDoesNotArmAPlainPullPrune.
+			//
+			// Reported, not skipped. `continue` would keep the file and tell the
+			// user nothing, and the silence is not free: the next plain `dsx push`
+			// sees local+tracked+prev.Binary with onServer FALSE, so planPush's
+			// BinaryConflicts case cannot fire, and the path falls through to
+			// Write with if_match "0" -- a silent re-upload.
+			// Its own slice, not PruneConflicts: this guard sits ABOVE the force
+			// check, so --force will not delete it either, and PruneConflicts'
+			// wording promises exactly that deletion.
+			// TestPlainPullPruneReportsAnUnprunableBinaryPath.
+			if prev.Binary {
+				d.PruneBinary = append(d.PruneBinary, path)
 				continue
 			}
 			if local[path].Irregular {
@@ -153,6 +179,13 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			if !tracked {
 				continue
 			}
+			// Silent by design, unlike planPull's mirror of this guard. There, the
+			// shape (tracked binary AND on disk) is an anomaly worth a word.
+			// Here it is the STEADY STATE of
+			// every binary file the project has ever had -- pulled, never landed
+			// on disk, so localCovers is false on every run. Reporting it would
+			// put a conflict and exit 3 on every `push --prune` of any project
+			// holding a single image.
 			if prev.Binary {
 				continue
 			}

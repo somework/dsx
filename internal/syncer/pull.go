@@ -34,6 +34,11 @@ type PullReport struct {
 
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
 
+	// Gone from the server but not prunable at any force level. Distinct from
+	// PruneConflicts because --force resolves that one by deleting and cannot
+	// resolve this one at all.
+	PruneBinary []string `json:"prune_binary,omitempty"`
+
 	Irregular []string `json:"irregular,omitempty"`
 	Binary    []string `json:"binary"`
 	Bytes     int64    `json:"bytes"`
@@ -79,12 +84,16 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	rep.Binary = d.Binary
 
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
+	rep.Conflicts = append(rep.Conflicts, d.PruneBinary...)
 	slices.Sort(rep.Conflicts)
 	rep.PruneConflicts = d.PruneConflicts
+	rep.PruneBinary = d.PruneBinary
 	rep.Irregular = d.Irregular
-	rep.Deleted = d.Delete
 
 	if o.DryRun {
+		// The one place a plan may legitimately be reported as an outcome:
+		// the caller asked for a preview, not for the bytes to move.
+		rep.Deleted = d.Delete
 		for _, path := range d.Fetch {
 			rep.Fetched = append(rep.Fetched, path)
 			rep.Bytes += remote[path].Size
@@ -178,6 +187,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 	wg.Wait()
 
+	// Sorted here, not on the success path alone: the error returns below are
+	// a machine surface too, and goroutine-completion order is churn.
+	slices.Sort(rep.Fetched)
+	slices.Sort(rep.Binary)
+
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
@@ -191,7 +205,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 
 	var pruneErr error
-	for _, path := range rep.Deleted {
+	for _, path := range d.Delete {
 		full, err := safeJoin(o.Dir, path)
 		if err != nil {
 			pruneErr = err
@@ -201,8 +215,17 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 			pruneErr = err
 			break
 		}
+		// Ledger and report must not disagree about a path, so
+		// both record the same removal at the same point.
 		delete(st.Files, path)
+		rep.Deleted = append(rep.Deleted, path)
 	}
+
+	// Above the error returns, like Fetched/Binary: --json is a machine surface
+	// on the failure paths too. Inert while d.Delete is built in SortedPaths
+	// order and appended in iteration order (a break leaves a sorted prefix) --
+	// kept so the guarantee is positional, not a property of the planner.
+	slices.Sort(rep.Deleted)
 
 	saveErr := st.save(o.Dir)
 	if pruneErr != nil {
@@ -212,12 +235,10 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, saveErr
 	}
 
-	slices.Sort(rep.Fetched)
-	slices.Sort(rep.Deleted)
 	slices.Sort(rep.Conflicts)
 	slices.Sort(rep.PruneConflicts)
+	slices.Sort(rep.PruneBinary)
 	slices.Sort(rep.Irregular)
-	slices.Sort(rep.Binary)
 	return rep, nil
 }
 
@@ -240,6 +261,10 @@ func (r PullReport) Render(asJSON bool) string {
 	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
 
 	for _, p := range r.Conflicts {
+		if slices.Contains(r.PruneBinary, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — gone from the server; dsx cannot re-fetch it (binary), so it was kept — not even --force will prune it; delete it yourself if you meant to", p)
+			continue
+		}
 		if slices.Contains(r.PruneConflicts, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)
 			continue

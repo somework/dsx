@@ -71,6 +71,9 @@ func TestPullReportFieldsAreSortedInEveryMode(t *testing.T) {
 			assertSorted(t, "Conflicts", rep.Conflicts)
 			assertSorted(t, "PruneConflicts", rep.PruneConflicts)
 			assertSorted(t, "Irregular", rep.Irregular)
+			// Breadth only: this fixture serves no binary refusal, so Binary is
+			// empty here and this line cannot fail. The sort that actually needs
+			// guarding is TestPullBinaryIsSortedAcrossPlannedAndRefused.
 			assertSorted(t, "Binary", rep.Binary)
 		})
 	}
@@ -186,4 +189,51 @@ func TestPushReportFieldsAreSorted(t *testing.T) {
 			assertSorted(t, "Irregular", rep.Irregular)
 		})
 	}
+}
+
+// rep.Binary has two producers: planPull seeds it with the ledger's known
+// binaries (SortedPaths order), then the fetch goroutines append every fresh
+// read_file refusal. Neither producer knows about the other, so the seeded tail
+// can sort after an appended head — which is exactly what slices.Sort(rep.Binary)
+// is there to fix. Every other Binary assertion in this package runs against an
+// empty slice, so deleting that sort left the suite green.
+func TestPullBinaryIsSortedAcrossPlannedAndRefused(t *testing.T) {
+	dir := t.TempDir()
+
+	// Known-binary, ledger-seeded, and alphabetically LAST; the refusal below is
+	// alphabetically FIRST but is appended second. Unsorted output is therefore
+	// deterministic rather than a race the fixture happens to win.
+	st := State{
+		ProjectID: "p1",
+		Files:     map[string]FileState{"z-planned.png": {Etag: "e1", Binary: true}},
+	}
+	if err := st.save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(
+				fileEntry("z-planned.png", "e1", 1),
+				fileEntry("a-refused.png", "e2", 1),
+			)}
+		case "read_file":
+			p, _ := args["path"].(string)
+			return fakeReply{Text: p + " is a binary file and cannot be read", IsError: true}
+		}
+		return fakeReply{Text: "unexpected " + name, IsError: true}
+	})
+
+	rep, err := Pull(context.Background(), fakeClient(f), PullOpts{
+		ProjectID: "p1", Dir: dir, Concurrency: 4,
+	})
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	want := []string{"a-refused.png", "z-planned.png"}
+	if !slices.Equal(rep.Binary, want) {
+		t.Errorf("Binary = %v, want %v", rep.Binary, want)
+	}
+	assertSorted(t, "Binary", rep.Binary)
 }

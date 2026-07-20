@@ -509,6 +509,95 @@ func TestPullInterruptedAfterAFetchIsAFailureThatStillRecordsTheFetch(t *testing
 	}
 }
 
+func TestPushInterruptedAfterTheDeletesIsAFailureNotAShortSuccess(t *testing.T) {
+	dir := t.TempDir()
+	syncSeedState(t, dir, State{ProjectID: "p1", Files: map[string]FileState{
+		"gone.css": {Etag: "e1", Size: 3, SHA: SHA256Hex([]byte("a{}"))},
+	}})
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(fileEntry("gone.css", "e1", 3))}
+		case "finalize_plan":
+			return fakeReply{Text: `{"plan_token":"tok-del"}`}
+		case "delete_files":
+			return fakeReply{Text: `{"deleted":1}`}
+		}
+		return fakeReply{Text: "unexpected " + name, IsError: true}
+	})
+
+	// list_files, finalize_plan, delete_files — the cancel lands after the last
+	// server call of the run has already returned.
+	c, ctx := syncCancelAfter(t, f, 3)
+
+	rep, err := Push(ctx, c, PushOpts{
+		ProjectID: "p1", Dir: dir, Concurrency: 4, Prune: true,
+	})
+	if err == nil {
+		t.Fatalf("push reported success (%+v) after being interrupted", rep)
+	}
+	if !strings.Contains(err.Error(), "interrupted") {
+		t.Errorf("error = %v, want it to name the interruption", err)
+	}
+	if _, still := syncLoadState(t, dir).Files["gone.css"]; still {
+		t.Error("gone.css is still in the ledger though the server acknowledged its delete")
+	}
+}
+
+func TestPushInterruptedBeforeThePruneDeletesSendsNoDelete(t *testing.T) {
+	dir := t.TempDir()
+	mkfile(t, dir, "a.css", "a{}")
+	syncSeedState(t, dir, State{ProjectID: "p1", Files: map[string]FileState{
+		"gone.css": {Etag: "e1", Size: 3, SHA: SHA256Hex([]byte("a{}"))},
+	}})
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(fileEntry("gone.css", "e1", 3))}
+		case "write_files":
+			return fakeReply{Text: `{"etags":{"a.css":"e2"},"written":1}`}
+		case "finalize_plan":
+			return fakeReply{Text: `{"plan_token":"tok-del"}`}
+		case "delete_files":
+			return fakeReply{Text: `{"deleted":1}`}
+		}
+		return fakeReply{Text: "unexpected " + name, IsError: true}
+	})
+
+	c, ctx := syncCancelAfter(t, f, 2)
+
+	rep, err := Push(ctx, c, PushOpts{
+		ProjectID: "p1", Dir: dir, Concurrency: 4, Prune: true,
+	})
+	if err == nil {
+		t.Fatalf("push reported success (%+v) after being interrupted", rep)
+	}
+	if !strings.Contains(err.Error(), "interrupted") {
+		t.Errorf("error = %v, want it to name the interruption", err)
+	}
+	// This loop does not prove invariant 4: the fake appends to f.calls at the top of
+	// its handler, when the request arrives, before any reply is written — but the
+	// cancelled call here never reaches that handler. syncCancelAfterRT cancels ctx
+	// only after base.RoundTrip returns for the Nth call, so the next call's request
+	// is rejected by net/http before transmission and dies inside the transport,
+	// never reaching the fake at all. So delete_files/finalize_plan would be absent
+	// from f.Recorded() even if push.go ignored the cancellation. The assertion that
+	// actually reds on a real violation is the "interrupted" message check above.
+	for _, call := range f.Recorded() {
+		if call.Tool == "delete_files" || call.Tool == "finalize_plan" {
+			t.Errorf("%s ran after the push was interrupted; --prune deleted against a tree the user cancelled", call.Tool)
+		}
+	}
+	if got := syncLoadState(t, dir).Files["a.css"].Etag; got != "e2" {
+		t.Errorf("a.css etag = %q, want e2 — the acknowledged write must survive the error path", got)
+	}
+	if _, still := syncLoadState(t, dir).Files["gone.css"]; !still {
+		t.Error("gone.css was dropped from the ledger though no delete was sent")
+	}
+}
+
 func TestPullRefusesAProjectTheDirectoryIsNotBoundTo(t *testing.T) {
 	dir := t.TempDir()
 	syncSeedState(t, dir, State{ProjectID: "project-a"})
@@ -849,6 +938,34 @@ func TestPushSendsBase64WithIfMatchAndRecordsTheReturnedEtags(t *testing.T) {
 	want := FileState{Etag: "e9", Size: int64(len(body)), SHA: SHA256Hex([]byte(body))}
 	if got := st.Files["a.css"]; got != want {
 		t.Errorf("a.css state = %+v, want %+v", got, want)
+	}
+}
+
+func TestPushInterruptedAfterAWriteIsAFailureThatStillRecordsTheWrite(t *testing.T) {
+	dir := t.TempDir()
+	mkfile(t, dir, "a.css", "a{}")
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor()}
+		case "write_files":
+			return fakeReply{Text: `{"etags":{"a.css":"e1"},"written":1}`}
+		}
+		return fakeReply{Text: "unexpected " + name, IsError: true}
+	})
+
+	c, ctx := syncCancelAfter(t, f, 2)
+
+	rep, err := Push(ctx, c, PushOpts{ProjectID: "p1", Dir: dir, Concurrency: 4})
+	if err == nil {
+		t.Fatalf("push reported success (%+v) after being interrupted", rep)
+	}
+	if !strings.Contains(err.Error(), "interrupted") {
+		t.Errorf("error = %v, want it to name the interruption", err)
+	}
+	if got := syncLoadState(t, dir).Files["a.css"].Etag; got != "e1" {
+		t.Errorf("a.css etag = %q, want e1 — the acknowledged write must survive the error path", got)
 	}
 }
 

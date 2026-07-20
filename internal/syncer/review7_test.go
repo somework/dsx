@@ -287,6 +287,15 @@ func parityMatrix() []parityScenario {
 		{path: "irregular-local-only.css", onRemote: false, onLocal: true, localIrreg: true},
 		// tracked binary gone locally: must never be pruned (unpullable).
 		{path: "binary-gone-local.png", onRemote: true, remoteEtag: "e1", onLocal: false, tracked: true, stateEtag: "e1", stateSHA: "s1", stateBinary: true},
+		// The shape a FORCED push leaves behind: binary:true carried through
+		// beside a real SHA, and the local file still matching it. Every
+		// conditional guard passes here -- the sha check sees equality -- so P4
+		// has nothing to catch this cell with but the unconditional
+		// `if prev.Binary`. It is the one that actually loses data.
+		{path: "binary-forced-push.png", onRemote: false, onLocal: true, localSHA: "s1", tracked: true, stateEtag: "e1", stateSHA: "s1", stateBinary: true},
+		// tracked binary gone from the server, a file sitting at that path
+		// locally.
+		{path: "binary-gone-remote.png", onRemote: false, onLocal: true, localSHA: "user-authored", tracked: true, stateEtag: "e1", stateBinary: true},
 		// untracked remote-only file.
 		{path: "untracked-remote.css", onRemote: true, remoteEtag: "e1"},
 		// untracked local file colliding with a remote path.
@@ -376,6 +385,23 @@ func TestPlannerParitySharedSafetyProperties(t *testing.T) {
 						if slices.Contains(lb["Fetch"], s.path) {
 							t.Errorf("planPull scheduled a fetch over local irregular %q", s.path)
 						}
+					}
+				}
+
+				// P4 binary non-prunability: invariant 4 -- neither the absence
+				// of a local file nor the
+				// presence of one is proof the path was ours, so neither planner
+				// may schedule it for deletion -- and unlike the etag/sha guards
+				// this one is unconditional: --force does not unlock it.
+				for _, s := range scen {
+					if !s.tracked || !s.stateBinary {
+						continue
+					}
+					if slices.Contains(pb["Delete"], s.path) {
+						t.Errorf("planPush schedules binary-marked %q for deletion (nothing was ever written there; the server copy is the only one)", s.path)
+					}
+					if slices.Contains(lb["Delete"], s.path) {
+						t.Errorf("planPull schedules binary-marked %q for deletion (nothing was ever written there; the local bytes are user-authored)", s.path)
 					}
 				}
 

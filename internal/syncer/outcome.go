@@ -66,7 +66,7 @@ func (r PullReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.PruneConflicts)
+	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -76,6 +76,12 @@ func (r PullReport) Outcome(dryRun bool) error {
 		parts = append(parts, fmt.Sprintf(
 			"prune conflicts (%s) were deleted on the server but edited here — --force DELETES your only copy",
 			strings.Join(r.PruneConflicts, ", ")))
+	}
+	if len(r.PruneBinary) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"unprunable binary paths (%s) are gone from the server and dsx cannot re-fetch them, "+
+				"so --prune kept them and --force will not delete them either — remove them yourself",
+			strings.Join(r.PruneBinary, ", ")))
 	}
 	return dsxerr.Conflict(r.Conflicts, strings.Join(parts, "; "))
 }
