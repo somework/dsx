@@ -1,5 +1,18 @@
 package syncer
 
+// BaselineEntry lives here, not in baseline.go, because planPull and
+// planPush will read it and plan.go has no import block.
+//
+// It is field-for-field identical to FileState and is deliberately NOT that
+// type. Not an alias, not an embed, not a shared map. The duplication is the
+// guard: `st.Files = someBaseline.Verified` does not compile. DO NOT DRY
+// THESE — see TestBaselineNeverBecomesTracked.
+type BaselineEntry struct {
+	Etag string `json:"etag"`
+	Size int64  `json:"size"`
+	SHA  string `json:"sha256"`
+}
+
 func localCovers(local map[string]localFile, path string) bool {
 	if _, ok := local[path]; ok {
 		return true
