@@ -2,6 +2,8 @@ package files
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -183,5 +185,33 @@ func TestMutatingCommandsDoNotReadTheLedger(t *testing.T) {
 	})
 	if err == nil && len(seen) > 0 && seen[0]["project_id"] == "proj-A" {
 		t.Error("rm took its project from the ledger; cwd must not choose what gets deleted")
+	}
+}
+
+// cat --out writes a path the user named, and it is the command conflictHint
+// prescribes as the way out of a conflict. Leaving it destructive would
+// half-fix the asymmetry and leave the documented cure able to destroy.
+func TestCatOutRefusesAReadOnlyDestination(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "locked.css")
+	if err := os.WriteFile(out, []byte("LOCKED"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		return fakeReply{Text: clitest.EnvelopeFor("a.css", "e1", "server")}
+	})
+	_, err := captureStdout(t, func() error {
+		return cmdCat(context.Background(), fakeClient(f), []string{"proj-A", "a.css", "--out", out})
+	})
+	if err == nil {
+		t.Fatal("cat --out replaced a read-only file")
+	}
+	if !strings.Contains(err.Error(), "chmod +w") {
+		t.Errorf("refusal does not name the fix, so cat --out is not going through WriteAtomic:\n%s", err)
+	}
+	b, readErr := os.ReadFile(out)
+	if readErr != nil || string(b) != "LOCKED" {
+		t.Errorf("destination = %q, %v — want it untouched", b, readErr)
 	}
 }

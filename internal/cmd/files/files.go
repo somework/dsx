@@ -141,7 +141,7 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 	if *out != "" {
-		if err := os.WriteFile(*out, []byte(body), 0o644); err != nil {
+		if err := syncer.WriteAtomic(*out, []byte(body)); err != nil {
 			return err
 		}
 		if *asJSON {

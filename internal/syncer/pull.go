@@ -195,7 +195,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 				fail(err)
 				return
 			}
-			if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			if err := writeAtomic(full, []byte(body)); err != nil {
 				fail(err)
 				return
 			}
