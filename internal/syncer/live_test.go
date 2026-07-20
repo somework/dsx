@@ -24,7 +24,7 @@ type unchangedReply struct {
 	Path      string `json:"path"`
 }
 
-const liveProject = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+const liveProject = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 const scratchPrefix = ".dsx-selftest"
 

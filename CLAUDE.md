@@ -67,15 +67,21 @@ go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
 ### Live testing discipline
 
-Live tests touch real projects and there is **no `delete_project` tool** — never create a throwaway one (`TestLiveRefusesToCreateProjects` enforces it).
+Live tests touch real projects and there is **no `delete_project` tool** — the suite must never create one (`TestLiveRefusesToCreateProjects` enforces it).
 
 - write only to `.dsx-selftest*` paths; `liveScratch` registers and verifies removal
 - pull into `t.TempDir()`, never `design/`
 - every mutating test asserts the file count is back where it started
 
-Test project `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` (override with `DSX_LIVE_PROJECT`). It has
-no standing write grant, so every live write exercises the `finalize_plan` self-authorisation
-path.
+Default project `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` — a sandbox created by hand for this, seeded
+with four files. Override with `DSX_LIVE_PROJECT`.
+
+It carries a standing write grant, because whoever creates a project gets one. So two paths are
+**not covered by default**: `finalize_plan` self-authorisation, and the 403 that
+`TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError` probes — that test skips here and says so. To
+cover them, point `DSX_LIVE_PROJECT` at `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, which has no
+standing grant. That project is a real org-shared design system, which is why it is no longer the
+default.
 
 ## Known unknowns
 
