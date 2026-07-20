@@ -48,6 +48,18 @@ func LoadState(dir string) (State, error) {
 	if s.Files == nil {
 		s.Files = map[string]FileState{}
 	}
+	// A files map with no project is the one shape both bind guards short-circuit
+	// on — they compare only when ProjectID is set — so such a ledger is accepted
+	// as any project's while its etags stay fully trusted by the prune loop. An
+	// empty files map with no project is just an unsynced directory.
+	if s.ProjectID == "" && len(s.Files) > 0 {
+		return State{}, &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
+			"%s tracks %d files but names no project, so nothing can say which server "+
+				"they came from; the ledger is damaged — remove it and run "+
+				"`dsx pull <project> %s`, which reports the files as conflicts rather "+
+				"than overwriting them",
+			filepath.Join(dir, StateFileName), len(s.Files), dir)}
+	}
 	return s, nil
 }
 
