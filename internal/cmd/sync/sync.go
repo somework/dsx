@@ -61,11 +61,40 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 		return "", "", err
 	}
 	if p == "" {
+		if looksLikeProjectID(dir) {
+			return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+				"%s looks like a project id, not a directory — a lone positional is <dir>, "+
+					"so run `dsx %s %s <dir>` and name where the files should live",
+				dir, mode, dir)}
+		}
 		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
 			dir, mode, dir)}
 	}
 	return p, dir, nil
+}
+
+// looksLikeProjectID chooses which refusal to print, never what to do: both
+// branches refuse and neither rebinds a positional, so a wrong guess costs the
+// reader the other message and nothing else.
+func looksLikeProjectID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+			if !isHex {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
