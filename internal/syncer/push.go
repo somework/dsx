@@ -365,5 +365,9 @@ func (r PushReport) Render(asJSON bool) string {
 	for _, p := range r.Irregular {
 		fmt.Fprintf(&sb, "\n  ~ %s — not a regular file here; dsx sent nothing and left the server's copy alone", p)
 	}
+	// See the pull half: last, only the plain rung, no claim about --force.
+	if len(r.Conflicts)-len(r.BinaryConflicts)-len(r.BinaryGone)-len(r.PruneConflicts) > 0 {
+		sb.WriteString("\n" + conflictHint)
+	}
 	return sb.String()
 }

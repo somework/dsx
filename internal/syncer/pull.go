@@ -278,5 +278,11 @@ func (r PullReport) Render(asJSON bool) string {
 		fmt.Fprintf(&sb, "\n  ~ %d binary file(s) skipped — read_file serves text only: %s",
 			len(r.Binary), strings.Join(r.Binary, ", "))
 	}
+	// Last, and only for the plain rung: cat cannot fetch a binary, and a path
+	// gone from the server has no copy to fetch. The line makes no claim about
+	// --force — Conflicts is merged, and on the destructive rungs --force deletes.
+	if len(r.Conflicts)-len(r.PruneConflicts)-len(r.PruneBinary) > 0 {
+		sb.WriteString("\n" + conflictHint)
+	}
 	return sb.String()
 }
