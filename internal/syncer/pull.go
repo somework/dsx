@@ -40,6 +40,11 @@ type PullReport struct {
 	Irregular []string `json:"irregular,omitempty"`
 	Binary    []string `json:"binary"`
 	Bytes     int64    `json:"bytes"`
+
+	// Set by the caller when the run ended in an error. The report goes to
+	// stdout and the error to stderr, so a redirected stdout otherwise keeps
+	// only the reassuring half. omitempty keeps success bytes unchanged.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 func isBinaryRefusal(err error) bool {
@@ -240,6 +245,9 @@ func (r PullReport) Render(asJSON bool) string {
 		return string(b)
 	}
 	var sb strings.Builder
+	if r.Incomplete {
+		sb.WriteString("incomplete: ")
+	}
 	fmt.Fprintf(&sb, "pulled %d, unchanged %d", len(r.Fetched), r.Unchanged)
 	if len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, ", deleted %d", len(r.Deleted))

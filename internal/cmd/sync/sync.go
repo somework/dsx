@@ -105,6 +105,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 			Prune: *prune, Force: *force, DryRun: dryRun,
 		})
 		if err != nil {
+			rep.Incomplete = true
 			emit(rep)
 			return err
 		}
@@ -122,7 +123,13 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		Prune: *prune, Force: *force, DryRun: dryRun,
 	})
 	if err != nil {
-		emit(pullRep)
+		// status is the two-key {pull,push} envelope; rendering one half alone
+		// breaks it here for exactly the reason spelled out at the push half's
+		// error return below.
+		if mode != "status" {
+			pullRep.Incomplete = true
+			emit(pullRep)
+		}
 		return err
 	}
 

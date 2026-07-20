@@ -51,6 +51,9 @@ type PushReport struct {
 
 	Irregular []string `json:"irregular,omitempty"`
 	Bytes     int64    `json:"bytes"`
+
+	// See PullReport.Incomplete.
+	Incomplete bool `json:"incomplete,omitempty"`
 }
 
 func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
@@ -330,6 +333,9 @@ func (r PushReport) Render(asJSON bool) string {
 		return string(b)
 	}
 	var sb strings.Builder
+	if r.Incomplete {
+		sb.WriteString("incomplete: ")
+	}
 	fmt.Fprintf(&sb, "pushed %d, unchanged %d", len(r.Written), r.Unchanged)
 	if len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, ", deleted %d", len(r.Deleted))
