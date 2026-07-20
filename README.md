@@ -26,7 +26,7 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 
 ```bash
 dsx projects                                   # find your project id
-dsx pull  <project> design                     # server → disk
+dsx clone <project> design                     # first pull into a new directory
 dsx push  <project> design                     # disk → server
 dsx status <project> design                    # what a sync would do; transfers nothing
 dsx help
@@ -37,7 +37,13 @@ directory defaults to `.`:
 
 ```bash
 cd design && dsx pull
+dsx tree                                       # and cat, likewise
 ```
+
+`clone` needs an empty directory. To sync into one that already holds files, use
+`dsx pull <project> <dir>`. Files the server does not have are left alone. If any path
+collides, the first pull writes nothing at all and reports the collisions (exit 3) — resolve
+them, or pass `--force` to take the server's copy.
 
 Every MCP tool is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
 `plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json>'` covers
