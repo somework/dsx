@@ -2,6 +2,8 @@ package fmtutil
 
 import (
 	"fmt"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -29,4 +31,21 @@ func Bytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), units[exp])
+}
+
+// Printable replaces every non-graphic rune with '?'. Text that arrives from
+// the server is untrusted input (invariant 7): a carriage return or an escape
+// in a name rewrites what the terminal has already shown, and dsx prints
+// warnings there.
+func Printable(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for _, r := range s {
+		if r == unicode.ReplacementChar || !unicode.IsGraphic(r) {
+			sb.WriteRune('?')
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
 }

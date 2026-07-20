@@ -5,7 +5,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"unicode"
 
 	"github.com/somework/dsx/internal/fmtutil"
 )
@@ -69,13 +68,5 @@ func (p *progress) clear() {
 // what is already on the line — and erasing is exactly this line's mechanism,
 // so a name could wipe a warning printed a moment earlier.
 func sanitizeProgressPath(path string) string {
-	var sb strings.Builder
-	for _, r := range path {
-		if r == unicode.ReplacementChar || !unicode.IsGraphic(r) {
-			sb.WriteRune('?')
-			continue
-		}
-		sb.WriteRune(r)
-	}
-	return fmtutil.Truncate(sb.String(), progressPathWidth)
+	return fmtutil.Truncate(fmtutil.Printable(path), progressPathWidth)
 }
