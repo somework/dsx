@@ -111,6 +111,18 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		return rep, nil
 	}
 
+	// First contact into a directory that already disagrees: write nothing.
+	// With an empty ledger no path here was ever asked for, so writing the
+	// non-conflicting ones leaves a half-foreign tree the caller never agreed
+	// to and cannot tell from their own work. An established sync keeps the
+	// opposite behaviour on purpose — there, a conflict on one path must not
+	// stop the others, which is what makes conflicts recoverable one file at a
+	// time. Nothing is written and nothing is saved, so the report carries the
+	// conflicts and Outcome still supplies the exit code.
+	if len(st.Files) == 0 && len(rep.Conflicts) > 0 {
+		return rep, nil
+	}
+
 	for _, path := range append(append([]string{}, d.Fetch...), d.Delete...) {
 		if err := checkRemotePath(path); err != nil {
 			return rep, err

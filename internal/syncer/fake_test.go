@@ -2,6 +2,8 @@ package syncer
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/somework/dsx/internal/mcp"
@@ -35,4 +37,29 @@ func fileEntry(path, etag string, size int64) RemoteEntry {
 
 func dirEntry(path string) RemoteEntry {
 	return RemoteEntry{Path: path, Type: "directory"}
+}
+
+// LedgerExistsForTest reports whether a ledger was written to dir.
+func LedgerExistsForTest(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, StateFileName))
+	return err == nil
+}
+
+// seedFirstContactLedger makes dir an established sync tracking README.md.
+func seedFirstContactLedger(t *testing.T, dir string) {
+	t.Helper()
+	original := []byte("original\n")
+	st := State{
+		ProjectID: "proj-A",
+		Files: map[string]FileState{
+			"README.md": {Etag: "e0", Size: int64(len(original)), SHA: SHA256Hex(original)},
+		},
+	}
+	b, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, StateFileName), append(b, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
