@@ -19,6 +19,7 @@ import (
 
 func Main(stampedVersion string) {
 	stamped = stampedVersion
+	cmd.Progress = progressWriter()
 
 	err := run()
 	if err == nil {

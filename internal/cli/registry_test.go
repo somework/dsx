@@ -99,7 +99,9 @@ EXIT CODES
   0 ok   1 failed   2 usage   3 conflict (needs a human)
   4 transport (retry may help)   5 auth (run any ` + "`claude`" + ` command)
 
-Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP URL.`
+Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP URL.
+     DSX_PROGRESS=never|always overrides the pull/push transfer counter, which
+     otherwise draws on stderr only when stderr is a terminal.`
 
 func TestUsageIsGeneratedByteForByte(t *testing.T) {
 	t.Parallel()

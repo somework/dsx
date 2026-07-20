@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,6 +24,10 @@ type PullOpts struct {
 	Prune       bool
 	Force       bool
 	DryRun      bool
+
+	// Where the transfer counter draws, nil for silence. The caller decides;
+	// syncer never asks the terminal itself.
+	Progress io.Writer
 }
 
 type PullReport struct {
@@ -118,6 +123,8 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 
 		sem  = make(chan struct{}, max(o.Concurrency, 1))
 		errs []error
+
+		prog = newProgress(o.Progress, "pulling", len(d.Fetch))
 	)
 
 	// Kept distinct from fetchCtx so a caller-side interrupt (parent.Err())
@@ -186,9 +193,12 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 			rep.Bytes += int64(len(body))
 			st = st.withFile(path, FileState{Etag: etag, Size: int64(len(body)), SHA: SHA256Hex([]byte(body))})
 			mu.Unlock()
+
+			prog.step(path)
 		}(path)
 	}
 	wg.Wait()
+	prog.clear()
 
 	// Sorted above the error returns below, which are a machine surface too.
 	slices.Sort(rep.Fetched)

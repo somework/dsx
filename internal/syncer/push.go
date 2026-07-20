@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,6 +35,10 @@ type PushOpts struct {
 	Prune       bool
 	Force       bool
 	DryRun      bool
+
+	// Where the transfer counter draws, nil for silence. The caller decides;
+	// syncer never asks the terminal itself.
+	Progress io.Writer
 }
 
 type PushReport struct {
@@ -129,14 +134,21 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
+	prog := newProgress(o.Progress, "pushing", len(specs))
+
 	// Save the ledger whenever bytes moved, error paths included (invariant 5).
 	for _, batch := range batches(specs) {
 		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
+			prog.clear()
 			_ = st.save(o.Dir)
 			rep.addConflicts(err)
 			return rep, err
 		}
+		for _, s := range batch {
+			prog.step(s.Path)
+		}
 	}
+	prog.clear()
 
 	// A cancel landing after the last call returns leaves every loop above with
 	// a nil error (invariant 3). The batch loop is sequential and derives no

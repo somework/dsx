@@ -131,7 +131,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		}
 		rep, err := syncer.Push(ctx, c, syncer.PushOpts{
 			ProjectID: project, Dir: dir, Concurrency: *jobs,
-			Prune: *prune, Force: *force, DryRun: dryRun,
+			Prune: *prune, Force: *force, DryRun: dryRun, Progress: cmd.Progress,
 		})
 		if err != nil {
 			rep.Incomplete = true
@@ -149,7 +149,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	}
 	pullRep, err := syncer.Pull(ctx, c, syncer.PullOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
-		Prune: *prune, Force: *force, DryRun: dryRun,
+		Prune: *prune, Force: *force, DryRun: dryRun, Progress: cmd.Progress,
 	})
 	if err != nil {
 		// status is the two-key {pull,push} envelope; rendering one half alone

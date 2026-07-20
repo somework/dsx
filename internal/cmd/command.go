@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"io"
 
 	"github.com/somework/dsx/internal/mcp"
 )
@@ -50,3 +51,8 @@ func (c Command) Dispatch(ctx context.Context, client *mcp.Client, args []string
 func NoClient(f func(args []string) error) func(context.Context, *mcp.Client, []string) error {
 	return func(_ context.Context, _ *mcp.Client, args []string) error { return f(args) }
 }
+
+// Progress is where a transfer counter draws, nil for silence. cli decides
+// once at startup and sets it; the leaf packages never ask the terminal
+// themselves. Only presentation hangs off it — nothing semantic.
+var Progress io.Writer
