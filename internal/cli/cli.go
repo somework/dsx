@@ -93,7 +93,9 @@ func dispatch(entry cmd.Command, args []string) error {
 		}
 		return err
 	}
-	return entry.Dispatch(ctx, mcp.New(token), args)
+	// stderr, not stdout: the notice explains a wait, and stdout is the report
+	// a caller may be piping.
+	return entry.Dispatch(ctx, mcp.New(token, mcp.WithRetryNotice(os.Stderr)), args)
 }
 
 func printCommandHelp(entry cmd.Command, help error, args []string) error {

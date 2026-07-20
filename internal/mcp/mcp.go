@@ -25,10 +25,11 @@ const (
 )
 
 type Client struct {
-	endpoint string
-	token    string
-	http     *http.Client
-	seq      atomic.Int64
+	endpoint    string
+	token       string
+	http        *http.Client
+	retryNotice io.Writer
+	seq         atomic.Int64
 
 	lastServerDate atomic.Int64
 }
@@ -41,6 +42,15 @@ func WithEndpoint(url string) Option {
 
 func WithHTTPClient(h *http.Client) Option {
 	return func(c *Client) { c.http = h }
+}
+
+// WithRetryNotice names where a retry announces itself. It sits above the
+// transfer counter because it covers every command, and because it is what
+// distinguishes "working, but repeating" from "hung" — the distinction that
+// decides whether the reader reaches for Ctrl-C, which invariant 3 makes a
+// full failure rather than a short success.
+func WithRetryNotice(w io.Writer) Option {
+	return func(c *Client) { c.retryNotice = w }
 }
 
 func New(token string, opts ...Option) *Client {
@@ -146,6 +156,10 @@ func (c *Client) rpc(ctx context.Context, method string, params any, idempotent 
 	var lastErr error
 	for attempt := range maxAttempts {
 		if attempt > 0 {
+			if c.retryNotice != nil {
+				fmt.Fprintf(c.retryNotice, "dsx: retrying (%d/%d) after a transport fault\n",
+					attempt+1, maxAttempts)
+			}
 			delay := time.Duration(1<<attempt)*250*time.Millisecond +
 				time.Duration(rand.IntN(200))*time.Millisecond
 			select {
