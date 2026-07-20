@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -153,6 +154,31 @@ func scanLocal(dir string, ig *ignoreSet) (map[string]localFile, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// sameEndpoint reports whether two endpoints name the same server. Only scheme
+// and host decide: a vendor moving /v1/design/mcp to /v2 must not strand every
+// ledger on disk, while a different host is a different server whose listing
+// says nothing about our files. Unparseable strings fall back to an exact
+// comparison rather than resolving to a permissive zero value.
+func sameEndpoint(a, b string) bool {
+	ua, errA := url.Parse(a)
+	ub, errB := url.Parse(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return strings.EqualFold(ua.Scheme, ub.Scheme) && strings.EqualFold(ua.Host, ub.Host)
+}
+
+// endpointRefusal names both servers and the one env var that explains the
+// drift. It never suggests removing the ledger: clearing it makes every path
+// untracked, and planPush then leaves IfMatch empty under --force.
+func endpointRefusal(dir, ledger, target, verb string) error {
+	return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+		"%s was synced against %s, but this run targets %s; refusing to %s — "+
+			"that server's listing describes different files, and acting on it would "+
+			"read every tracked path as deleted (unset DSX_ENDPOINT to go back)",
+		filepath.Join(dir, StateFileName), ledger, target, verb)}
 }
 
 // checkRemotePath compares case-insensitively because APFS folds case: on a
