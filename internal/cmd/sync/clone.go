@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
@@ -101,6 +102,15 @@ func checkCloneTarget(dir string) error {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s already holds a dsx ledger for project %s — run `dsx pull %s` to update it",
 			dir, st.ProjectID, dir)}
+	}
+
+	// .dsx is a builtin ignore, so LocalIsEmpty (which asks through survey)
+	// cannot see a foreign .dsx directory and would read it as empty. A raw
+	// Lstat, never survey-mediated, is the only thing that can catch it.
+	if _, err := os.Lstat(filepath.Join(dir, ".dsx")); err == nil {
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"%s already holds a .dsx directory — clone starts a new directory; "+
+				"name an empty one", dir)}
 	}
 
 	empty, err := syncer.LocalIsEmpty(dir)

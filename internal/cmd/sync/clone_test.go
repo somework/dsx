@@ -137,6 +137,28 @@ func TestCloneIgnoresWhatSyncIgnores(t *testing.T) {
 	}
 }
 
+// .dsx is a builtin ignore (C1), so LocalIsEmpty asks through survey and
+// cannot see a foreign .dsx directory — a bare Lstat is the only thing left
+// standing between clone and overwriting someone else's .dsx/ layout.
+func TestCloneRefusesADirectoryHoldingADsxDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(filepath.Join(dir, ".dsx"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clitest.Mkfile(t, filepath.Join(dir, ".dsx"), "marker.txt", "not ours")
+
+	err := checkCloneTarget(dir)
+	if err == nil {
+		t.Fatal("clone into a directory holding a foreign .dsx was accepted")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+	}
+	if !strings.Contains(err.Error(), ".dsx") {
+		t.Errorf("refusal does not name .dsx:\n%s", err)
+	}
+}
+
 // A .git directory is skipped whole, so cloning beside a fresh repo works.
 func TestCloneIgnoresAGitDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "target")
