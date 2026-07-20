@@ -448,8 +448,8 @@ func TestEveryDeclaredFlagIsDocumented(t *testing.T) {
 						if where[everyCommand] || where[command] {
 							continue
 						}
-						t.Errorf("%s declares --%s but neither `dsx %s`'s Form nor usageFooter "+
-							"documents it for %s: the flag is undiscoverable", command, flagName, command, command)
+						t.Errorf("%s: %s declares --%s but neither `dsx %s`'s Form nor usageFooter "+
+							"documents it for %s: the flag is undiscoverable", name, command, flagName, command, command)
 					}
 					return true
 				})
@@ -553,10 +553,14 @@ func flagSetOwners(fn *ast.FuncDecl, cmdNames map[string]bool, pkgCommands []str
 		if !ok || !cmdNames[pkg.Name] {
 			return true
 		}
+		// Appended, not assigned: one identifier can be assigned a FlagSet more
+		// than once — a switch picking a literal name per mode is the obvious
+		// shape — and assignment lets the last branch in AST order erase the
+		// others, leaving every earlier command with no declarations at all.
 		if lit, ok := stringLit(call.Args[0]); ok {
-			owner[lhs.Name] = []string{lit}
+			owner[lhs.Name] = append(owner[lhs.Name], lit)
 		} else if len(pkgCommands) > 0 {
-			owner[lhs.Name] = pkgCommands
+			owner[lhs.Name] = append(owner[lhs.Name], pkgCommands...)
 		}
 		return true
 	})
