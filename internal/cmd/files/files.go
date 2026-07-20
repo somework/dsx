@@ -165,6 +165,28 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	return err
 }
 
+// putWarn is where put's ledger note goes; nil means os.Stderr. Tests swap it
+// rather than the process's stderr.
+var putWarn io.Writer
+
+// warnIfLedgerNearby says what put's write means for the directory it was run
+// from. It writes nothing to the ledger: put has no <dir>, so the shell's
+// directory is not known to be the sync root, and writing there on a guess
+// would be inventing a binding.
+func warnIfLedgerNearby(project string) {
+	st, err := syncer.LoadState(".")
+	if err != nil || st.ProjectID != project {
+		return
+	}
+	w := putWarn
+	if w == nil {
+		w = os.Stderr
+	}
+	fmt.Fprintf(w, "dsx: note: ./%s is bound to this project — put writes the server "+
+		"without updating it, so `dsx status` here will report a conflict; "+
+		"use `dsx push` to stay in step\n", syncer.StateFileName)
+}
+
 func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("put")
 	var (
@@ -209,7 +231,13 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 		a["plan_token"] = *plan
 	}
 
-	return cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON)
+	if err := cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON); err != nil {
+		return err
+	}
+	// After the write: a note about a ledger is only worth printing once the
+	// bytes it describes have actually landed.
+	warnIfLedgerNearby(project)
+	return nil
 }
 
 func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
