@@ -5,6 +5,7 @@ package synccmd
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
@@ -98,7 +99,18 @@ func looksLikeProjectID(s string) bool {
 }
 
 func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
-	fs := cmd.NewFlagSet(mode)
+	// Three literals, not cmd.NewFlagSet(mode): flagSetOwners can only read a
+	// literal, and an expression makes it fall back to attributing these flags
+	// to every command the package declares.
+	var fs *flag.FlagSet
+	switch mode {
+	case "pull":
+		fs = cmd.NewFlagSet("pull")
+	case "push":
+		fs = cmd.NewFlagSet("push")
+	default:
+		fs = cmd.NewFlagSet("status")
+	}
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
 		force  = fs.Bool("force", false, "overwrite conflicts")
