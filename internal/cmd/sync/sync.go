@@ -129,7 +129,19 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	}
 
 	dryRun := *dry || mode == "status"
-	if mode != "push" {
+	switch {
+	case dryRun:
+		// A command that transfers nothing leaves no trace. Refusing rather
+		// than tolerating a missing directory in syncer is deliberate: an empty
+		// local scan is what makes `push --prune` read the whole server tree as
+		// user deletions, so "the directory is not there" must never reach a
+		// plan at all.
+		if _, err := os.Stat(dir); err != nil {
+			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+				"%s does not exist, so there is nothing to compare — name a synced "+
+					"directory, or run `dsx pull <project> %s` to create it", dir, dir)}
+		}
+	case mode != "push":
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
