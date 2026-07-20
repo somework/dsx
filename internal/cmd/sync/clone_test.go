@@ -159,6 +159,82 @@ func TestCloneRefusesADirectoryHoldingADsxDirectory(t *testing.T) {
 	}
 }
 
+// Mutation testing found that narrowing the .dsx probe to "err == nil &&
+// fi.IsDir()" makes no test fail — nothing pinned the regular-file or
+// symlink shape. IsDir() on a bare Lstat result is false for a symlink
+// regardless of what it resolves to, so a symlinked .dsx would slip the
+// narrowed guard exactly like a plain file would.
+func TestCloneRefusesADsxRegularFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "target")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".dsx"), []byte("not ours"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := checkCloneTarget(dir)
+	if err == nil {
+		t.Fatal("clone into a directory holding a .dsx regular file was accepted")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+	}
+	if !strings.Contains(err.Error(), ".dsx") {
+		t.Errorf("refusal does not name .dsx:\n%s", err)
+	}
+}
+
+func TestCloneRefusesADsxSymlinkToADirectoryInsideTheTree(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "target")
+	real := filepath.Join(dir, "real-dsx")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".dsx")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := checkCloneTarget(dir)
+	if err == nil {
+		t.Fatal("clone into a directory holding a .dsx symlink was accepted")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+	}
+	if !strings.Contains(err.Error(), ".dsx") {
+		t.Errorf("refusal does not name .dsx:\n%s", err)
+	}
+}
+
+func TestCloneRefusesADsxSymlinkPointingOutsideTheTree(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "target")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(parent, "elsewhere")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, ".dsx")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	err := checkCloneTarget(dir)
+	if err == nil {
+		t.Fatal("clone into a directory holding a .dsx symlink pointing outside the tree was accepted")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+	}
+	if !strings.Contains(err.Error(), ".dsx") {
+		t.Errorf("refusal does not name .dsx:\n%s", err)
+	}
+}
+
 // A .git directory is skipped whole, so cloning beside a fresh repo works.
 func TestCloneIgnoresAGitDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "target")
