@@ -166,6 +166,13 @@ unchanged file costs no request at all.
 Etags look like microsecond timestamps (`1784221582411848`) but are opaque. `"0"` is the
 sentinel asserting a path does not exist.
 
+### list_projects
+
+A **bare JSON array**, not an object wrapping one and not a `read_file`-style envelope.
+Each element is exactly `{"id":…,"name":…,"url":…}`, all three strings; `id` is the 36-char
+UUID every other tool takes as `project_id`. The tool declares no output schema, so this was
+measured rather than read — `TestLiveListProjectsIsABareArrayOfIDNameURL` is the claim's test.
+
 ## Writing
 
 `write_files` reply — a **map**, not a list:
