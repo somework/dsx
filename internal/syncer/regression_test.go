@@ -130,3 +130,13 @@ func TestRemotePathsAllowNormalFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestBareDsxSegmentIsRefusedAsARemotePath(t *testing.T) {
+	for _, p := range []string{".dsx", "a/.dsx", ".dsx/state.json", "a/.dsx/state.json", ".DSX/x"} {
+		t.Run(p, func(t *testing.T) {
+			if err := checkRemotePath(p); err == nil {
+				t.Errorf("checkRemotePath(%q) = nil, want refusal", p)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package syncer
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 )
 
@@ -40,6 +41,28 @@ func TestIgnoreBuiltInsHoldWithNoFile(t *testing.T) {
 		if s.match(p) {
 			t.Errorf("%q must not be ignored", p)
 		}
+	}
+}
+
+func TestBuiltinDsxIsUnanchoredAndSkipsTheSubtree(t *testing.T) {
+	s := mustParseIgnore(t, "")
+	var re *regexp.Regexp
+	for _, r := range s.rules[:s.builtins] {
+		if r.source == ".dsx" {
+			re = r.re
+		}
+	}
+	if re == nil {
+		t.Fatal(`no builtin rule with source ".dsx"`)
+	}
+	if want := `(?i)^(?:.*/)?\.dsx$`; re.String() != want {
+		t.Errorf("compiled .dsx pattern = %q, want %q", re.String(), want)
+	}
+	if !s.canSkipDir(".dsx") {
+		t.Error(`canSkipDir(".dsx") = false, want true`)
+	}
+	if !s.canSkipDir("a/b/.dsx") {
+		t.Error(`canSkipDir("a/b/.dsx") = false, want true`)
 	}
 }
 
