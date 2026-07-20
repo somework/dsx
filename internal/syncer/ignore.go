@@ -8,14 +8,30 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const ignoreFileName = ".dsxignore"
 
+// The trailing * on the dsx-owned entries covers save()'s os.CreateTemp sibling
+// and the fold probe's os.MkdirTemp directory. Anchored patterns never matched
+// those, and an unmatched leftover is an untracked local file the next push
+// uploads — for the ledger sibling, dsx's own project id and file map.
 var builtinIgnores = []string{
 	".git", ".svn", ".hg", "node_modules", ".DS_Store",
-	StateFileName, ignoreFileName, caseProbeName,
+	StateFileName + "*", ignoreFileName, caseProbeName + "*",
 }
+
+// builtinIgnoreSet is the builtins compiled once, so that every consumer of
+// builtinIgnores reads it as globs. isBuiltinIgnoredName compared literals and
+// would have stopped guarding checkRemotePath the moment an entry grew a glob.
+var builtinIgnoreSet = sync.OnceValue(func() *ignoreSet {
+	s, err := parseIgnore("")
+	if err != nil {
+		panic("builtinIgnores does not compile: " + err.Error())
+	}
+	return s
+})
 
 type ignoreRule struct {
 	re      *regexp.Regexp

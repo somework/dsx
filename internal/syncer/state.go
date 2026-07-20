@@ -209,12 +209,7 @@ func checkRemotePath(rel string) error {
 }
 
 func isBuiltinIgnoredName(name string) bool {
-	for _, b := range builtinIgnores {
-		if strings.EqualFold(b, name) {
-			return true
-		}
-	}
-	return false
+	return builtinIgnoreSet().match(name)
 }
 
 func safeJoin(root, rel string) (string, error) {
