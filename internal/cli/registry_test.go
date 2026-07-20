@@ -49,11 +49,12 @@ PROJECTS
 
 FILES
   dsx ls <project> [path]               list one directory
-  dsx tree <project>                    every file, recursive, with etags
-  dsx cat <project> <path> [--out f]    read a file (stdout by default)
+  dsx tree [<project>]                  every file, recursive, with etags
+  dsx cat [<project>] <path> [--out f]  read a file (stdout by default)
   dsx put <project> <path> [file]       write a file (stdin when file is omitted)
   dsx rm <project> <path...>            delete files
   dsx cp <project> <src> <dst> [--from <project>]
+  tree and cat take the directory's project when run inside a synced directory.
 
 PLANS / PREVIEW
   dsx plan <project> [--writes a,b] [--deletes c,d] [--scope project]

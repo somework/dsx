@@ -17,14 +17,31 @@ import (
 
 var Group = cmd.Group{
 	Title: "FILES",
+	Note:  "  tree and cat take the directory's project when run inside a synced directory.",
 	Cmds: []cmd.Command{
 		{Name: "ls", Form: "ls <project> [path]", Desc: "list one directory", Run: cmdLs},
-		{Name: "tree", Form: "tree <project>", Desc: "every file, recursive, with etags", Run: cmdTree},
-		{Name: "cat", Form: "cat <project> <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
+		{Name: "tree", Form: "tree [<project>]", Desc: "every file, recursive, with etags", Run: cmdTree},
+		{Name: "cat", Form: "cat [<project>] <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
 		{Name: "put", Form: "put <project> <path> [file]", Desc: "write a file (stdin when file is omitted)", Run: cmdPut},
 		{Name: "rm", Form: "rm <project> <path...>", Desc: "delete files", Run: cmdRm},
 		{Name: "cp", Form: "cp <project> <src> <dst> [--from <project>]", Run: cmdCp},
 	},
+}
+
+// boundProject reads the project the working directory is already synced to.
+// tree and cat are read-only against the server and take no <dir>, so this adds
+// no way to name a project — it stops hiding the one pull/push/status already
+// obey. The mutating commands keep naming theirs: cwd must not choose the
+// target of a destructive act.
+func boundProject(form string) (string, error) {
+	st, err := syncer.LoadState(".")
+	if err != nil {
+		return "", err
+	}
+	if st.ProjectID == "" {
+		return "", dsxerr.Usage(form)
+	}
+	return st.ProjectID, nil
 }
 
 func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
@@ -54,12 +71,19 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "tree <project>")
-	if err != nil {
-		return err
-	}
-	if err := cmd.NoExtra(rest, "tree <project>"); err != nil {
-		return err
+	var project string
+	if len(pos) == 0 {
+		if project, err = boundProject("tree <project>"); err != nil {
+			return err
+		}
+	} else {
+		var rest []string
+		if project, rest, err = cmd.Need1(pos, "tree <project>"); err != nil {
+			return err
+		}
+		if err := cmd.NoExtra(rest, "tree <project>"); err != nil {
+			return err
+		}
 	}
 	files, err := syncer.WalkTree(ctx, c, project, *jobs)
 	if err != nil {
@@ -97,12 +121,20 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, path, rest, err := cmd.Need2(pos, "cat <project> <path> [--out f]")
-	if err != nil {
-		return err
-	}
-	if err := cmd.NoExtra(rest, "cat <project> <path> [--out f]"); err != nil {
-		return err
+	var project, path string
+	if len(pos) == 1 {
+		if project, err = boundProject("cat <project> <path> [--out f]"); err != nil {
+			return err
+		}
+		path = pos[0]
+	} else {
+		var rest []string
+		if project, path, rest, err = cmd.Need2(pos, "cat <project> <path> [--out f]"); err != nil {
+			return err
+		}
+		if err := cmd.NoExtra(rest, "cat <project> <path> [--out f]"); err != nil {
+			return err
+		}
 	}
 	body, etag, err := c.ReadFull(ctx, project, path)
 	if err != nil {
