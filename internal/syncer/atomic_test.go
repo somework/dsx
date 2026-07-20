@@ -126,7 +126,7 @@ func TestWriteAtomicWritesTheBytes(t *testing.T) {
 // A read-only file is a gesture. Today os.WriteFile fails with EACCES and the
 // file survives; after a rename the write permission is checked on the
 // directory, so the file would be replaced without a word. The refusal lands
-// before the act (invariant 15) and keeps today's outcome.
+// before the act (invariant 16) and keeps today's outcome.
 func TestWriteAtomicRefusesAReadOnlyDestination(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "locked.css")

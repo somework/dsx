@@ -107,7 +107,7 @@ func inspectDestination(path string) (os.FileMode, error) {
 	// A rename checks write permission on the DIRECTORY, so a read-only file
 	// would be replaced without a word — today os.WriteFile fails and the file
 	// survives. The gesture is kept, and the refusal lands before the act
-	// (invariant 15).
+	// (invariant 16).
 	if fi.Mode().IsRegular() && perm&0o200 == 0 {
 		return 0, &dsxerr.Error{Kind: dsxerr.KindLocal, Msg: fmt.Sprintf(
 			"%s is read-only (%o) — dsx left it alone; `chmod +w %s` to let the sync replace it",
