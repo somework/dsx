@@ -1,0 +1,11 @@
+{
+  "project_id": "/var/folders/y5/h7cs_s3s4d34zhqplftg74w00000gn/T/TestARefusedCloneCreatesNothing2846802301/001/xxx/deep",
+  "endpoint": "http://127.0.0.1:52118",
+  "files": {
+    "a.css": {
+      "etag": "e1",
+      "size": 3,
+      "sha256": "5f546eb4606b5c2b7d2a449a5cc2bbb477ed5a246c7051ce871b12f2dbfc8419"
+    }
+  }
+}

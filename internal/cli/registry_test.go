@@ -34,12 +34,14 @@ func cmdImportNames(file *ast.File) map[string]bool {
 const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
 
 SYNC (etag-aware; unchanged files cost no request at all)
+  dsx clone <project> <dir> [-j N]      first pull into a new directory
   dsx pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
   dsx push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
   dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
   The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.
   status accepts pull/push's flags and previews them: --force hides conflicts.
+  clone is the first pull: both arguments, and <dir> must be empty.
 
 PROJECTS
   dsx projects                          list projects
@@ -89,7 +91,7 @@ FLAGS
   --prune     delete what the other side lacks — pull, push, status
   --force     overwrite conflicts — pull, push, status
   -q  -n      suppress the summary line, dry run — pull, push, status
-  -j N        concurrency (default 8) — pull, push, status, tree
+  -j N        concurrency (default 8) — clone, pull, push, status, tree
 
 WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js

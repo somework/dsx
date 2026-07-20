@@ -23,7 +23,7 @@ const usageFooter = `FLAGS
   --prune     delete what the other side lacks — pull, push, status
   --force     overwrite conflicts — pull, push, status
   -q  -n      suppress the summary line, dry run — pull, push, status
-  -j N        concurrency (default 8) — pull, push, status, tree
+  -j N        concurrency (default 8) — clone, pull, push, status, tree
 
 WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js

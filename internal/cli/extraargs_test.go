@@ -43,7 +43,9 @@ func baseInvocations(t *testing.T) map[string][]string {
 	msgs := dir + "/messages.json"
 
 	return map[string][]string{
-		// SYNC — resolveSyncTarget rejects a 3rd positional before any network.
+		// SYNC — resolveSyncTarget rejects a 3rd positional before any network;
+		// clone's own NoExtra rejects it before its target checks.
+		"clone":  {"proj", "dir"},
 		"pull":   {"proj", "dir"},
 		"push":   {"proj", "dir"},
 		"status": {"proj", "dir"},

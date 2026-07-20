@@ -429,3 +429,24 @@ func checkPathCollisions(remote map[string]RemoteEntry, local map[string]localFi
 			"distinct, so syncing them would land several files in one and destroy all but the last. "+
 			"Rename them in the project, or sync to a case-sensitive volume", dir))
 }
+
+// LocalIsEmpty reports whether dir holds nothing dsx would sync. It asks
+// through survey's own filter rather than reading the directory directly:
+// survey is the only filter (invariant 9), and a second view of the same
+// directory would answer differently about .DS_Store, .git, a pre-written
+// .dsxignore and dsx's own temporary files. A directory that does not exist
+// holds nothing.
+func LocalIsEmpty(dir string) (bool, error) {
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	// Through survey, not loadIgnore+scanLocal by hand: survey is the only
+	// filter (invariant 9) and TestSyncCallersCannotFilterOneSide enforces it.
+	// The empty remote is honest — emptiness is a question about one side only,
+	// so there is no listing to filter.
+	_, local, err := survey(dir, map[string]RemoteEntry{})
+	if err != nil {
+		return false, err
+	}
+	return len(local) == 0, nil
+}

@@ -19,8 +19,11 @@ var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
 	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.
-  status accepts pull/push's flags and previews them: --force hides conflicts.`,
+  status accepts pull/push's flags and previews them: --force hides conflicts.
+  clone is the first pull: both arguments, and <dir> must be empty.`,
 	Cmds: []cmd.Command{
+		{Name: "clone", Form: cloneForm,
+			Desc: "first pull into a new directory", Run: cmdClone},
 		{Name: "pull", Form: "pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("pull")},
 		{Name: "push", Form: "push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
