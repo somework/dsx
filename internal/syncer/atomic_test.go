@@ -217,6 +217,18 @@ func TestTheTempPrefixIsAlreadyCoveredByBuiltinIgnores(t *testing.T) {
 	}
 }
 
+// tempPrefix must stay tied to the hard-coded legacy literal, not to any
+// constant that could later be repointed at DirName — an already-shipped
+// binary's builtinIgnores can never learn a new string.
+func TestTempPrefixIsFrozenForOldBinaries(t *testing.T) {
+	if !strings.HasPrefix(tempPrefix, ".dsx-state.json") {
+		t.Errorf("tempPrefix = %q, want a prefix of %q", tempPrefix, ".dsx-state.json")
+	}
+	if !builtinIgnoreSet().match("a/b/" + tempPrefix + "ff") {
+		t.Errorf("%q is not covered by builtinIgnores", tempPrefix+"ff")
+	}
+}
+
 // The unit tests above prove the helper; these prove Pull actually calls it.
 // Without them the wiring is a one-line change nothing holds in place.
 func TestPullPreservesAnExecutableBitAcrossARefetch(t *testing.T) {

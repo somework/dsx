@@ -12,14 +12,14 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// tempPrefix reuses the ledger's name so builtinIgnores already covers it:
-// StateFileName+"*" compiles unanchored and matches at any depth, which is
-// what these need now that temps are born in subdirectories. Four protections
-// come free — and so does the one that matters most, an OLD dsx binary hiding
-// them too. A private glob would wedge the versions: a new binary drops a file
-// the old one does not know, the old one pushes that fragment to the server,
-// and the new one then refuses the whole pull until it is deleted by hand.
-const tempPrefix = StateFileName + ".part-"
+// tempPrefix is frozen to legacyStateFileName, not derived from anything that
+// can change: it is a compatibility artifact, recognised by an already-shipped
+// binary's compile-time builtinIgnores, which can never learn a string
+// invented later. Repointing this at a new name wedges the versions — a new
+// binary drops a file the old one does not know, the old one pushes that
+// fragment to the server, and the new one then refuses the whole pull until
+// it is deleted by hand.
+const tempPrefix = legacyStateFileName + ".part-"
 
 // writeAtomic replaces path's contents in one step. os.WriteFile opens with
 // O_TRUNC, so its destroying step strictly precedes its creating one: a kill

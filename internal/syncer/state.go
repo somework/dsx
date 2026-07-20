@@ -18,6 +18,12 @@ import (
 
 const StateFileName = ".dsx-state.json"
 
+// legacyStateFileName is the frozen wire-compatible spelling of the ledger's
+// name. Anything an already-shipped binary must still recognise — tempPrefix,
+// checkRemotePath's ledger refusal, the builtinIgnores glob — reads this, not
+// StateFileName, so a later repoint of StateFileName cannot drag them along.
+const legacyStateFileName = ".dsx-state.json"
+
 const caseProbeName = ".dsx-case-probe"
 
 type FileState struct {
@@ -203,7 +209,7 @@ func endpointRefusal(dir, ledger, target, verb string) error {
 // case-insensitive filesystem `.GIT/config` is `.git/config`, so a
 // case-sensitive guard is no guard.
 func checkRemotePath(rel string) error {
-	if strings.EqualFold(rel, StateFileName) {
+	if strings.EqualFold(rel, legacyStateFileName) {
 		return fmt.Errorf("refusing remote path %q: it would overwrite dsx's own ledger", rel)
 	}
 	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
