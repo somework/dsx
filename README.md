@@ -52,6 +52,13 @@ dsx pull design                                 # bytes that match land as verif
 dsx diff design                                 # classify every path: same, local-only, remote-only, differs
 ```
 
+`pin` refuses to rebind, so a mistyped id would otherwise be repairable only by deleting `.dsx`
+by hand. `dsx unpin <dir>` is the way back, and it needs no credential — the state you are in
+when you want out of a binding may well be an expired token. It releases only a binding that
+has synced nothing: once the ledger tracks a file, dropping it would make every tracked path
+untracked and leave the next `push --force` writing with no etag precondition at all, so unpin
+refuses and says so.
+
 `fetch` proves identity by downloading and hashing, never by etag alone, and only the paths it
 verified are exempted from the collision — they stay untracked (`fetch` records a cache, not
 the ledger), but they no longer block the first pull. Whatever it could not verify still

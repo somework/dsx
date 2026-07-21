@@ -51,6 +51,7 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"status": {"proj", "dir"},
 		"fetch":  {"proj", "dir"},
 		"pin":    {"proj", "dir"},
+		"unpin":  {"dir"},
 		"diff":   {"proj", "dir"},
 		// PROJECTS
 		"projects": {},

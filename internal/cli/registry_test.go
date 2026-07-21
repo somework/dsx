@@ -40,6 +40,7 @@ SYNC (etag-aware; unchanged files cost no request at all)
   dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
   dsx fetch [<project>] [<dir>] [-j N]  record what the server holds; writes .dsx/, not the tree
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip
+  dsx unpin [<dir>]                     release a binding that has synced nothing
   dsx diff [<project>] [<dir>] [--out <dir>] [-j N]  classify each path: same, local-only, remote-only, differs
   The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.
