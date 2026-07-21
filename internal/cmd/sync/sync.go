@@ -77,9 +77,21 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 					"so run `dsx %s %s <dir>` and name where the files should live",
 				dir, mode, dir)}
 		}
+		// pull and push write State.ProjectID on a real run, so promising that
+		// re-running them with a project is remembered is true of those two and
+		// only those two. status forces DryRun and returns above the ledger
+		// write, fetch writes .dsx/baseline.json which boundProject never
+		// reads, and diff writes nothing at all — the three reached this
+		// resolver later and inherited a promise they do not keep.
+		if mode == "pull" || mode == "push" {
+			return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+				"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
+				dir, mode, dir)}
+		}
 		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
-			dir, mode, dir)}
+			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s`, "+
+				"or `dsx pin <project> %s` once so this verb stops asking",
+			dir, mode, dir, dir)}
 	}
 	return p, dir, nil
 }
