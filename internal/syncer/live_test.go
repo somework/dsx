@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -762,31 +761,22 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if !slices.Contains(rep.Fetched, textPath) {
-		t.Fatalf("Fetched = %v, want %s present", rep.Fetched, textPath)
-	}
-	if slices.Contains(rep.Fetched, binPath) {
-		t.Errorf("Fetched = %v, %s must not be recorded — it is binary", rep.Fetched, binPath)
-	}
-
 	bl, err := loadBaseline(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := bl.Verified[binPath]; ok {
-		t.Errorf("baseline holds an entry for the binary path %s: %+v", binPath, bl.Verified[binPath])
-	}
-	if len(bl.Verified) == 0 {
-		t.Fatal("baseline holds no entries at all")
-	}
-	for path, entry := range bl.Verified {
+
+	reread := map[string]string{}
+	for path := range bl.Verified {
 		body, _, err := c.ReadFull(ctx, liveProjectID(), path)
 		if err != nil {
 			t.Fatalf("ReadFull(%s) for independent verification: %v", path, err)
 		}
-		if want := SHA256Hex([]byte(body)); entry.SHA != want {
-			t.Errorf("baseline[%s].SHA = %s, want %s from an independent re-read", path, entry.SHA, want)
-		}
+		reread[path] = body
+	}
+
+	if err := fetchBaselineVerdict(rep.Fetched, bl.Verified, textPath, binPath, reread); err != nil {
+		t.Fatal(err)
 	}
 
 	if after := len(liveTree(t, c, ctx)); after != beforeFetch {
