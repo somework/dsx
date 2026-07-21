@@ -829,6 +829,9 @@ func checkListedEtagAndSize(t *testing.T, c *mcp.Client, ctx context.Context, pa
 // The middle write of B is the positive control, not scaffolding: without a
 // real revision bump between the two writes of A, a server handing out one
 // constant etag would pass the final assertion for the wrong reason.
+//
+// The judgment itself is etagVerdict, deliberately outside this build tag so
+// CI compiles and exercises it; what stays here is the plumbing.
 func TestLiveEtagIsRevisionDerivedNotContentDerived(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
@@ -838,32 +841,16 @@ func TestLiveEtagIsRevisionDerivedNotContentDerived(t *testing.T) {
 	bodyB := []byte("dsx live self-test — etag probe B, longer than A; safe to delete\n")
 
 	etagA1 := liveWrite(t, c, ctx, path, bodyA)
-	if etagA1 == "" {
-		t.Fatal("the first write of A returned no etag")
-	}
 	checkListedEtagAndSize(t, c, ctx, path, etagA1, len(bodyA))
 
 	etagB := liveWrite(t, c, ctx, path, bodyB)
-	if etagB == "" {
-		t.Fatal("the write of B returned no etag")
-	}
-	if etagB == etagA1 {
-		t.Fatalf("positive control failed: writing genuinely different content kept the etag "+
-			"(%s == %s); either the write did not land or the server hands out a constant etag, "+
-			"and either way the rest of this test proves nothing", etagA1, etagB)
-	}
 	checkListedEtagAndSize(t, c, ctx, path, etagB, len(bodyB))
 
 	etagA2 := liveWrite(t, c, ctx, path, bodyA)
-	if etagA2 == "" {
-		t.Fatal("the second write of A returned no etag")
-	}
 	checkListedEtagAndSize(t, c, ctx, path, etagA2, len(bodyA))
 
-	if etagA1 == etagA2 {
-		t.Fatalf("etag is content-derived, contradicting the measured behaviour this test claims: "+
-			"re-putting the original bytes (A1=%s) after an intervening different write (B=%s) "+
-			"produced the same etag again (A2=%s)", etagA1, etagB, etagA2)
+	if err := etagVerdict(etagA1, etagB, etagA2); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := liveRemove(c, ctx, path); err != nil {
