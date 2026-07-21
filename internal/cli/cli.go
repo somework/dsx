@@ -31,19 +31,33 @@ func Main(stampedVersion string) {
 }
 
 func run() error {
-	if len(os.Args) < 2 {
+	// dsx's own options come off first, before the command name is read, the
+	// way `git -C <dir> status` works. Chdir rather than threading a root
+	// through every command: -C means "run as if dsx had been started there",
+	// and every path dsx resolves — the ledger walk, .dsxignore, safeJoin's
+	// roots — already answers to the working directory.
+	chdirs, args, err := splitGlobalFlags(os.Args[1:])
+	if err != nil {
+		return err
+	}
+	if err := applyChdirs(chdirs); err != nil {
+		return err
+	}
+
+	if len(args) == 0 {
 		fmt.Println(usage)
 		return nil
 	}
 
-	name, args := os.Args[1], os.Args[2:]
+	name := args[0]
+	args = args[1:]
 
 	entry, ok := commandIndex[name]
 	if !ok {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "unknown command " + strconv.Quote(name) + " — run `dsx help`"}
 	}
 
-	err := dispatch(entry, args)
+	err = dispatch(entry, args)
 	if errors.Is(err, flag.ErrHelp) {
 		// A help request is an answer, not a failure: exit 0, matching the
 		// top-level `dsx -h`. The flag list comes back inside the error

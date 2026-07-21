@@ -102,6 +102,9 @@ WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js
   --plan T      plan_token from dsx plan — put, cp, support-js
 
+GLOBAL
+  dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's
+
 EXIT CODES
   0 ok   1 failed   2 usage   3 conflict (needs a human)
   4 transport (retry may help)   5 auth (run any ` + "`claude`" + ` command)
@@ -305,7 +308,25 @@ const everyCommand = "*"
 func footerFlagScopes(t *testing.T) map[string]map[string]bool {
 	t.Helper()
 	scopes := map[string]map[string]bool{}
+	global := false
 	for _, line := range strings.Split(usageFooter, "\n") {
+		// The GLOBAL block documents dsx's own options — the ones
+		// splitGlobalFlags peels off before the command name is even read. They
+		// have no per-command declaration to match, and demanding an em-dash
+		// scope for them would force a lie in one direction or the other:
+		// naming commands the binary would reject, or naming none. The block is
+		// not an escape hatch — TestTheGlobalBlockDocumentsExactlyTheRealGlobals
+		// ties it to the parser rather than to prose.
+		if strings.HasPrefix(line, "GLOBAL") {
+			global = true
+			continue
+		}
+		if global {
+			if strings.TrimSpace(line) == "" {
+				global = false
+			}
+			continue
+		}
 		flags := flagTokens(line)
 		if len(flags) == 0 {
 			continue

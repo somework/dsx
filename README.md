@@ -76,6 +76,11 @@ anything the named commands do not wrap.
 
 `--json` on every command, `-j N` for concurrency, `-n` for a dry run.
 
+Sync verbs find the ledger by walking up, the way `git status` works from anywhere inside a
+repository — so `cd design/components && dsx pull` syncs the whole tree. To act on a tree you
+are not standing in, `dsx -C <dir> <command>` runs as if dsx had been started there, exactly
+like git's.
+
 ## Why it is cheap
 
 `list_files` returns an etag per file, so one listing per directory prices the whole tree up

@@ -29,6 +29,9 @@ WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js
   --plan T      plan_token from dsx plan — put, cp, support-js
 
+GLOBAL
+  dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's
+
 EXIT CODES
   0 ok   1 failed   2 usage   3 conflict (needs a human)
   4 transport (retry may help)   5 auth (run any ` + "`claude`" + ` command)
