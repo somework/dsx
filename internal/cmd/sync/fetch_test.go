@@ -27,7 +27,7 @@ func TestFetchRefusesAForeignEndpointBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err == nil {
 		t.Fatal("fetch accepted a directory bound to a different endpoint")
@@ -37,31 +37,6 @@ func TestFetchRefusesAForeignEndpointBeforeTheRoundTrip(t *testing.T) {
 	}
 	if got := f.CountTool("list_files"); got != 0 {
 		t.Errorf("list_files called %d times, want 0 — the endpoint guard must run before the round trip", got)
-	}
-}
-
-// TestFetchRefusesAForeignProjectBeforeTheRoundTrip: invariant 13's binding
-// is (project, endpoint) and BOTH halves are checked. This is the project
-// half's own test — TestFetchRefusesAForeignEndpointBeforeTheRoundTrip above
-// covers only the endpoint half, and nothing previously exercised this one.
-func TestFetchRefusesAForeignProjectBeforeTheRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	syncSeedState(t, dir, syncer.State{ProjectID: "proj-A"})
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{Text: listingFor()}
-	})
-	_, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-B", dir})
-	})
-	if err == nil {
-		t.Fatal("fetch accepted a directory bound to a different project")
-	}
-	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
-		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
-	}
-	if got := f.CountTool("list_files"); got != 0 {
-		t.Errorf("list_files called %d times, want 0 — the project guard must run before the round trip", got)
 	}
 }
 
@@ -77,7 +52,7 @@ func TestFetchRefusesAMissingDirectory(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", missing})
+		return cmdFetch(context.Background(), fakeClient(f), []string{missing})
 	})
 	if err == nil {
 		t.Fatal("fetch accepted a directory that does not exist")
@@ -110,7 +85,7 @@ func TestFetchWritesTheReportAndSucceeds(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
 	})
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err != nil {
 		t.Fatalf("cmdFetch errored: %v", err)
@@ -134,7 +109,7 @@ func TestAFailedFetchRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err == nil {
 		t.Fatal("fetch succeeded against a dead endpoint")
@@ -151,7 +126,7 @@ func TestAFailedFetchJSONCarriesIncomplete(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", dir, "--json"})
+		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--json"})
 	})
 	if err == nil {
 		t.Fatal("want an error")

@@ -18,7 +18,7 @@ func TestAFailedDiffRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err == nil {
 		t.Fatal("diff succeeded against a dead endpoint")
@@ -37,7 +37,7 @@ func TestAFailedDiffJSONCarriesIncomplete(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir, "--json"})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--json"})
 	})
 	if err == nil {
 		t.Fatal("want an error")

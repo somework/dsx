@@ -26,6 +26,10 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	remoteBody := "only there\n"
 	maincliWriteFile(t, dir, "same.css", sameBody)
 	maincliWriteFile(t, dir, "local.css", localBody)
+	// Bound before the snapshot, not inside the call: the ledger is a file in
+	// this tree, and writing it after `before` was taken would read as diff
+	// having touched the working tree — the exact absence this test asserts.
+	syncBound(t, dir, "proj-A")
 
 	type snap struct {
 		body  []byte
@@ -33,8 +37,17 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	}
 	before := map[string]snap{}
 	err := filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
+		if err != nil {
 			return err
+		}
+		// .dsx/ is dsx's own bookkeeping, not the working tree this test is
+		// about: the ledger binding the directory lives there now, and counting
+		// it would read as diff having written a file.
+		if fi.IsDir() {
+			if fi.Name() == syncer.DirName {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		b, rErr := os.ReadFile(p)
 		if rErr != nil {
@@ -66,7 +79,7 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir, "--json"})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--json"})
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff: %v", err)
@@ -91,8 +104,14 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	// — diff reads a baseline if one exists, it never creates or refreshes one.
 	after := map[string]snap{}
 	err = filepath.Walk(dir, func(p string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
+		if err != nil {
 			return err
+		}
+		if fi.IsDir() {
+			if fi.Name() == syncer.DirName {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		b, rErr := os.ReadFile(p)
 		if rErr != nil {
@@ -120,8 +139,13 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 			t.Errorf("%s mtime changed: %v -> %v", p, b.mtime, a.mtime)
 		}
 	}
-	if _, statErr := os.Stat(syncer.StateDir(dir)); !os.IsNotExist(statErr) {
-		t.Errorf(".dsx/ was created by a plain diff with no --out: stat err = %v", statErr)
+	// The probe used to be "`.dsx/` does not exist", which worked only while a
+	// diff could be handed its project on the command line. The directory now
+	// holds the binding diff reads, so it exists by construction; the claim
+	// that survives is the precise one syncer.Diff's comment makes — fetch
+	// writes the baseline, diff only ever reads it.
+	if _, statErr := os.Stat(syncer.BaselinePath(dir)); !os.IsNotExist(statErr) {
+		t.Errorf("a plain diff with no --out wrote a baseline: stat err = %v", statErr)
 	}
 }
 
@@ -140,7 +164,7 @@ func TestDiffOutRefusesANonEmptyDirectoryBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir, "--out", out})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--out", out})
 	})
 	if err == nil {
 		t.Fatal("diff --out accepted a non-empty target directory")
@@ -172,7 +196,7 @@ func TestDiffRefusesAMissingDirectory(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", missing})
+		return cmdDiff(context.Background(), fakeClient(f), []string{missing})
 	})
 	if err == nil {
 		t.Fatal("diff accepted a directory that does not exist")
@@ -201,7 +225,7 @@ func TestDiffRefusesAForeignEndpointBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err == nil {
 		t.Fatal("diff accepted a directory bound to a different endpoint")
@@ -233,7 +257,7 @@ func TestDiffWritesTheReportAndSucceeds(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", body)}
 	})
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff errored: %v", err)
@@ -260,7 +284,7 @@ func TestDiffOutMaterialisesTheServerSideOfADifferingPathThroughTheCLI(t *testin
 		return fakeReply{Text: envelopeFor(p, "e1", remoteBody)}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir, "--out", out})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--out", out})
 	}); err != nil {
 		t.Fatalf("cmdDiff: %v", err)
 	}

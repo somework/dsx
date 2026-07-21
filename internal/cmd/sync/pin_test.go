@@ -86,7 +86,7 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 	}
 
 	if _, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), c, []string{"proj-A", dir})
+		return cmdFetch(context.Background(), c, []string{dir})
 	}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 	statusJSON := func() (pull syncer.PullReport, push syncer.PushReport) {
 		t.Helper()
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "status", []string{"proj-A", dir, "--json"})
+			return cmdSync(context.Background(), c, "status", []string{dir, "--json"})
 		})
 		if err != nil {
 			t.Fatalf("status: %v", err)
@@ -126,7 +126,7 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 
 	pull2, push2 := statusJSON()
 	pullText, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"proj-A", dir})
+		return cmdSync(context.Background(), c, "status", []string{dir})
 	})
 	if err != nil {
 		t.Fatalf("status (text): %v", err)

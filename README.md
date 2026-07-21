@@ -27,23 +27,24 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 ```bash
 dsx projects                                   # find your project id
 dsx clone <project> design                     # first pull into a new directory
-dsx push  <project> design                     # disk → server
-dsx status <project> design                    # what a sync would do; transfers nothing
+dsx push  design                               # disk → server
+dsx status design                              # what a sync would do; transfers nothing
 dsx help
 ```
 
-After the first sync the directory remembers its project, so the id becomes optional and the
-directory defaults to `.`:
+Only `clone` and `pin` name a project. Every other sync verb reads it from the directory's
+ledger, so they take a directory and nothing else — and the directory defaults to `.`:
 
 ```bash
 cd design && dsx pull
 dsx tree                                       # and cat, likewise
 ```
 
-`clone` needs an empty directory. To sync into one that already holds files, use
-`dsx pull <project> <dir>`. Files the server does not have are left alone. A path present on
-both sides with no ledger entry for it collides: the first pull writes nothing at all and
-reports every collision (exit 3).
+`clone` needs an empty directory, and it is the only way to make one: `pull` no longer creates
+its target. To sync into a directory that already holds files, bind it first with
+`dsx pin <project> <dir>`, then pull. Files the server does not have are left alone. A path
+present on both sides with no ledger entry for it collides: the first pull writes nothing at
+all and reports every collision (exit 3).
 
 ```bash
 dsx pin <project> design                       # bind an existing directory — no round trip

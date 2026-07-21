@@ -35,14 +35,15 @@ const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth tok
 
 SYNC (etag-aware; unchanged files cost no request at all)
   dsx clone <project> <dir> [-j N]      first pull into a new directory
-  dsx pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
-  dsx push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
-  dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
-  dsx fetch [<project>] [<dir>] [-j N]  record what the server holds; writes .dsx/, not the tree
+  dsx pull  [<dir>] [--prune] [--force] [-n] [-j N]
+  dsx push  [<dir>] [--prune] [--force] [-n] [-j N]
+  dsx status [<dir>]                    what a sync would do; transfers nothing
+  dsx fetch [<dir>] [-j N]              record what the server holds; writes .dsx/, not the tree
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip
   dsx unpin [<dir>]                     release a binding that has synced nothing
-  dsx diff [<project>] [<dir>] [--out <dir>] [-j N]  classify each path: same, local-only, remote-only, differs
-  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
+  dsx diff [<dir>] [--out <dir>] [-j N] classify each path: same, local-only, remote-only, differs
+  Only clone and pin name a project; every other verb reads it from <dir>'s
+  ledger, and <dir> defaults to ".". unpin releases a binding, clone starts one.
   .dsxignore excludes paths from the sync, in both directions.
   status accepts pull/push's flags and previews them: --force hides conflicts.
   clone is the first pull: both arguments, and <dir> must be empty.

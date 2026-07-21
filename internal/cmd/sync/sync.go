@@ -17,18 +17,19 @@ import (
 
 var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
-	Note: `  The project id is optional once <dir> holds a ledger; <dir> defaults to "."
+	Note: `  Only clone and pin name a project; every other verb reads it from <dir>'s
+  ledger, and <dir> defaults to ".". unpin releases a binding, clone starts one.
   .dsxignore excludes paths from the sync, in both directions.
   status accepts pull/push's flags and previews them: --force hides conflicts.
   clone is the first pull: both arguments, and <dir> must be empty.`,
 	Cmds: []cmd.Command{
 		{Name: "clone", Form: cloneForm,
 			Desc: "first pull into a new directory", Run: cmdClone},
-		{Name: "pull", Form: "pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
+		{Name: "pull", Form: "pull  [<dir>] [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("pull")},
-		{Name: "push", Form: "push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]",
+		{Name: "push", Form: "push  [<dir>] [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("push")},
-		{Name: "status", Form: "status [<project>] [<dir>]",
+		{Name: "status", Form: "status [<dir>]",
 			Desc: "what a sync would do; transfers nothing",
 			Run:  syncMode("status")},
 		{Name: "fetch", Form: fetchForm,
@@ -58,15 +59,48 @@ func boundProject(dir string) (string, error) {
 }
 
 func resolveSyncTarget(mode string, pos []string, bound func(string) (string, error)) (project, dir string, err error) {
+	// One positional, and it is always <dir>. A project reaches these verbs
+	// only through the ledger, which only clone and pin write — so the whole
+	// class of "which of my two positionals was the project" is gone, and with
+	// it the mismatch arm of the project guard in Pull/Push/Fetch/Diff, which
+	// is now unconstructible from the CLI rather than merely untypical. The
+	// guard stays: it still answers for a library caller, and its endpoint half
+	// remains reachable through DSX_ENDPOINT.
 	switch len(pos) {
 	case 0:
 		dir = "."
 	case 1:
 		dir = pos[0]
-	case 2:
-		return pos[0], pos[1], nil
 	default:
-		return "", "", dsxerr.Usage(mode + " [<project>] [<dir>]")
+		return "", "", dsxerr.Usage(mode + " [<dir>]")
+	}
+
+	// The id-shaped refusal outranks both of the others, and must: a lone
+	// project id almost never names a directory that exists, so it lands on the
+	// missing-path branch — whose advice is `dsx clone <project> <dir>`, i.e.
+	// create the directory. Spelled with an id in the <dir> slot that is the
+	// very advice that built the population of UUID-named directories, one
+	// layer up from where uuidasdir_test.go first caught it.
+	if looksLikeProjectID(dir) {
+		if p, err := bound(dir); err == nil && p != "" {
+			return p, dir, nil // a real, bound directory that happens to be so named
+		}
+		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"%s looks like a project id, not a directory — %s takes only <dir>; "+
+				"run `dsx pin %s <dir>` to bind an existing directory, or "+
+				"`dsx clone %s <dir>` to start a new one",
+			dir, mode, dir, dir)}
+	}
+
+	// The directory is checked before its ledger is read, and for every verb
+	// rather than only the dry runs. A path that is not there has no ledger, so
+	// without this the refusal below would tell the caller to `dsx pin` a
+	// directory that does not exist — the accurate message displaced by a
+	// misleading one, exactly the shape invariant 16 was written against.
+	// Nothing is lost by hoisting it: a directory holding a ledger exists by
+	// construction, so the check can only ever fire on the typo it names.
+	if err := refuseMissingDir(dir); err != nil {
+		return "", "", err
 	}
 
 	p, err := bound(dir)
@@ -74,27 +108,14 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 		return "", "", err
 	}
 	if p == "" {
-		if looksLikeProjectID(dir) {
-			return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-				"%s looks like a project id, not a directory — a lone positional is <dir>, "+
-					"so run `dsx %s %s <dir>` and name where the files should live",
-				dir, mode, dir)}
-		}
-		// pull and push write State.ProjectID on a real run, so promising that
-		// re-running them with a project is remembered is true of those two and
-		// only those two. status forces DryRun and returns above the ledger
-		// write, fetch writes .dsx/baseline.json which boundProject never
-		// reads, and diff writes nothing at all — the three reached this
-		// resolver later and inherited a promise they do not keep.
-		if mode == "pull" || mode == "push" {
-			return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-				"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s` once and it is remembered",
-				dir, mode, dir)}
-		}
+		// Naming the verb the caller typed would be worse than useless now:
+		// re-running it with a project in front is exactly what no longer
+		// parses. The two repairs that do are the two verbs that bind.
 		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"%s carries no dsx ledger, so its project is unknown — run `dsx %s <project> %s`, "+
-				"or `dsx pin <project> %s` once so this verb stops asking",
-			dir, mode, dir, dir)}
+			"%s carries no dsx ledger, so its project is unknown — run "+
+				"`dsx pin <project> %s` to bind it, or `dsx clone <project> <dir>` "+
+				"to start a fresh directory",
+			dir, dir)}
 	}
 	return p, dir, nil
 }
@@ -123,15 +144,19 @@ func looksLikeProjectID(s string) bool {
 }
 
 // refuseMissingDir refuses a directory that does not exist, before anything
-// round-trips. Shared by cmdSync's dry runs (status, pull -n, push -n) and by
-// fetch, which makes no round trip either — invariant 16: "the directory is
-// not there" must never reach a plan, because an empty local scan is what
-// makes push --prune read the whole server tree as user deletions.
+// round-trips: invariant 16 — "the directory is not there" must never reach a
+// plan, because an empty local scan is what makes push --prune read the whole
+// server tree as user deletions. Reached from resolveSyncTarget (so from every
+// sync verb, not only the dry runs) and from pin and unpin, which resolve no
+// project and would otherwise have nothing catch a typo at all.
+//
+// It names clone, not pull: creating the directory was pull's job only while
+// pull could be handed a project, and it no longer can be.
 func refuseMissingDir(dir string) error {
 	if _, err := os.Stat(dir); err != nil {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"%s does not exist — name a directory that does, or run `dsx pull <project> %s` "+
-				"to create it", dir, dir)}
+			"%s does not exist — name a directory that does, or run "+
+				"`dsx clone <project> %s` to create it", dir, dir)}
 	}
 	return nil
 }
@@ -166,22 +191,16 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		return err
 	}
 
+	// No MkdirAll, and no dry-run-only missing-directory check: resolveSyncTarget
+	// now refuses a directory that is not there, for every mode. A real pull used
+	// to create its target, which was reachable only by naming the project as a
+	// second positional — with that gone, a directory pull could create is a
+	// directory pull cannot resolve a project for. Starting a new directory is
+	// clone's job and says so in the Note. What the old dry-run branch protected
+	// still holds, one layer up: "the directory is not there" never reaches a
+	// plan, so an empty local scan can never make `push --prune` read the whole
+	// server tree as user deletions.
 	dryRun := *dry || mode == "status"
-	switch {
-	case dryRun:
-		// A command that transfers nothing leaves no trace. Refusing rather
-		// than tolerating a missing directory in syncer is deliberate: an empty
-		// local scan is what makes `push --prune` read the whole server tree as
-		// user deletions, so "the directory is not there" must never reach a
-		// plan at all.
-		if err := refuseMissingDir(dir); err != nil {
-			return err
-		}
-	case mode != "push":
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
 
 	if mode == "push" {
 		emit := func(r syncer.PushReport) {

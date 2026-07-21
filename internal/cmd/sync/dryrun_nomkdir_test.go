@@ -18,8 +18,8 @@ func TestADryRunCreatesNoDirectory(t *testing.T) {
 		mode string
 		args func(dir string) []string
 	}{
-		{"status", "status", func(d string) []string { return []string{"proj-A", d} }},
-		{"pull -n", "pull", func(d string) []string { return []string{"proj-A", d, "-n"} }},
+		{"status", "status", func(d string) []string { return []string{d} }},
+		{"pull -n", "pull", func(d string) []string { return []string{d, "-n"} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parent := t.TempDir()
@@ -55,7 +55,7 @@ func TestARealPullStillCreatesItsDirectory(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{"proj-A", target})
+		return cmdSync(context.Background(), fakeClient(f), "pull", []string{syncBound(t, target, "proj-A")})
 	}); err != nil {
 		t.Fatalf("a real pull into a new directory failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestADryRunOnAnExistingDirectoryStillWorks(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "status", []string{"proj-A", dir})
+		return cmdSync(context.Background(), fakeClient(f), "status", []string{syncBound(t, dir, "proj-A")})
 	}); err != nil {
 		t.Fatalf("status on an existing directory failed: %v", err)
 	}

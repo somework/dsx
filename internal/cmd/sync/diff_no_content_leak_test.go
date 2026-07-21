@@ -29,7 +29,7 @@ func TestDiffNeverPrintsFileContent(t *testing.T) {
 	})
 
 	textOut, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", dir})
+		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff: %v", err)
@@ -49,7 +49,7 @@ func TestDiffNeverPrintsFileContent(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", remoteBody)}
 	})
 	jsonOut, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f2), []string{"proj-A", dir, "--json"})
+		return cmdDiff(context.Background(), fakeClient(f2), []string{syncBound(t, dir, "proj-A"), "--json"})
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff --json: %v", err)

@@ -478,3 +478,30 @@ func (w *cancelOnNthWrite) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// TestFetchRefusesAForeignProjectBeforeTheRoundTrip: invariant 13's binding is
+// (project, endpoint) and BOTH halves are checked. This test lived at the cmd
+// layer until the sync verbs stopped taking a project positional; a project
+// now reaches Fetch only through the ledger, so the CLI cannot construct the
+// mismatch at all and the guard's only remaining caller is a library one.
+// That makes this the layer the test belongs at — not a reason to drop it,
+// since Fetch is still exported and FetchOpts.ProjectID is still free to
+// disagree with what the directory holds.
+func TestFetchRefusesAForeignProjectBeforeTheRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	if err := (State{ProjectID: "proj-A", Files: map[string]FileState{}}).save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		return fakeReply{Text: listingFor()}
+	})
+	if _, err := Fetch(context.Background(), fakeClient(f), FetchOpts{
+		ProjectID: "proj-B", Dir: dir, Concurrency: 1,
+	}); err == nil {
+		t.Fatal("fetch accepted a directory bound to a different project")
+	}
+	if got := f.CountTool("list_files"); got != 0 {
+		t.Errorf("list_files called %d times, want 0 — the project guard must run before the round trip", got)
+	}
+}

@@ -2,90 +2,26 @@ package synccmd
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// bindingModes are the verbs whose normal run writes State.ProjectID, so the
-// no-ledger refusal's "once and it is remembered" is true of them.
-var bindingModes = map[string]bool{"pull": true, "push": true}
+// syncVerbs are the five that read their project from the ledger. clone and
+// pin are deliberately absent: they are the two that write it.
+var syncVerbs = []string{"pull", "push", "status", "fetch", "diff"}
 
-// TestFetchDoesNotRememberTheProjectItWasGiven pins the mechanism the message
-// test below depends on: fetch is the most tempting of the three to believe,
-// because it does write to .dsx/ — but it writes baseline.json, and
-// boundProject reads state.json.
-func TestFetchDoesNotRememberTheProjectItWasGiven(t *testing.T) {
-	dir := t.TempDir()
-	body := []byte("hello\n")
-	maincliWriteFile(t, dir, "a.css", string(body))
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		if name == "list_files" {
-			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", int64(len(body))))}
-		}
-		p, _ := args["path"].(string)
-		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
-	})
-
-	if _, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{"proj-A", dir})
-	}); err != nil {
-		t.Fatalf("the naming run failed, so the remembering half proves nothing: %v", err)
-	}
-
-	_, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{dir})
-	})
-	if err == nil {
-		t.Fatal("fetch remembered the project — if this ever passes, the refusal's " +
-			"promise came true and the message test below is the one to delete")
-	}
-	if !strings.Contains(err.Error(), "carries no dsx ledger") {
-		t.Errorf("second run failed for another reason: %v", err)
-	}
-}
-
-// TestPullDoesRememberTheProjectItWasGiven is the positive control for the
-// test above: without it, a refusal that never resolved anything for any verb
-// would pass it just as well.
-func TestPullDoesRememberTheProjectItWasGiven(t *testing.T) {
-	dir := t.TempDir()
-	body := []byte("hello\n")
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		if name == "list_files" {
-			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", int64(len(body))))}
-		}
-		p, _ := args["path"].(string)
-		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
-	})
-
-	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{"proj-A", dir})
-	}); err != nil {
-		t.Fatalf("the naming run failed: %v", err)
-	}
-	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{dir})
-	}); err != nil {
-		t.Fatalf("pull did not remember the project it was given: %v", err)
-	}
-}
-
-// TestTheNoLedgerRefusalPromisesMemoryOnlyWhereItIsKept: the refusal tells the
-// caller to re-run the same verb with a project and promises "it is
-// remembered". That was true when the resolver served pull and push alone.
-// status forces DryRun and returns before the ledger is written; fetch writes
-// .dsx/baseline.json, which boundProject never reads; diff writes nothing at
-// all — all three were wired to this resolver later and inherited a promise
-// they do not keep. A verb that does not remember must not claim to, and must
-// name the one that does.
-func TestTheNoLedgerRefusalPromisesMemoryOnlyWhereItIsKept(t *testing.T) {
-	const promise = "it is remembered"
-
-	for _, mode := range []string{"pull", "push", "status", "fetch", "diff"} {
+// TestTheNoLedgerRefusalNamesOnlyFormsThatParse. The refusal used to tell the
+// caller to re-run the same verb with a project in front, which was true for
+// pull and push and a lie for the other three (fetch writes only
+// .dsx/baseline.json, diff writes nothing, status forces DryRun and returns
+// above the ledger write). It is now not merely a lie but unparseable for all
+// five, so the whole class is gone and the refusal must name the two verbs
+// that can actually bind a directory.
+func TestTheNoLedgerRefusalNamesOnlyFormsThatParse(t *testing.T) {
+	for _, mode := range syncVerbs {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			_, _, err := resolveSyncTarget(mode, []string{dir}, boundProject)
@@ -94,57 +30,96 @@ func TestTheNoLedgerRefusalPromisesMemoryOnlyWhereItIsKept(t *testing.T) {
 			}
 			msg := err.Error()
 
-			if bindingModes[mode] {
-				if !strings.Contains(msg, promise) {
-					t.Errorf("%s does remember, but its refusal no longer says so — "+
-						"the one-command path is now undiscoverable: %q", mode, msg)
+			for _, want := range []string{"dsx pin <project>", "dsx clone <project>"} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("refusal does not name %q, so it leaves no way forward: %q", want, msg)
 				}
-				return
 			}
-			if strings.Contains(msg, promise) {
-				t.Errorf("%s promises memory it does not keep; run it and the next run "+
-					"repeats this refusal verbatim: %q", mode, msg)
-			}
-			if !strings.Contains(msg, "pin") {
-				t.Errorf("%s does not remember and does not name the verb that does, "+
-					"so the refusal leaves no way forward: %q", mode, msg)
+			if strings.Contains(msg, "dsx "+mode+" <project>") {
+				t.Errorf("refusal advises `dsx %s <project> …`, which no longer parses: %q", mode, msg)
 			}
 		})
 	}
 }
 
-// TestEveryNonBindingModeIsReallyNonBinding keeps bindingModes honest: it is a
-// hand-written claim about syncer, and a verb that started writing the ledger
-// would leave the table above asserting the opposite of the truth.
-func TestEveryNonBindingModeIsReallyNonBinding(t *testing.T) {
-	dir := t.TempDir()
+// TestNoSyncVerbWritesTheBindingItReads is the premise the design rests on: if
+// any of the five recorded a project, "only clone and pin name a project"
+// would stop being the whole story and the refusal above would owe the reader
+// a third repair. status and diff are driven end to end here; pull and push
+// are excluded because writing the ledger is exactly their job, and fetch has
+// its own test below for the tempting case — it does write under .dsx/, just
+// not the ledger.
+func TestNoSyncVerbWritesTheBindingItReads(t *testing.T) {
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: listingFor()}
 	})
 
 	for _, mode := range []string{"status", "diff"} {
 		t.Run(mode, func(t *testing.T) {
-			sub := t.TempDir()
+			dir := t.TempDir()
+			syncSeedState(t, dir, syncer.State{ProjectID: "proj-A"})
+
 			var err error
 			if mode == "status" {
 				_, err = captureStdout(t, func() error {
-					return cmdSync(context.Background(), fakeClient(f), "status", []string{"proj-A", sub})
+					return cmdSync(context.Background(), fakeClient(f), "status", []string{dir})
 				})
 			} else {
 				_, err = captureStdout(t, func() error {
-					return cmdDiff(context.Background(), fakeClient(f), []string{"proj-A", sub})
+					return cmdDiff(context.Background(), fakeClient(f), []string{dir})
 				})
 			}
 			if err != nil {
-				t.Fatalf("%s failed, so its non-binding claim is untested: %v", mode, err)
+				t.Fatalf("%s failed, so its claim is untested: %v", mode, err)
 			}
-			if st, lErr := syncer.LoadState(sub); lErr != nil {
-				t.Fatalf("LoadState: %v", lErr)
-			} else if st.ProjectID != "" {
-				t.Errorf("%s bound the directory to %q — it is a binding mode now, "+
-					"so bindingModes and the refusal must both learn it", mode, st.ProjectID)
+
+			st, lErr := syncer.LoadState(dir)
+			if lErr != nil {
+				t.Fatal(lErr)
+			}
+			if len(st.Files) != 0 {
+				t.Errorf("%s recorded %d tracked file(s); it is a binding verb now, and "+
+					"invariant 4's \"untracked → not ours\" no longer holds for what it touched",
+					mode, len(st.Files))
 			}
 		})
 	}
-	_ = dir
+}
+
+// TestFetchWritesUnderDsxButNotTheLedger: fetch is the one verb where the
+// claim above is easy to disbelieve, because it does create .dsx/ and write
+// into it. What it writes is baseline.json, which boundProject never reads.
+func TestFetchWritesUnderDsxButNotTheLedger(t *testing.T) {
+	dir := t.TempDir()
+	body := []byte("hello\n")
+	maincliWriteFile(t, dir, "a.css", string(body))
+	syncSeedState(t, dir, syncer.State{ProjectID: "proj-A"})
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		if name == "list_files" {
+			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", int64(len(body))))}
+		}
+		p, _ := args["path"].(string)
+		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
+	})
+	if _, err := captureStdout(t, func() error {
+		return cmdFetch(context.Background(), fakeClient(f), []string{dir})
+	}); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	// The positive control: without it, a fetch that did nothing at all would
+	// satisfy the assertion below just as well. LedgerExists is the wrong probe
+	// here — it stats StatePath — so the baseline is stat'd directly.
+	if _, err := os.Stat(syncer.BaselinePath(dir)); err != nil {
+		t.Fatalf("fetch wrote no baseline, so the ledger assertion below proves nothing: %v", err)
+	}
+	st, err := syncer.LoadState(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Files) != 0 {
+		t.Errorf("fetch promoted %d path(s) into the ledger — invariant 17 says a proven "+
+			"path stays untracked and is re-consulted from baseline.json every run", len(st.Files))
+	}
 }

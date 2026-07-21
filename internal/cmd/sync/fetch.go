@@ -9,7 +9,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-const fetchForm = "fetch [<project>] [<dir>] [-j N]"
+const fetchForm = "fetch [<dir>] [-j N]"
 
 // cmdFetch records what the server holds without touching the tree — see
 // syncer.Fetch's doc comment for the narrow-set rationale and the wholesale
