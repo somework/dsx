@@ -49,12 +49,18 @@ reports every collision (exit 3).
 dsx pin <project> design                       # bind an existing directory — no round trip
 dsx fetch design                                # download + hash the files already there, once
 dsx pull design                                 # bytes that match land as verified, not blocked
+dsx diff design                                 # classify every path: same, local-only, remote-only, differs
 ```
 
 `fetch` proves identity by downloading and hashing, never by etag alone, and only the paths it
 verified are exempted from the collision — they stay untracked (`fetch` records a cache, not
 the ledger), but they no longer block the first pull. Whatever it could not verify still
 collides — resolve it by hand, or pass `--force` to take the server's copy.
+
+`dsx diff` never prints a hunk — bytes still do not pass through a model's context. A fresh
+`fetch` baseline proves a path `same` with no download; every other present-both path is
+downloaded to classify. `--out <dir>` materialises the remote side of `differs` paths into an
+empty directory so `diff -ru` does the work locally.
 
 Every MCP tool is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
 `plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json-args>'` covers

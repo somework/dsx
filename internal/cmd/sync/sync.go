@@ -35,6 +35,8 @@ var Group = cmd.Group{
 			Desc: "record what the server holds; writes .dsx/, not the tree", Run: cmdFetch},
 		{Name: "pin", Form: pinForm,
 			Desc: "bind an existing directory to a project; no round trip", Run: cmdPin},
+		{Name: "diff", Form: diffForm,
+			Desc: "classify each path: same, local-only, remote-only, differs", Run: cmdDiff},
 	},
 }
 
