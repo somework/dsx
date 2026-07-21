@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -721,5 +722,67 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	}
 	if after := len(liveTree(t, c, ctx)); after != before {
 		t.Errorf("file count %d -> %d; the project did not return to its original state", before, after)
+	}
+}
+
+// TestLiveFetchBaselineMatchesReadFull proves binary detection by content —
+// one of the three protocol facts already guessed wrong once (see
+// PROTOCOL.md) — actually governs what Fetch records, rather than trusting a
+// mock that only repeats the belief. It creates no project, writes no server
+// path beyond the two scratch files liveScratch itself owns and removes, and
+// leaves the project's file count unchanged.
+func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
+	c, ctx := liveClient(t)
+	before := len(liveTree(t, c, ctx))
+
+	textPath := liveScratch(t, c, ctx, "-fetch-text.css")
+	textBody := []byte(".dsx-selftest { color: blue }\n")
+	liveWrite(t, c, ctx, textPath, textBody)
+
+	binPath := liveScratch(t, c, ctx, "-fetch-binary.bin")
+	binBody := []byte{0xff, 0xfe, 0x00, 0x01}
+	liveWrite(t, c, ctx, binPath, binBody)
+
+	// Fetch's narrow set is present-and-untracked: no `dsx pin` here, just a
+	// bare directory holding placeholders at the same paths. The binary
+	// placeholder's own bytes are irrelevant — the server refuses read_file
+	// on binPath regardless of what sits locally.
+	dir := t.TempDir()
+	mkfile(t, dir, textPath, string(textBody))
+	mkfile(t, dir, binPath, "placeholder\n")
+
+	rep, err := Fetch(ctx, c, FetchOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if !slices.Contains(rep.Fetched, textPath) {
+		t.Fatalf("Fetched = %v, want %s present", rep.Fetched, textPath)
+	}
+	if slices.Contains(rep.Fetched, binPath) {
+		t.Errorf("Fetched = %v, %s must not be recorded — it is binary", rep.Fetched, binPath)
+	}
+
+	bl, err := loadBaseline(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bl.Verified[binPath]; ok {
+		t.Errorf("baseline holds an entry for the binary path %s: %+v", binPath, bl.Verified[binPath])
+	}
+	if len(bl.Verified) == 0 {
+		t.Fatal("baseline holds no entries at all")
+	}
+	for path, entry := range bl.Verified {
+		body, _, err := c.ReadFull(ctx, liveProjectID(), path)
+		if err != nil {
+			t.Fatalf("ReadFull(%s) for independent verification: %v", path, err)
+		}
+		if want := SHA256Hex([]byte(body)); entry.SHA != want {
+			t.Errorf("baseline[%s].SHA = %s, want %s from an independent re-read", path, entry.SHA, want)
+		}
+	}
+
+	if after := len(liveTree(t, c, ctx)); after != before {
+		t.Errorf("file count %d -> %d; fetch must not write any server path", before, after)
 	}
 }

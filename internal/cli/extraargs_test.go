@@ -49,6 +49,7 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"pull":   {"proj", "dir"},
 		"push":   {"proj", "dir"},
 		"status": {"proj", "dir"},
+		"fetch":  {"proj", "dir"},
 		// PROJECTS
 		"projects": {},
 		"project":  {"id"},

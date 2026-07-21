@@ -38,6 +38,7 @@ SYNC (etag-aware; unchanged files cost no request at all)
   dsx pull  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
   dsx push  [<project>] [<dir>] [--prune] [--force] [-n] [-j N]
   dsx status [<project>] [<dir>]        what a sync would do; transfers nothing
+  dsx fetch [<project>] [<dir>] [-j N]  record what the server holds; writes .dsx/, not the tree
   The project id is optional once <dir> holds a ledger; <dir> defaults to "."
   .dsxignore excludes paths from the sync, in both directions.
   status accepts pull/push's flags and previews them: --force hides conflicts.

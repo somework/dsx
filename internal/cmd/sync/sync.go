@@ -31,6 +31,8 @@ var Group = cmd.Group{
 		{Name: "status", Form: "status [<project>] [<dir>]",
 			Desc: "what a sync would do; transfers nothing",
 			Run:  syncMode("status")},
+		{Name: "fetch", Form: fetchForm,
+			Desc: "record what the server holds; writes .dsx/, not the tree", Run: cmdFetch},
 	},
 }
 
@@ -101,6 +103,20 @@ func looksLikeProjectID(s string) bool {
 	return true
 }
 
+// refuseMissingDir refuses a directory that does not exist, before anything
+// round-trips. Shared by cmdSync's dry runs (status, pull -n, push -n) and by
+// fetch, which makes no round trip either — invariant 16: "the directory is
+// not there" must never reach a plan, because an empty local scan is what
+// makes push --prune read the whole server tree as user deletions.
+func refuseMissingDir(dir string) error {
+	if _, err := os.Stat(dir); err != nil {
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"%s does not exist — name a directory that does, or run `dsx pull <project> %s` "+
+				"to create it", dir, dir)}
+	}
+	return nil
+}
+
 func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
 	// Three literals, not cmd.NewFlagSet(mode): flagSetOwners can only read a
 	// literal, and an expression makes it fall back to attributing these flags
@@ -139,10 +155,8 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		// local scan is what makes `push --prune` read the whole server tree as
 		// user deletions, so "the directory is not there" must never reach a
 		// plan at all.
-		if _, err := os.Stat(dir); err != nil {
-			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-				"%s does not exist, so there is nothing to compare — name a synced "+
-					"directory, or run `dsx pull <project> %s` to create it", dir, dir)}
+		if err := refuseMissingDir(dir); err != nil {
+			return err
 		}
 	case mode != "push":
 		if err := os.MkdirAll(dir, 0o755); err != nil {
