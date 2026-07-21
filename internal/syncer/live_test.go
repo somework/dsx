@@ -739,7 +739,10 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 	textBody := []byte(".dsx-selftest { color: blue }\n")
 	liveWrite(t, c, ctx, textPath, textBody)
 
-	binPath := liveScratch(t, c, ctx, "-fetch-binary.bin")
+	// .txt, not .bin: the write allowlist refuses .bin (see
+	// TestLiveUnsupportedContentTypeIsRefused), while binary detection reads
+	// the content, so invalid UTF-8 in a .txt is what makes this path binary.
+	binPath := liveScratch(t, c, ctx, "-fetch-binary.txt")
 	binBody := []byte{0xff, 0xfe, 0x00, 0x01}
 	liveWrite(t, c, ctx, binPath, binBody)
 
@@ -750,6 +753,10 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 	dir := t.TempDir()
 	mkfile(t, dir, textPath, string(textBody))
 	mkfile(t, dir, binPath, "placeholder\n")
+
+	// Anchored after the two scratch writes, not before them: the claim is
+	// about what Fetch does, and the setup writes are not Fetch.
+	beforeFetch := len(liveTree(t, c, ctx))
 
 	rep, err := Fetch(ctx, c, FetchOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
@@ -782,8 +789,15 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 		}
 	}
 
+	if after := len(liveTree(t, c, ctx)); after != beforeFetch {
+		t.Errorf("file count %d -> %d; fetch must not write any server path", beforeFetch, after)
+	}
+
+	if err := liveRemove(c, ctx, textPath, binPath); err != nil {
+		t.Fatalf("delete_files: %v", err)
+	}
 	if after := len(liveTree(t, c, ctx)); after != before {
-		t.Errorf("file count %d -> %d; fetch must not write any server path", before, after)
+		t.Errorf("file count %d -> %d; the project did not return to its original state", before, after)
 	}
 }
 
@@ -805,16 +819,17 @@ func checkListedEtagAndSize(t *testing.T, c *mcp.Client, ctx context.Context, pa
 	}
 }
 
-// TestLiveEtagIsContentDerivedOrRevisionDerived is a probe, not yet a claim:
-// once it has been run and the answer is known, the verdict below becomes a
-// real assertion plus a PROTOCOL.md line. It settles whether an etag is a pure
-// function of content — the fact invariant 17's `proven` predicate leans on
-// and nothing has ever verified.
+// TestLiveEtagIsRevisionDerivedNotContentDerived asserts that re-putting
+// byte-identical content yields a different etag: content is not an input to
+// the etag, only the write itself is. The etag's format (a microsecond
+// timestamp) is not asserted here — dsx treats etags as opaque strings
+// everywhere, and pinning the format would fail on a server-side change that
+// costs dsx nothing.
 //
 // The middle write of B is the positive control, not scaffolding: without a
 // real revision bump between the two writes of A, a server handing out one
-// constant etag would read as content-derived.
-func TestLiveEtagIsContentDerivedOrRevisionDerived(t *testing.T) {
+// constant etag would pass the final assertion for the wrong reason.
+func TestLiveEtagIsRevisionDerivedNotContentDerived(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
 	path := liveScratch(t, c, ctx, "-etag-probe.txt")
@@ -846,15 +861,9 @@ func TestLiveEtagIsContentDerivedOrRevisionDerived(t *testing.T) {
 	checkListedEtagAndSize(t, c, ctx, path, etagA2, len(bodyA))
 
 	if etagA1 == etagA2 {
-		t.Logf("VERDICT: etag is CONTENT-DERIVED. Re-putting the original bytes (A1=%s) after an "+
-			"intervening different write (B=%s) produced the same etag again (A2=%s). A same-content "+
-			"re-put cannot rotate an etag here, so `proven`'s etag conjunct costs nothing.",
-			etagA1, etagB, etagA2)
-	} else {
-		t.Logf("VERDICT: etag is REVISION-DERIVED. Re-putting the original bytes (A1=%s) after an "+
-			"intervening different write (B=%s) produced a different etag (A2=%s) for identical "+
-			"content. A teammate's identical-bytes re-put can rotate the etag and drop a path out "+
-			"of `proven`, costing one re-download.", etagA1, etagB, etagA2)
+		t.Fatalf("etag is content-derived, contradicting the measured behaviour this test claims: "+
+			"re-putting the original bytes (A1=%s) after an intervening different write (B=%s) "+
+			"produced the same etag again (A2=%s)", etagA1, etagB, etagA2)
 	}
 
 	if err := liveRemove(c, ctx, path); err != nil {

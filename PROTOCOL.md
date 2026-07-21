@@ -166,6 +166,12 @@ unchanged file costs no request at all.
 Etags look like microsecond timestamps (`1784221582411848`) but are opaque. `"0"` is the
 sentinel asserting a path does not exist.
 
+Content is not an input to the etag: re-putting byte-identical text rotates it the same as
+any other write (`TestLiveEtagIsRevisionDerivedNotContentDerived`, measured on one plain-text
+path). So a listing etag answers "has anyone written this path since?", not "is the content
+the same?" — dsx never reads it as the latter, and one bulk re-upload rotates every etag in
+the tree at once whether or not a byte moved.
+
 ### list_projects
 
 A **bare JSON array**, not an object wrapping one and not a `read_file`-style envelope.
