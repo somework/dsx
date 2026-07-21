@@ -170,7 +170,7 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 	// An interrupted run must not silently discard the baseline it never
 	// re-verified: saving a partial wholesale rewrite here would drop entries
 	// for paths this run had no chance to look at (invariant 3).
-	if err := parent.Err(); err != nil && false {
+	if err := parent.Err(); err != nil {
 		return rep, fmt.Errorf("fetch interrupted: %w", err)
 	}
 

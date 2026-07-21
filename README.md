@@ -41,12 +41,23 @@ dsx tree                                       # and cat, likewise
 ```
 
 `clone` needs an empty directory. To sync into one that already holds files, use
-`dsx pull <project> <dir>`. Files the server does not have are left alone. If any path
-collides, the first pull writes nothing at all and reports the collisions (exit 3) — resolve
-them, or pass `--force` to take the server's copy.
+`dsx pull <project> <dir>`. Files the server does not have are left alone. A path present on
+both sides with no ledger entry for it collides: the first pull writes nothing at all and
+reports every collision (exit 3).
+
+```bash
+dsx pin <project> design                       # bind an existing directory — no round trip
+dsx fetch design                                # download + hash the files already there, once
+dsx pull design                                 # bytes that match land as verified, not blocked
+```
+
+`fetch` proves identity by downloading and hashing, never by etag alone, and only the paths it
+verified are exempted from the collision — they stay untracked (`fetch` records a cache, not
+the ledger), but they no longer block the first pull. Whatever it could not verify still
+collides — resolve it by hand, or pass `--force` to take the server's copy.
 
 Every MCP tool is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
-`plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json>'` covers
+`plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json-args>'` covers
 anything the named commands do not wrap.
 
 `--json` on every command, `-j N` for concurrency, `-n` for a dry run.
@@ -61,7 +72,7 @@ Contents go server→disk directly. Nothing a model reads scales with file size.
 
 ## Safety
 
-The sync is three-way against `.dsx-state.json`, a ledger recording — per path — the etag
+The sync is three-way against `.dsx/state.json`, a ledger recording — per path — the etag
 last agreed with the server and the sha256 of the bytes held at that etag. It also pins the
 project id, so a directory cannot be pushed to the wrong project.
 
@@ -69,11 +80,26 @@ project id, so a directory cannot be pushed to the wrong project.
   are not possible without `--force`.
 - Conflicts are reported, never resolved silently — including the case where **both** sides
   changed, which an etag comparison alone cannot see.
+- `dsx fetch` proves a local file matches the server by downloading and hashing it, never by
+  trusting an etag alone; a proven match is reported `verified`, not silently adopted into the
+  ledger, so it never becomes eligible for `--prune` to delete.
 - Every pulled file's decoded length is checked against the size `list_files` reported; a
   mismatch refuses the write rather than landing a corrupt file. Not theoretical: it caught
   an earlier agent-driven pull that had silently damaged 2 of 100 files, and stopped a
   second corruption bug from reaching disk.
 - `--prune` deletes only what the ledger proves was ours and unmodified.
+
+### Upgrading a directory synced by an older dsx
+
+An earlier, never widely-distributed build of dsx kept the ledger at `.dsx-state.json`, in the
+directory's root. This dsx does not read that path, and there is no automatic migration — if
+you have one, move it by hand, once:
+
+```bash
+mkdir .dsx && mv .dsx-state.json .dsx/state.json
+```
+
+That is the whole migration: the ledger's shape on disk did not change, only its location.
 
 ## For agents
 
@@ -140,8 +166,10 @@ pushed, not pulled, and not pruned from either side. (Filtering only the local s
 make `push --prune` read "ignored here" as "deleted here".)
 
 Always excluded and not re-includable by any `!` rule: VCS metadata (`.git`, `.svn`, `.hg`),
-`node_modules`, `.DS_Store`, and dsx's own bookkeeping (`.dsx-state.json`, `.dsxignore`,
-`.dsx-case-probe`). `builtinIgnores` in `ignore.go` is the source of truth.
+`node_modules`, `.DS_Store`, and dsx's own bookkeeping — `.dsx/` (the ledger and the fetch
+baseline), `.dsxignore`, `.dsx-case-probe`, and `.dsx-state.json` (a pre-`.dsx/` ledger name;
+kept ignored so a leftover from that older location, or its write-in-progress temp file, is
+never mistaken for one of your own). `builtinIgnores` in `ignore.go` is the source of truth.
 
 ## Files the server will not return
 

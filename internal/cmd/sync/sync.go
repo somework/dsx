@@ -33,6 +33,8 @@ var Group = cmd.Group{
 			Run:  syncMode("status")},
 		{Name: "fetch", Form: fetchForm,
 			Desc: "record what the server holds; writes .dsx/, not the tree", Run: cmdFetch},
+		{Name: "pin", Form: pinForm,
+			Desc: "bind an existing directory to a project; no round trip", Run: cmdPin},
 	},
 }
 
