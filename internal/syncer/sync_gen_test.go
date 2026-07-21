@@ -1461,6 +1461,42 @@ func TestPushReportRender(t *testing.T) {
 	})
 }
 
+// TestStaleProofWireKey pins the literal JSON key StaleProof serialises to.
+// See PullReportRender's twin: a round-trip into the same struct cannot
+// catch a renamed json tag — both halves rename together and the round-trip
+// still succeeds.
+func TestStaleProofWireKey(t *testing.T) {
+	t.Run("pull: the wire key is literally \"stale_proof\"", func(t *testing.T) {
+		rep := PullReport{StaleProof: []string{"a.css"}}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(rep.Render(true)), &doc); err != nil {
+			t.Fatalf("--json output is not JSON: %v", err)
+		}
+		got, ok := doc["stale_proof"]
+		if !ok {
+			t.Fatalf("doc[\"stale_proof\"] missing: %v", doc)
+		}
+		if arr, ok := got.([]any); !ok || len(arr) != 1 || arr[0] != "a.css" {
+			t.Errorf("doc[\"stale_proof\"] = %v, want [\"a.css\"]", got)
+		}
+	})
+
+	t.Run("push: the wire key is literally \"stale_proof\"", func(t *testing.T) {
+		rep := PushReport{StaleProof: []string{"a.css"}}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(rep.Render(true)), &doc); err != nil {
+			t.Fatalf("--json output is not JSON: %v", err)
+		}
+		got, ok := doc["stale_proof"]
+		if !ok {
+			t.Fatalf("doc[\"stale_proof\"] missing: %v", doc)
+		}
+		if arr, ok := got.([]any); !ok || len(arr) != 1 || arr[0] != "a.css" {
+			t.Errorf("doc[\"stale_proof\"] = %v, want [\"a.css\"]", got)
+		}
+	})
+}
+
 func TestVerifiedAppearsInTheHumanSummary(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		full := PullReport{

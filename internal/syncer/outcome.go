@@ -39,7 +39,7 @@ func (r PushReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged)
+	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged, r.StaleProof)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -54,6 +54,11 @@ func (r PushReport) Outcome(dryRun bool) error {
 		parts = append(parts, fmt.Sprintf(
 			"differs from the server, confirmed by the last `dsx fetch` (%s) — --force overwrites the server's copy",
 			strings.Join(r.Diverged, ", ")))
+	}
+	if len(r.StaleProof) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"verified, but against an earlier revision of the server (%s) — `dsx fetch` re-checks the current one, or --force overwrites the server's copy",
+			strings.Join(r.StaleProof, ", ")))
 	}
 	if len(r.BinaryConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(
@@ -80,7 +85,7 @@ func (r PullReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary, r.Unverified, r.Diverged)
+	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary, r.Unverified, r.Diverged, r.StaleProof)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -95,6 +100,11 @@ func (r PullReport) Outcome(dryRun bool) error {
 		parts = append(parts, fmt.Sprintf(
 			"differs from the server, confirmed by the last `dsx fetch` (%s) — --force overwrites",
 			strings.Join(r.Diverged, ", ")))
+	}
+	if len(r.StaleProof) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"verified, but against an earlier revision of the server (%s) — `dsx fetch` re-checks the current one, or --force overwrites",
+			strings.Join(r.StaleProof, ", ")))
 	}
 	if len(r.PruneConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

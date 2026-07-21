@@ -57,6 +57,18 @@ type pullDecision struct {
 	// divergence, unlike Unverified. Disjoint from both Conflicts (that's
 	// the tracked case) and Unverified (that's never-checked-or-stale).
 	Diverged []string
+
+	// Untracked; a baseline once proved these exact bytes against the
+	// server, and the local file has not changed since — but the listing
+	// etag has moved on, so that proof covers a revision the server no
+	// longer serves. Every write rotates the etag, content-identical or
+	// not, so this is not a rare shape: a same-content resave by anyone
+	// lands every unedited path here at once. Disjoint from Unverified (no
+	// baseline ever proved anything here) and from Diverged (there the
+	// baseline is fresh — b.Etag == r.Etag — and proved a difference against
+	// the CURRENT revision, not a past one). `dsx fetch` is what re-checks
+	// against the current revision.
+	StaleProof []string
 }
 
 func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pullDecision {
@@ -87,6 +99,13 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA != onDisk.SHA
 
+		// Same conjuncts as diverged, but b.Etag disagrees with r.Etag
+		// instead of agreeing with it: the baseline proved these bytes once,
+		// against a revision the server has since moved past.
+		staleProof := present && !tracked && !onDisk.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag != r.Etag &&
+			b.SHA != "" && b.SHA == onDisk.SHA
+
 		switch {
 		case present && onDisk.Irregular:
 			d.Irregular = append(d.Irregular, path)
@@ -100,6 +119,8 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			d.Conflicts = append(d.Conflicts, path)
 		case diverged && !force:
 			d.Diverged = append(d.Diverged, path)
+		case staleProof && !force:
+			d.StaleProof = append(d.StaleProof, path)
 		case localDirty && !force:
 			d.Unverified = append(d.Unverified, path)
 		default:
@@ -167,6 +188,10 @@ type pushDecision struct {
 	// See pullDecision.Diverged: untracked, but a fresh baseline proved the
 	// bytes differ.
 	Diverged []string
+
+	// See pullDecision.StaleProof: untracked, unchanged since a baseline
+	// proved it against a past revision, but the listing etag has moved on.
+	StaleProof []string
 }
 
 func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pushDecision {
@@ -192,6 +217,13 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA != lf.SHA
 
+		// See planPull's staleProof: same conjuncts as diverged, but
+		// b.Etag disagrees with r.Etag instead of agreeing. r.Etag != ""
+		// stands in for onServer here, same as proven/diverged above.
+		staleProof := !tracked && !lf.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag != r.Etag &&
+			b.SHA != "" && b.SHA == lf.SHA
+
 		switch {
 		case lf.Irregular:
 			// Recorded regardless of whether the server has the path.
@@ -216,6 +248,9 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			continue
 		case diverged && !force:
 			d.Diverged = append(d.Diverged, path)
+			continue
+		case staleProof && !force:
+			d.StaleProof = append(d.StaleProof, path)
 			continue
 		case !force && !tracked && onServer:
 			d.Unverified = append(d.Unverified, path)

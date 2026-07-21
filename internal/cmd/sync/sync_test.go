@@ -327,6 +327,125 @@ func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
 	})
 }
 
+// maincliSeedBaseline writes .dsx/baseline.json directly, the way
+// clitest.SeedState seeds the ledger: syncer.Baseline.save is unexported, so
+// a caller outside the package builds the same bytes by hand.
+func maincliSeedBaseline(t *testing.T, dir string, bl syncer.Baseline) {
+	t.Helper()
+	if bl.Verified == nil {
+		bl.Verified = map[string]syncer.BaselineEntry{}
+	}
+	b, err := json.Marshal(bl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(syncer.StateDir(dir), 0o755); err != nil {
+		t.Fatalf("seeding baseline: %v", err)
+	}
+	if err := os.WriteFile(syncer.BaselinePath(dir), b, 0o644); err != nil {
+		t.Fatalf("seeding baseline: %v", err)
+	}
+}
+
+// maincliStaleProofCollision is maincliUnverifiedCollision's stale-baseline
+// twin: a baseline once proved these exact bytes against the server, but the
+// listing etag has since moved on (the measured fact: every write rotates
+// the etag, content-identical or not) while the local file has not changed.
+// The collision belongs to StaleProof, not Unverified.
+func maincliStaleProofCollision(t *testing.T) (*fakeMCP, *mcp.Client, string) {
+	t.Helper()
+	dir := t.TempDir()
+	const body = "PROVEN AGAINST AN OLDER REVISION"
+
+	maincliWriteFile(t, dir, "a.css", body)
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(fileEntry("a.css", "e2", int64(len(body))))}
+		case "read_file":
+			return fakeReply{Text: envelopeFor("a.css", "e2", body)}
+		}
+		return fakeReply{Text: "{}", IsError: true}
+	})
+	c := fakeClient(f)
+
+	maincliSeedBaseline(t, dir, syncer.Baseline{
+		ProjectID: "proj-uuid",
+		Endpoint:  c.Endpoint(),
+		Verified: map[string]syncer.BaselineEntry{
+			"a.css": {Etag: "e1", Size: int64(len(body)), SHA: syncer.SHA256Hex([]byte(body))},
+		},
+	})
+
+	return f, c, dir
+}
+
+// TestExitCodeIsUnchangedForAStaleProofConflict is StaleProof's cmd-layer
+// safety guard, the sibling of TestExitCodeIsUnchangedForAnUnverifiedConflict:
+// PullReport/PushReport fold StaleProof back into Conflicts too, so this
+// collision must still exit ExitConflict exactly the same way. The wording a
+// real user sees on stdout must name the earlier-revision proof, never "never
+// verified" — this is the cmd-layer proof that the new wording actually
+// reaches a real command invocation through the fake endpoint, not just a
+// report struct built by hand.
+func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
+	t.Run("pull", func(t *testing.T) {
+		_, c, dir := maincliStaleProofCollision(t)
+
+		out, err := captureStdout(t, func() error {
+			return cmdSync(context.Background(), c, "pull", []string{"proj-uuid", dir})
+		})
+		if err == nil {
+			t.Fatalf("a stale-proof collision reported success; output was %q", out)
+		}
+		if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+			t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over bytes nobody re-checked", got, dsxerr.ExitConflict)
+		}
+		if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
+			t.Errorf("conflict paths = %v, want [a.css]", paths)
+		}
+		if !strings.Contains(out, "conflicts 1") {
+			t.Errorf("summary did not count the stale-proof path as a conflict: %q", out)
+		}
+		if strings.Contains(out, "never verified") {
+			t.Errorf("stdout claims dsx never checked, but a baseline proved these bytes once: %q", out)
+		}
+		if !strings.Contains(out, "verified, but against an earlier revision") {
+			t.Errorf("stdout does not say what actually happened: %q", out)
+		}
+		if b, readErr := os.ReadFile(filepath.Join(dir, "a.css")); readErr != nil || string(b) != "PROVEN AGAINST AN OLDER REVISION" {
+			t.Fatalf("the local file was overwritten: %q, %v", b, readErr)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		_, c, dir := maincliStaleProofCollision(t)
+
+		out, err := captureStdout(t, func() error {
+			return cmdSync(context.Background(), c, "push", []string{"proj-uuid", dir})
+		})
+		if err == nil {
+			t.Fatalf("a stale-proof collision reported success; output was %q", out)
+		}
+		if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+			t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over bytes nobody re-checked", got, dsxerr.ExitConflict)
+		}
+		if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
+			t.Errorf("conflict paths = %v, want [a.css]", paths)
+		}
+		if !strings.Contains(out, "conflicts 1") {
+			t.Errorf("summary did not count the stale-proof path as a conflict: %q", out)
+		}
+		if strings.Contains(out, "never verified") {
+			t.Errorf("stdout claims dsx never checked, but a baseline proved these bytes once: %q", out)
+		}
+		if !strings.Contains(out, "verified, but against an earlier revision") {
+			t.Errorf("stdout does not say what actually happened: %q", out)
+		}
+	})
+}
+
 func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 

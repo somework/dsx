@@ -340,13 +340,16 @@ func TestAProvenByteMatchIsVerifiedNotAConflict(t *testing.T) {
 	})
 }
 
-// TestStaleBaselineIsIgnored: the listing moved since the baseline was
-// recorded (etags disagree). Trusting the recorded sha as current would be a
-// silent correctness regression strictly worse than today's over-cautious
-// false conflict, so a stale entry must be treated as if it did not exist —
-// it lands in Unverified, not Conflicts: dsx never re-checked the new
-// revision, so it must not claim the bytes differ.
-func TestStaleBaselineIsIgnored(t *testing.T) {
+// TestStaleBaselineWithMatchingBytesIsStaleProofNotUnverified: the listing
+// moved since the baseline was recorded (etags disagree) but the local file
+// has not changed since (baseline sha still matches on-disk). Trusting the
+// recorded sha as proof of the CURRENT revision would be a silent
+// correctness regression strictly worse than today's over-cautious false
+// conflict — dsx never re-checked the new revision — but the baseline is not
+// worthless either: it proved these exact bytes against SOME past revision.
+// That is neither "never checked" (Unverified) nor a proven divergence
+// against the current revision (Diverged); it is its own class, StaleProof.
+func TestStaleBaselineWithMatchingBytesIsStaleProofNotUnverified(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		d := planPull(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "e2", Size: 3}),
@@ -355,8 +358,10 @@ func TestStaleBaselineIsIgnored(t *testing.T) {
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
 			false, false)
 
-		if d.Verified != 0 || len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
-			t.Errorf("verified=%d conflicts=%v unverified=%v, want 0, none and [a.css]", d.Verified, d.Conflicts, d.Unverified)
+		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.Unverified) != 0 || len(d.Diverged) != 0 ||
+			!slices.Equal(d.StaleProof, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v unverified=%v diverged=%v staleProof=%v, want 0, none, none, none and [a.css]",
+				d.Verified, d.Conflicts, d.Unverified, d.Diverged, d.StaleProof)
 		}
 	})
 
@@ -368,8 +373,50 @@ func TestStaleBaselineIsIgnored(t *testing.T) {
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
 			false, false)
 
-		if d.Verified != 0 || len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
-			t.Errorf("verified=%d conflicts=%v unverified=%v, want 0, none and [a.css]", d.Verified, d.Conflicts, d.Unverified)
+		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.Unverified) != 0 || len(d.Diverged) != 0 ||
+			!slices.Equal(d.StaleProof, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v unverified=%v diverged=%v staleProof=%v, want 0, none, none, none and [a.css]",
+				d.Verified, d.Conflicts, d.Unverified, d.Diverged, d.StaleProof)
+		}
+	})
+}
+
+// TestStaleBaselineWithDifferentBytesStaysUnverified is
+// TestStaleBaselineWithMatchingBytesIsStaleProofNotUnverified's negative
+// twin: the listing moved AND the local file changed since the baseline was
+// recorded, so the baseline sha no longer matches on-disk either. Nothing
+// about the CURRENT bytes was ever proven — not against this revision, not
+// against any other — so this shape must stay in Unverified, not move to
+// StaleProof. This is the exact conjunct (b.SHA == current sha) that keeps
+// StaleProof from over-claiming.
+func TestStaleBaselineWithDifferentBytesStaysUnverified(t *testing.T) {
+	t.Run("pull", func(t *testing.T) {
+		d := planPull(
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "e2", Size: 3}),
+			localOf(localFile{Path: "a.css", SHA: "sha-edited", Size: 3}),
+			stateOf(nil),
+			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
+			false, false)
+
+		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.StaleProof) != 0 || len(d.Diverged) != 0 ||
+			!slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v staleProof=%v diverged=%v unverified=%v, want 0, none, none, none and [a.css]",
+				d.Verified, d.Conflicts, d.StaleProof, d.Diverged, d.Unverified)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		d := planPush(
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "e2", Size: 3}),
+			localOf(localFile{Path: "a.css", SHA: "sha-edited", Size: 3}),
+			stateOf(nil),
+			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
+			false, false)
+
+		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.StaleProof) != 0 || len(d.Diverged) != 0 ||
+			!slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v staleProof=%v diverged=%v unverified=%v, want 0, none, none, none and [a.css]",
+				d.Verified, d.Conflicts, d.StaleProof, d.Diverged, d.Unverified)
 		}
 	})
 }
@@ -603,4 +650,239 @@ func isSubsetOf(sub, all []string) bool {
 		}
 	}
 	return true
+}
+
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func sortedCopy(s []string) []string {
+	out := append([]string(nil), s...)
+	slices.Sort(out)
+	return out
+}
+
+// TestStaleProofOnlyMovesAPathFromUnverifiedToStaleProof is task 2's bounding
+// property, modelled on TestBaselineOnlyEverMovesAPathFromConflictsToVerified:
+// injecting a StaleProof-shaped baseline entry (b.Etag != r.Etag, b.SHA ==
+// the local/on-disk sha, both non-empty) for a path may only ever move that
+// exact path from Unverified into StaleProof. Every other field — Verified,
+// Diverged, Conflicts, Unchanged, Fetch/Write, Binary, Irregular, and both
+// prune slices — must come out byte-identical with and without the injected
+// entries, because planPull/planPush classify each path independently of
+// every other path's baseline entry.
+func TestStaleProofOnlyMovesAPathFromUnverifiedToStaleProof(t *testing.T) {
+	etags := []string{"e1", "e2"}
+	shas := []string{"s0", "s1", "s2"}
+	rng := rand.New(rand.NewPCG(11, 29))
+
+	const numPaths = 16
+	const trials = 30
+
+	for trial := range trials {
+		remote := map[string]RemoteEntry{}
+		local := map[string]localFile{}
+		files := map[string]FileState{}
+		baselineBase := map[string]BaselineEntry{}
+		remoteEtagOf := map[string]string{}
+		onDiskSHAOf := map[string]string{}
+		candidates := map[string]bool{}
+
+		for i := range numPaths {
+			p := fmt.Sprintf("p%02d.css", i)
+
+			onServer := rng.IntN(2) == 0
+			if onServer {
+				et := etags[rng.IntN(len(etags))]
+				remote[p] = RemoteEntry{Path: p, Type: "file", Etag: et, Size: 1}
+				remoteEtagOf[p] = et
+			}
+
+			var present, irregular bool
+			switch rng.IntN(3) {
+			case 0:
+				// stays absent locally
+			case 1:
+				present, irregular = true, true
+				local[p] = localFile{Path: p, Irregular: true}
+			default:
+				present = true
+				sha := shas[rng.IntN(len(shas))]
+				local[p] = localFile{Path: p, SHA: sha, Size: 1}
+				onDiskSHAOf[p] = sha
+			}
+
+			tracked := rng.IntN(2) == 0
+			if tracked {
+				files[p] = FileState{
+					Etag:   etags[rng.IntN(len(etags))],
+					SHA:    shas[rng.IntN(len(shas))],
+					Binary: rng.IntN(8) == 0,
+				}
+			}
+
+			// A baseline entry unrelated to the staleProof injection below —
+			// present regardless of whether this path becomes a candidate, so
+			// the proven/diverged/none/unrelated shapes are exercised too and
+			// held identical between the "without" and "with" runs.
+			switch rng.IntN(4) {
+			case 0:
+				// no base entry
+			case 1:
+				if present {
+					baselineBase[p] = BaselineEntry{Etag: remoteEtagOf[p], SHA: onDiskSHAOf[p], Size: 1}
+				}
+			case 2:
+				if present {
+					baselineBase[p] = BaselineEntry{Etag: remoteEtagOf[p], SHA: shas[rng.IntN(len(shas))], Size: 1}
+				}
+			default:
+				baselineBase[p] = BaselineEntry{Etag: "zzz", SHA: "zzz-sha", Size: 1}
+			}
+
+			// Only a path with no base entry, present, not irregular, untracked
+			// and on the server is eligible: those are exactly staleProof's own
+			// preconditions besides the etag/sha relationship itself.
+			if _, hasBase := baselineBase[p]; !hasBase && present && !irregular && !tracked && onServer && rng.IntN(2) == 0 {
+				candidates[p] = true
+			}
+		}
+
+		baselineWithout := map[string]BaselineEntry{}
+		for p, e := range baselineBase {
+			baselineWithout[p] = e
+		}
+		baselineWith := map[string]BaselineEntry{}
+		for p, e := range baselineBase {
+			baselineWith[p] = e
+		}
+		for p := range candidates {
+			// Distinct from remoteEtagOf[p] by construction (never equal to a
+			// bare "e1"/"e2"), and matches the local sha exactly.
+			baselineWith[p] = BaselineEntry{Etag: "old-" + remoteEtagOf[p], SHA: onDiskSHAOf[p], Size: 1}
+		}
+
+		st := State{ProjectID: "p", Files: files}
+
+		for _, force := range []bool{false, true} {
+			for _, prune := range []bool{false, true} {
+				name := fmt.Sprintf("trial=%d/force=%v/prune=%v", trial, force, prune)
+
+				wantMoved := map[string]bool{}
+				if !force {
+					wantMoved = candidates
+				}
+
+				t.Run(name+"/pull", func(t *testing.T) {
+					without := planPull(remote, local, st, baselineWithout, force, prune)
+					with := planPull(remote, local, st, baselineWith, force, prune)
+
+					if len(without.StaleProof) != 0 {
+						t.Fatalf("StaleProof without the injected entries is non-empty: %v", without.StaleProof)
+					}
+					gotMoved := map[string]bool{}
+					for _, p := range with.StaleProof {
+						gotMoved[p] = true
+					}
+					if len(gotMoved) != len(wantMoved) || !slices.Equal(sortedCopy(mapKeys(gotMoved)), sortedCopy(mapKeys(wantMoved))) {
+						t.Fatalf("StaleProof = %v, want exactly %v", with.StaleProof, mapKeys(wantMoved))
+					}
+
+					wantUnverified := except(without.Unverified, mapKeys(wantMoved))
+					if !slices.Equal(sortedCopy(with.Unverified), sortedCopy(wantUnverified)) {
+						t.Errorf("Unverified = %v, want %v (without's Unverified minus the moved paths)", with.Unverified, wantUnverified)
+					}
+
+					if !slices.Equal(without.Fetch, with.Fetch) {
+						t.Errorf("Fetch changed: without=%v with=%v", without.Fetch, with.Fetch)
+					}
+					if without.Verified != with.Verified {
+						t.Errorf("Verified changed: without=%d with=%d", without.Verified, with.Verified)
+					}
+					if !slices.Equal(without.Diverged, with.Diverged) {
+						t.Errorf("Diverged changed: without=%v with=%v", without.Diverged, with.Diverged)
+					}
+					if !slices.Equal(without.Conflicts, with.Conflicts) {
+						t.Errorf("Conflicts changed: without=%v with=%v", without.Conflicts, with.Conflicts)
+					}
+					if without.Unchanged != with.Unchanged {
+						t.Errorf("Unchanged changed: without=%d with=%d", without.Unchanged, with.Unchanged)
+					}
+					if !slices.Equal(without.Binary, with.Binary) {
+						t.Errorf("Binary changed: without=%v with=%v", without.Binary, with.Binary)
+					}
+					if !slices.Equal(without.Irregular, with.Irregular) {
+						t.Errorf("Irregular changed: without=%v with=%v", without.Irregular, with.Irregular)
+					}
+					if !slices.Equal(without.Delete, with.Delete) {
+						t.Errorf("Delete changed: without=%v with=%v", without.Delete, with.Delete)
+					}
+					if !slices.Equal(without.PruneConflicts, with.PruneConflicts) {
+						t.Errorf("PruneConflicts changed: without=%v with=%v", without.PruneConflicts, with.PruneConflicts)
+					}
+					if !slices.Equal(without.PruneBinary, with.PruneBinary) {
+						t.Errorf("PruneBinary changed: without=%v with=%v", without.PruneBinary, with.PruneBinary)
+					}
+				})
+
+				t.Run(name+"/push", func(t *testing.T) {
+					without := planPush(remote, local, st, baselineWithout, force, prune)
+					with := planPush(remote, local, st, baselineWith, force, prune)
+
+					if len(without.StaleProof) != 0 {
+						t.Fatalf("StaleProof without the injected entries is non-empty: %v", without.StaleProof)
+					}
+					gotMoved := map[string]bool{}
+					for _, p := range with.StaleProof {
+						gotMoved[p] = true
+					}
+					if len(gotMoved) != len(wantMoved) || !slices.Equal(sortedCopy(mapKeys(gotMoved)), sortedCopy(mapKeys(wantMoved))) {
+						t.Fatalf("StaleProof = %v, want exactly %v", with.StaleProof, mapKeys(wantMoved))
+					}
+
+					wantUnverified := except(without.Unverified, mapKeys(wantMoved))
+					if !slices.Equal(sortedCopy(with.Unverified), sortedCopy(wantUnverified)) {
+						t.Errorf("Unverified = %v, want %v (without's Unverified minus the moved paths)", with.Unverified, wantUnverified)
+					}
+
+					withoutWrite := writtenPaths(without)
+					withWrite := writtenPaths(with)
+					if !slices.Equal(withoutWrite, withWrite) {
+						t.Errorf("Write changed: without=%v with=%v", withoutWrite, withWrite)
+					}
+					if without.Verified != with.Verified {
+						t.Errorf("Verified changed: without=%d with=%d", without.Verified, with.Verified)
+					}
+					if !slices.Equal(without.Diverged, with.Diverged) {
+						t.Errorf("Diverged changed: without=%v with=%v", without.Diverged, with.Diverged)
+					}
+					if !slices.Equal(without.Conflicts, with.Conflicts) {
+						t.Errorf("Conflicts changed: without=%v with=%v", without.Conflicts, with.Conflicts)
+					}
+					if without.Unchanged != with.Unchanged {
+						t.Errorf("Unchanged changed: without=%d with=%d", without.Unchanged, with.Unchanged)
+					}
+					if !slices.Equal(without.Irregular, with.Irregular) {
+						t.Errorf("Irregular changed: without=%v with=%v", without.Irregular, with.Irregular)
+					}
+					if !slices.Equal(without.BinaryConflicts, with.BinaryConflicts) {
+						t.Errorf("BinaryConflicts changed: without=%v with=%v", without.BinaryConflicts, with.BinaryConflicts)
+					}
+					if !slices.Equal(without.BinaryGone, with.BinaryGone) {
+						t.Errorf("BinaryGone changed: without=%v with=%v", without.BinaryGone, with.BinaryGone)
+					}
+					if !slices.Equal(without.Delete, with.Delete) {
+						t.Errorf("Delete changed: without=%v with=%v", without.Delete, with.Delete)
+					}
+					if !slices.Equal(without.PruneConflicts, with.PruneConflicts) {
+						t.Errorf("PruneConflicts changed: without=%v with=%v", without.PruneConflicts, with.PruneConflicts)
+					}
+				})
+			}
+		}
+	}
 }

@@ -60,6 +60,12 @@ type PushReport struct {
 	// server: a subset of Conflicts, disjoint from Unverified.
 	Diverged []string `json:"diverged,omitempty"`
 
+	// Untracked; a baseline proved these bytes once, but against a server
+	// revision the listing no longer shows — a subset of Conflicts, disjoint
+	// from both Unverified and Diverged. `dsx fetch` re-checks the current
+	// revision.
+	StaleProof []string `json:"stale_proof,omitempty"`
+
 	BinaryConflicts []string `json:"binary_conflicts,omitempty"`
 
 	BinaryGone []string `json:"binary_gone,omitempty"`
@@ -119,9 +125,11 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	rep.Conflicts = append(rep.Conflicts, d.BinaryGone...)
 	rep.Conflicts = append(rep.Conflicts, d.Unverified...)
 	rep.Conflicts = append(rep.Conflicts, d.Diverged...)
+	rep.Conflicts = append(rep.Conflicts, d.StaleProof...)
 	slices.Sort(rep.Conflicts)
 	rep.Unverified = d.Unverified
 	rep.Diverged = d.Diverged
+	rep.StaleProof = d.StaleProof
 	rep.BinaryConflicts = d.BinaryConflicts
 	rep.BinaryGone = d.BinaryGone
 	rep.PruneConflicts = d.PruneConflicts
@@ -412,6 +420,11 @@ func (r PushReport) Render(asJSON bool) string {
 		if slices.Contains(r.Diverged, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — differs from the server, confirmed by the last `dsx fetch`; "+
 				"--force overwrites the server's copy", p)
+			continue
+		}
+		if slices.Contains(r.StaleProof, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — verified, but against an earlier revision of the server; "+
+				"`dsx fetch` re-checks the current one, or --force overwrites the server's copy", p)
 			continue
 		}
 		fmt.Fprintf(&sb, "\n  ! %s — server moved ahead; `dsx pull` first, or --force", p)
