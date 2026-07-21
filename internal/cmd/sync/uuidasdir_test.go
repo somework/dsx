@@ -10,7 +10,7 @@ import (
 
 const sampleProjectID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-func noLedger(string) (string, error) { return "", nil }
+func noLedger(string) (string, string, error) { return "", "", nil }
 
 // uuidNamedDir makes a real directory called sampleProjectID inside a fresh
 // cwd and returns the bare name. The name has to reach resolveSyncTarget
@@ -80,7 +80,7 @@ func TestBothRefusalsAreRefusals(t *testing.T) {
 // A directory bound to a project still works, whatever it is named — including
 // the UUID-named directories the old advice produced.
 func TestAUUIDNamedDirectoryThatIsBoundStillResolves(t *testing.T) {
-	bound := func(string) (string, error) { return "proj-A", nil }
+	bound := func(d string) (string, string, error) { return "proj-A", d, nil }
 	project, dir, err := resolveSyncTarget("pull", []string{uuidNamedDir(t)}, bound)
 	if err != nil {
 		t.Fatalf("a bound UUID-named directory was refused: %v", err)

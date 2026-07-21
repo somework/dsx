@@ -92,7 +92,7 @@ func maincliWriteFile(t *testing.T, dir, rel, body string) {
 	}
 }
 
-func maincliUnbound(string) (string, error) { return "", nil }
+func maincliUnbound(string) (string, string, error) { return "", "", nil }
 
 // TestSyncTargetRefusesASecondPositional replaces the test that asserted two
 // positionals meant (project, dir) and skipped the ledger. That form is gone:
@@ -112,9 +112,9 @@ func TestSyncTargetRefusesASecondPositional(t *testing.T) {
 func TestSyncTargetWithOneArgumentTakesItAsTheDirAndTheProjectFromTheLedger(t *testing.T) {
 	target := t.TempDir()
 	var asked string
-	project, dir, err := resolveSyncTarget("push", []string{target}, func(d string) (string, error) {
+	project, dir, err := resolveSyncTarget("push", []string{target}, func(d string) (string, string, error) {
 		asked = d
-		return "from-ledger", nil
+		return "from-ledger", d, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,9 +136,9 @@ func TestSyncTargetWithOneArgumentTakesItAsTheDirAndTheProjectFromTheLedger(t *t
 // displaced by a misleading one.
 func TestSyncTargetRefusesADirectoryThatIsNotThere(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
-	_, _, err := resolveSyncTarget("pull", []string{missing}, func(string) (string, error) {
+	_, _, err := resolveSyncTarget("pull", []string{missing}, func(string) (string, string, error) {
 		t.Fatal("the ledger was read for a directory that does not exist")
-		return "", nil
+		return "", "", nil
 	})
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Fatalf("kind=%q, want %q", got, dsxerr.KindUsage)
@@ -155,9 +155,9 @@ func TestSyncTargetRefusesADirectoryThatIsNotThere(t *testing.T) {
 
 func TestSyncTargetWithNoArgumentsDefaultsToTheWorkingDirectory(t *testing.T) {
 	var asked string
-	project, dir, err := resolveSyncTarget("status", nil, func(d string) (string, error) {
+	project, dir, err := resolveSyncTarget("status", nil, func(d string) (string, string, error) {
 		asked = d
-		return "from-ledger", nil
+		return "from-ledger", d, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -203,8 +203,8 @@ func TestSyncTargetRefusesMoreThanOnePositionalArgument(t *testing.T) {
 
 func TestSyncTargetPropagatesALedgerReadFailureInsteadOfCallingItUnbound(t *testing.T) {
 	boom := errors.New(".dsx-state.json is corrupt: unexpected end of JSON input")
-	_, _, err := resolveSyncTarget("pull", []string{t.TempDir()}, func(string) (string, error) {
-		return "", boom
+	_, _, err := resolveSyncTarget("pull", []string{t.TempDir()}, func(string) (string, string, error) {
+		return "", "", boom
 	})
 	if !errors.Is(err, boom) {
 		t.Fatalf("a ledger read failure was swallowed: got %v, want it to carry %v", err, boom)
@@ -230,22 +230,28 @@ func TestErrorsRaisedBeforeFlagParsingStillHonourJSON(t *testing.T) {
 }
 
 func TestBoundProjectReadsTheLedgerAndIsSilentWhenThereIsNone(t *testing.T) {
+	// Under a directory nothing above is bound to: t.TempDir() sits under the
+	// system temp root, which no test binds, so the upward walk genuinely comes
+	// back empty rather than finding a stray ledger.
 	dir := t.TempDir()
-	got, err := boundProject(dir)
+	got, root, err := boundProject(dir)
 	if err != nil {
 		t.Fatalf("a directory without a ledger is not an error: %v", err)
 	}
-	if got != "" {
-		t.Errorf("boundProject on a fresh dir = %q, want \"\"", got)
+	if got != "" || root != "" {
+		t.Errorf("boundProject on a fresh dir = (%q, %q), want two empty strings", got, root)
 	}
 
 	syncSeedState(t, dir, syncer.State{ProjectID: "proj-uuid"})
-	got, err = boundProject(dir)
+	got, root, err = boundProject(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "proj-uuid" {
 		t.Errorf("boundProject = %q, want %q", got, "proj-uuid")
+	}
+	if root != dir {
+		t.Errorf("root = %q, want the caller's own spelling %q", root, dir)
 	}
 }
 
@@ -257,7 +263,7 @@ func TestBoundProjectSurfacesACorruptLedgerRatherThanReportingUnbound(t *testing
 	if err := os.WriteFile(syncer.StatePath(dir), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := boundProject(dir); err == nil {
+	if _, _, err := boundProject(dir); err == nil {
 		t.Fatal("a corrupt ledger read as an unbound directory")
 	}
 }

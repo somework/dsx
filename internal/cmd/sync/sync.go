@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
@@ -50,15 +51,30 @@ func syncMode(mode string) func(context.Context, *mcp.Client, []string) error {
 	}
 }
 
-func boundProject(dir string) (string, error) {
-	st, err := syncer.LoadState(dir)
-	if err != nil {
-		return "", err
+// boundProject answers which project a directory syncs to and which directory
+// is actually the root of that sync — the way `git status` answers from
+// anywhere inside a repository rather than only at the top.
+//
+// The caller's own spelling is kept whenever it already names the root:
+// FindRoot works in absolute paths, and every refusal below prints this
+// string, so rewriting `design` into `/Users/…/design` on the common path
+// would be a cosmetic regression paid on every message.
+func boundProject(dir string) (project, root string, err error) {
+	root, err = syncer.FindRoot(dir)
+	if err != nil || root == "" {
+		return "", "", err
 	}
-	return st.ProjectID, nil
+	if abs, aErr := filepath.Abs(dir); aErr == nil && abs == root {
+		root = dir
+	}
+	st, err := syncer.LoadState(root)
+	if err != nil {
+		return "", "", err
+	}
+	return st.ProjectID, root, nil
 }
 
-func resolveSyncTarget(mode string, pos []string, bound func(string) (string, error)) (project, dir string, err error) {
+func resolveSyncTarget(mode string, pos []string, bound func(string) (string, string, error)) (project, dir string, err error) {
 	// One positional, and it is always <dir>. A project reaches these verbs
 	// only through the ledger, which only clone and pin write — so the whole
 	// class of "which of my two positionals was the project" is gone, and with
@@ -82,8 +98,8 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 	// very advice that built the population of UUID-named directories, one
 	// layer up from where uuidasdir_test.go first caught it.
 	if looksLikeProjectID(dir) {
-		if p, err := bound(dir); err == nil && p != "" {
-			return p, dir, nil // a real, bound directory that happens to be so named
+		if p, root, err := bound(dir); err == nil && p != "" {
+			return p, root, nil // a real, bound directory that happens to be so named
 		}
 		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s looks like a project id, not a directory — %s takes only <dir>; "+
@@ -103,21 +119,28 @@ func resolveSyncTarget(mode string, pos []string, bound func(string) (string, er
 		return "", "", err
 	}
 
-	p, err := bound(dir)
+	p, root, err := bound(dir)
 	if err != nil {
 		return "", "", err
 	}
-	if p == "" {
-		// Naming the verb the caller typed would be worse than useless now:
-		// re-running it with a project in front is exactly what no longer
-		// parses. The two repairs that do are the two verbs that bind.
-		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"%s carries no dsx ledger, so its project is unknown — run "+
-				"`dsx pin <project> %s` to bind it, or `dsx clone <project> <dir>` "+
-				"to start a fresh directory",
-			dir, dir)}
+	if p != "" {
+		// The root, not what the caller named: a verb acts on the tree it is
+		// standing in, so a subdirectory resolves upward and the whole sync
+		// happens at the top. dir keeps its own spelling when it already IS the
+		// root, so nothing about the common invocation changes.
+		return p, root, nil
 	}
-	return p, dir, nil
+	// Naming the verb the caller typed would be worse than useless now:
+	// re-running it with a project in front is exactly what no longer parses.
+	// The two repairs that do are the two verbs that bind. "nor anything above
+	// it" is not decoration: the search walked up, so a reader who is standing
+	// in a subdirectory has to be told the whole chain came back empty rather
+	// than left to wonder whether dsx simply looked in the wrong place.
+	return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+		"%s carries no dsx ledger, nor does anything above it — run "+
+			"`dsx pin <project> %s` to bind it, or `dsx clone <project> <dir>` "+
+			"to start a fresh directory",
+		dir, dir)}
 }
 
 // looksLikeProjectID chooses which refusal to print, never what to do: both
