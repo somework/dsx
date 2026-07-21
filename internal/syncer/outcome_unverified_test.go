@@ -57,6 +57,9 @@ func TestOutcomeDivergedOnlyStatesTheDivergence(t *testing.T) {
 		if strings.Contains(msg, "never verified") {
 			t.Errorf("claims dsx never checked a proven divergence: %q", msg)
 		}
+		if strings.Contains(msg, "local differs") {
+			t.Errorf("glues the generic clause onto a class that already has its own: %q", msg)
+		}
 		if !strings.Contains(msg, "dsx fetch") || !strings.Contains(msg, "--force") {
 			t.Errorf("does not state the divergence was confirmed by fetch and name --force: %q", msg)
 		}
@@ -71,6 +74,9 @@ func TestOutcomeDivergedOnlyStatesTheDivergence(t *testing.T) {
 		msg := err.Error()
 		if strings.Contains(msg, "never verified") {
 			t.Errorf("claims dsx never checked a proven divergence: %q", msg)
+		}
+		if strings.Contains(msg, "server moved ahead") {
+			t.Errorf("glues the generic clause onto a class that already has its own: %q", msg)
 		}
 		if !strings.Contains(msg, "dsx fetch") || !strings.Contains(msg, "--force") {
 			t.Errorf("does not state the divergence was confirmed by fetch and name --force: %q", msg)
