@@ -27,16 +27,18 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 ```bash
 dsx projects                                   # find your project id
 dsx clone <project> design                     # first pull into a new directory
-dsx push  design                               # disk → server
-dsx status design                              # what a sync would do; transfers nothing
+cd design && dsx push                          # disk → server
+dsx status                                     # what a sync would do; transfers nothing
 dsx help
 ```
 
-Only `clone` and `pin` name a project. Every other sync verb reads it from the directory's
-ledger, so they take a directory and nothing else — and the directory defaults to `.`:
+Only `clone` and `pin` name a project or a directory. Every other sync verb takes no argument
+at all: it acts on the tree you are standing in, finding the ledger by walking up the way
+`git status` does. `dsx -C <dir> <command>` moves first, exactly like git's.
 
 ```bash
-cd design && dsx pull
+cd design/components && dsx pull               # syncs the whole tree, not the subdirectory
+dsx -C design status                           # …or act on it from anywhere
 dsx tree                                       # and cat, likewise
 ```
 
@@ -48,9 +50,10 @@ all and reports every collision (exit 3).
 
 ```bash
 dsx pin <project> design                       # bind an existing directory — no round trip
-dsx fetch design                                # download + hash the files already there, once
-dsx pull design                                 # bytes that match land as verified, not blocked
-dsx diff design                                 # classify every path: same, local-only, remote-only, differs
+cd design
+dsx fetch                                      # download + hash the files already there, once
+dsx pull                                       # bytes that match land as verified, not blocked
+dsx diff                                       # classify every path: same, local-only, remote-only, differs
 ```
 
 `pin` refuses to rebind, so a mistyped id would otherwise be repairable only by deleting `.dsx`
@@ -76,10 +79,7 @@ anything the named commands do not wrap.
 
 `--json` on every command, `-j N` for concurrency, `-n` for a dry run.
 
-Sync verbs find the ledger by walking up, the way `git status` works from anywhere inside a
-repository — so `cd design/components && dsx pull` syncs the whole tree. To act on a tree you
-are not standing in, `dsx -C <dir> <command>` runs as if dsx had been started there, exactly
-like git's.
+
 
 ## Why it is cheap
 

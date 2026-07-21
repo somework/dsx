@@ -29,7 +29,7 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	// Bound before the snapshot, not inside the call: the ledger is a file in
 	// this tree, and writing it after `before` was taken would read as diff
 	// having touched the working tree — the exact absence this test asserts.
-	syncBound(t, dir, "proj-A")
+	syncBind(t, dir, "proj-A")
 
 	type snap struct {
 		body  []byte
@@ -79,7 +79,7 @@ func TestDiffWritesNothingWithoutOut(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--json"})
+		return cmdDiff(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff: %v", err)
@@ -164,7 +164,7 @@ func TestDiffOutRefusesANonEmptyDirectoryBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--out", out})
+		return cmdDiff(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--out", out))
 	})
 	if err == nil {
 		t.Fatal("diff --out accepted a non-empty target directory")
@@ -225,7 +225,7 @@ func TestDiffRefusesAForeignEndpointBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
+		return cmdDiff(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("diff accepted a directory bound to a different endpoint")
@@ -257,7 +257,7 @@ func TestDiffWritesTheReportAndSucceeds(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", body)}
 	})
 	out, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
+		return cmdDiff(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err != nil {
 		t.Fatalf("cmdDiff errored: %v", err)
@@ -284,7 +284,7 @@ func TestDiffOutMaterialisesTheServerSideOfADifferingPathThroughTheCLI(t *testin
 		return fakeReply{Text: envelopeFor(p, "e1", remoteBody)}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdDiff(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--out", out})
+		return cmdDiff(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--out", out))
 	}); err != nil {
 		t.Fatalf("cmdDiff: %v", err)
 	}

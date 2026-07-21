@@ -19,7 +19,7 @@ func TestAFailedPullRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{syncBound(t, dir, "proj-A")})
+		return cmdSync(context.Background(), fakeClient(f), "pull", syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("pull succeeded against a dead endpoint")
@@ -38,7 +38,7 @@ func TestAFailedPushRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "push", []string{syncBound(t, dir, "proj-A")})
+		return cmdSync(context.Background(), fakeClient(f), "push", syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("push succeeded against a dead endpoint")
@@ -56,7 +56,7 @@ func TestASuccessfulPullJSONHasNoIncompleteKey(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{syncBound(t, dir, "proj-A"), "--json"})
+		return cmdSync(context.Background(), fakeClient(f), "pull", append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestAFailedPullJSONCarriesIncomplete(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{syncBound(t, dir, "proj-A"), "--json"})
+		return cmdSync(context.Background(), fakeClient(f), "pull", append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err == nil {
 		t.Fatal("want an error")
@@ -101,7 +101,7 @@ func TestStatusRendersNoLoneReportWhenThePullHalfFails(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "status", []string{syncBound(t, dir, "proj-A")})
+		return cmdSync(context.Background(), fakeClient(f), "status", syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("status succeeded against a failing endpoint")
@@ -119,7 +119,7 @@ func TestStatusJSONOnAnErrorPathIsNotALoneReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "status", []string{syncBound(t, dir, "proj-A"), "--json"})
+		return cmdSync(context.Background(), fakeClient(f), "status", append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err == nil {
 		t.Fatal("want an error")

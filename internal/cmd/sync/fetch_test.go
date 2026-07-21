@@ -27,7 +27,7 @@ func TestFetchRefusesAForeignEndpointBeforeTheRoundTrip(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	_, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
+		return cmdFetch(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("fetch accepted a directory bound to a different endpoint")
@@ -85,7 +85,7 @@ func TestFetchWritesTheReportAndSucceeds(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
 	})
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
+		return cmdFetch(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err != nil {
 		t.Fatalf("cmdFetch errored: %v", err)
@@ -109,7 +109,7 @@ func TestAFailedFetchRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A")})
+		return cmdFetch(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("fetch succeeded against a dead endpoint")
@@ -126,7 +126,7 @@ func TestAFailedFetchJSONCarriesIncomplete(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{syncBound(t, dir, "proj-A"), "--json"})
+		return cmdFetch(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err == nil {
 		t.Fatal("want an error")

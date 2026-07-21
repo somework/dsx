@@ -33,22 +33,21 @@ func TestASyncVerbRunFromASubdirectoryResolvesTheRoot(t *testing.T) {
 	}
 }
 
-// TestANamedRootKeepsTheCallerSpelling: discovery must not rewrite a path the
-// caller typed into an absolute one. Every refusal below prints this string.
-func TestANamedRootKeepsTheCallerSpelling(t *testing.T) {
-	parent := t.TempDir()
-	t.Chdir(parent)
-	if err := os.Mkdir("design", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	syncSeedState(t, "design", syncer.State{ProjectID: "proj-A"})
+// TestStandingAtTheRootKeepsTheDotSpelling: discovery works in absolute paths,
+// but the common case — standing at the root — must keep reporting ".", or
+// every message and every report would start naming /Users/…/design where it
+// used to name the directory the caller is in.
+func TestStandingAtTheRootKeepsTheDotSpelling(t *testing.T) {
+	root := t.TempDir()
+	syncSeedState(t, root, syncer.State{ProjectID: "proj-A"})
+	t.Chdir(root)
 
-	_, dir, err := resolveSyncTarget("pull", []string{"design"}, boundProject)
+	_, dir, err := resolveSyncTarget("pull", nil, boundProject)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != "design" {
-		t.Errorf("dir = %q, want the caller's own %q", dir, "design")
+	if dir != "." {
+		t.Errorf("dir = %q, want \".\" — the working directory is the root here", dir)
 	}
 }
 

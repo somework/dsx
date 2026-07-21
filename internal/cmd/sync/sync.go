@@ -18,19 +18,19 @@ import (
 
 var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
-	Note: `  Only clone and pin name a project; every other verb reads it from <dir>'s
-  ledger, and <dir> defaults to ".". unpin releases a binding, clone starts one.
+	Note: `  Only clone and pin name a project or a directory. Every other verb acts on the
+  tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
   status accepts pull/push's flags and previews them: --force hides conflicts.
   clone is the first pull: both arguments, and <dir> must be empty.`,
 	Cmds: []cmd.Command{
 		{Name: "clone", Form: cloneForm,
 			Desc: "first pull into a new directory", Run: cmdClone},
-		{Name: "pull", Form: "pull  [<dir>] [--prune] [--force] [-n] [-j N]",
+		{Name: "pull", Form: "pull  [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("pull")},
-		{Name: "push", Form: "push  [<dir>] [--prune] [--force] [-n] [-j N]",
+		{Name: "push", Form: "push  [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("push")},
-		{Name: "status", Form: "status [<dir>]",
+		{Name: "status", Form: "status",
 			Desc: "what a sync would do; transfers nothing",
 			Run:  syncMode("status")},
 		{Name: "fetch", Form: fetchForm,
@@ -75,72 +75,55 @@ func boundProject(dir string) (project, root string, err error) {
 }
 
 func resolveSyncTarget(mode string, pos []string, bound func(string) (string, string, error)) (project, dir string, err error) {
-	// One positional, and it is always <dir>. A project reaches these verbs
-	// only through the ledger, which only clone and pin write — so the whole
-	// class of "which of my two positionals was the project" is gone, and with
-	// it the mismatch arm of the project guard in Pull/Push/Fetch/Diff, which
-	// is now unconstructible from the CLI rather than merely untypical. The
-	// guard stays: it still answers for a library caller, and its endpoint half
-	// remains reachable through DSX_ENDPOINT.
-	switch len(pos) {
-	case 0:
-		dir = "."
-	case 1:
-		dir = pos[0]
-	default:
-		return "", "", dsxerr.Usage(mode + " [<dir>]")
-	}
-
-	// The id-shaped refusal outranks both of the others, and must: a lone
-	// project id almost never names a directory that exists, so it lands on the
-	// missing-path branch — whose advice is `dsx clone <project> <dir>`, i.e.
-	// create the directory. Spelled with an id in the <dir> slot that is the
-	// very advice that built the population of UUID-named directories, one
-	// layer up from where uuidasdir_test.go first caught it.
-	if looksLikeProjectID(dir) {
-		if p, root, err := bound(dir); err == nil && p != "" {
-			return p, root, nil // a real, bound directory that happens to be so named
+	// No positional at all. Inside a synced tree the ledger is found by walking
+	// up; outside one, `dsx -C <dir>` is the way in. Between them nothing is
+	// left for an argument to say, and dropping it takes the last ambiguity out
+	// of this function: there is no arity at which a token could have been the
+	// project instead of the directory. The mismatch arm of the project guard
+	// in Pull/Push/Fetch/Diff stays unconstructible from the CLI for the same
+	// reason it already was — a project reaches them only through the ledger it
+	// is compared against.
+	//
+	// A positional is therefore always a mistake, and which mistake it is
+	// decides which repair to name. An id-shaped one is the old habit and must
+	// not be answered with advice that would create a directory named after a
+	// project id, which is the defect uuidasdir_test.go has now caught twice.
+	if len(pos) > 0 {
+		if looksLikeProjectID(pos[0]) {
+			return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+				"%s looks like a project id — %s takes no arguments; run "+
+					"`dsx pin %s <dir>` to bind a directory to it, or "+
+					"`dsx clone %s <dir>` to start a new one",
+				pos[0], mode, pos[0], pos[0])}
 		}
 		return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"%s looks like a project id, not a directory — %s takes only <dir>; "+
-				"run `dsx pin %s <dir>` to bind an existing directory, or "+
-				"`dsx clone %s <dir>` to start a new one",
-			dir, mode, dir, dir)}
+			"%s takes no arguments — it acts on the tree you are standing in; "+
+				"run `dsx -C %s %s` to act on that one instead",
+			mode, pos[0], mode)}
 	}
 
-	// The directory is checked before its ledger is read, and for every verb
-	// rather than only the dry runs. A path that is not there has no ledger, so
-	// without this the refusal below would tell the caller to `dsx pin` a
-	// directory that does not exist — the accurate message displaced by a
-	// misleading one, exactly the shape invariant 16 was written against.
-	// Nothing is lost by hoisting it: a directory holding a ledger exists by
-	// construction, so the check can only ever fire on the typo it names.
-	if err := refuseMissingDir(dir); err != nil {
-		return "", "", err
-	}
-
+	dir = "."
 	p, root, err := bound(dir)
 	if err != nil {
 		return "", "", err
 	}
 	if p != "" {
-		// The root, not what the caller named: a verb acts on the tree it is
+		// The root, not the working directory: a verb acts on the tree it is
 		// standing in, so a subdirectory resolves upward and the whole sync
-		// happens at the top. dir keeps its own spelling when it already IS the
-		// root, so nothing about the common invocation changes.
+		// happens at the top. bound keeps "." when the working directory
+		// already IS the root, so the common report is unchanged.
 		return p, root, nil
 	}
-	// Naming the verb the caller typed would be worse than useless now:
-	// re-running it with a project in front is exactly what no longer parses.
-	// The two repairs that do are the two verbs that bind. "nor anything above
-	// it" is not decoration: the search walked up, so a reader who is standing
-	// in a subdirectory has to be told the whole chain came back empty rather
-	// than left to wonder whether dsx simply looked in the wrong place.
-	return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-		"%s carries no dsx ledger, nor does anything above it — run "+
-			"`dsx pin <project> %s` to bind it, or `dsx clone <project> <dir>` "+
-			"to start a fresh directory",
-		dir, dir)}
+	// "nor in any directory above" is not decoration: the search walked up, so
+	// a reader standing in a subdirectory has to be told the whole chain came
+	// back empty rather than left wondering whether dsx looked in the wrong
+	// place. No path is printed because there is no longer one the caller
+	// typed — naming "." would read as a claim about a directory rather than
+	// about the search.
+	return "", "", &dsxerr.Error{Kind: dsxerr.KindUsage,
+		Msg: "no dsx ledger here, nor in any directory above — run " +
+			"`dsx pin <project>` to bind this one, or `dsx clone <project> <dir>` " +
+			"to start a fresh directory"}
 }
 
 // looksLikeProjectID chooses which refusal to print, never what to do: both
@@ -169,9 +152,12 @@ func looksLikeProjectID(s string) bool {
 // refuseMissingDir refuses a directory that does not exist, before anything
 // round-trips: invariant 16 — "the directory is not there" must never reach a
 // plan, because an empty local scan is what makes push --prune read the whole
-// server tree as user deletions. Reached from resolveSyncTarget (so from every
-// sync verb, not only the dry runs) and from pin and unpin, which resolve no
-// project and would otherwise have nothing catch a typo at all.
+// server tree as user deletions.
+//
+// Its only callers are pin and unpin, the two verbs that still take a directory
+// and resolve no project — nothing else would catch a typo in it. The sync
+// verbs stopped needing it when they stopped taking a directory: they act on
+// the working directory, which exists by standing in it.
 //
 // It names clone, not pull: creating the directory was pull's job only while
 // pull could be handed a project, and it no longer can be.

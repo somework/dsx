@@ -55,7 +55,7 @@ func TestARealPullStillCreatesItsDirectory(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", []string{syncBound(t, target, "proj-A")})
+		return cmdSync(context.Background(), fakeClient(f), "pull", syncIn(t, target, "proj-A"))
 	}); err != nil {
 		t.Fatalf("a real pull into a new directory failed: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestADryRunOnAnExistingDirectoryStillWorks(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "status", []string{syncBound(t, dir, "proj-A")})
+		return cmdSync(context.Background(), fakeClient(f), "status", syncIn(t, dir, "proj-A"))
 	}); err != nil {
 		t.Fatalf("status on an existing directory failed: %v", err)
 	}

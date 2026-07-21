@@ -85,8 +85,12 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 		t.Fatalf("pin: %v", err)
 	}
 
+	// pin still names its directory; every verb after it acts on the tree the
+	// process stands in, so the test has to stand in it too.
+	t.Chdir(dir)
+
 	if _, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), c, []string{dir})
+		return cmdFetch(context.Background(), c, nil)
 	}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -94,7 +98,7 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 	statusJSON := func() (pull syncer.PullReport, push syncer.PushReport) {
 		t.Helper()
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "status", []string{dir, "--json"})
+			return cmdSync(context.Background(), c, "status", []string{"--json"})
 		})
 		if err != nil {
 			t.Fatalf("status: %v", err)
@@ -126,7 +130,7 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 
 	pull2, push2 := statusJSON()
 	pullText, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{dir})
+		return cmdSync(context.Background(), c, "status", nil)
 	})
 	if err != nil {
 		t.Fatalf("status (text): %v", err)

@@ -9,7 +9,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-const diffForm = "diff [<dir>] [--out <dir>] [-j N]"
+const diffForm = "diff [--out <dir>] [-j N]"
 
 // cmdDiff classifies each path as same, local-only, remote-only or differs —
 // see syncer.Diff's doc comment for the download-skipping rule and why it

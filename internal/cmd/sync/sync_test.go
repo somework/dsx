@@ -32,32 +32,46 @@ var (
 	syncLedgerExists = clitest.LedgerExists
 )
 
-// syncBound binds dir to project and returns dir, so a call site that used to
-// name the project as a second positional keeps naming it in one place. The
-// substitution is semantically neutral for planning: an absent ledger and a
-// ledger holding only a project both reach planPull/planPush with Files empty
-// and Endpoint empty, so first contact and both bind guards behave identically.
+// syncBind binds dir to project without moving into it, for the fixtures that
+// need a bound tree they are not standing in. The substitution is semantically
+// neutral for planning: an absent ledger and a ledger holding only a project
+// both reach planPull/planPush with Files empty and Endpoint empty, so first
+// contact and both bind guards behave identically.
 //
 // It ensures rather than assigns. A fixture that already bound dir to the same
 // project is left exactly as it is, endpoint and tracked files intact, because
 // SeedState writes wholesale and a silent second call would erase what the
 // fixture set on purpose. A ledger naming a DIFFERENT project is the one shape
-// that fails loudly: under the old two-positional form that combination was a
-// live guard test, and quietly overwriting it here would turn the very test
-// that proves the guard into a test that cannot reach it.
-func syncBound(t *testing.T, dir, project string) string {
+// that fails loudly: under the old positional form that combination was a live
+// guard test, and quietly overwriting it here would turn the very test that
+// proves the guard into a test that cannot reach it.
+func syncBind(t *testing.T, dir, project string) {
 	t.Helper()
 	switch st, err := syncer.LoadState(dir); {
 	case err != nil:
 		t.Fatalf("reading %s's ledger: %v", dir, err)
 	case st.ProjectID == project:
-		return dir
+		return
 	case st.ProjectID != "":
 		t.Fatalf("%s is bound to %s, not %s — a project reaches these verbs only through "+
 			"the ledger now, so seed the one the test means", dir, st.ProjectID, project)
 	}
 	syncSeedState(t, dir, syncer.State{ProjectID: project})
-	return dir
+}
+
+// syncIn binds dir, moves into it, and returns the argument list a sync verb
+// now takes — which is none. The chdir IS the replacement for the positional,
+// not something the test does on the side: the verbs act on the tree the
+// process is standing in, so a test that names a directory any other way is
+// testing a path the binary does not have.
+//
+// t.Chdir restores on cleanup and refuses outright under t.Parallel, which is
+// what keeps this from becoming an invisible dependency between tests.
+func syncIn(t *testing.T, dir, project string) []string {
+	t.Helper()
+	syncBind(t, dir, project)
+	t.Chdir(dir)
+	return nil
 }
 
 func syncFirstCall(t *testing.T, f *fakeMCP, tool string) clitest.Call {
@@ -94,62 +108,45 @@ func maincliWriteFile(t *testing.T, dir, rel, body string) {
 
 func maincliUnbound(string) (string, string, error) { return "", "", nil }
 
-// TestSyncTargetRefusesASecondPositional replaces the test that asserted two
-// positionals meant (project, dir) and skipped the ledger. That form is gone:
-// only clone and pin name a project, so a second positional is a usage error
-// and the refusal must spell the form the caller can actually type.
-func TestSyncTargetRefusesASecondPositional(t *testing.T) {
+// TestSyncTargetRefusesAnyPositional replaces the pair that asserted first two
+// positionals and then one. A sync verb takes none: inside a tree the ledger is
+// found by walking up, outside one `dsx -C <dir>` is the way in, and the
+// refusal has to name that replacement or it strands whoever typed the old
+// form.
+func TestSyncTargetRefusesAnyPositional(t *testing.T) {
 	dir := t.TempDir()
-	_, _, err := resolveSyncTarget("pull", []string{"proj-uuid", dir}, maincliUnbound)
+	_, _, err := resolveSyncTarget("pull", []string{dir}, maincliUnbound)
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
-		t.Fatalf("two positionals classified %q, want %q", got, dsxerr.KindUsage)
+		t.Fatalf("a positional classified %q, want %q", got, dsxerr.KindUsage)
 	}
-	if msg := err.Error(); !strings.Contains(msg, "pull [<dir>]") {
-		t.Errorf("the refusal does not spell the form that parses: %q", msg)
+	msg := err.Error()
+	if !strings.Contains(msg, "takes no arguments") {
+		t.Errorf("the refusal does not say the verb takes none: %q", msg)
 	}
-}
-
-func TestSyncTargetWithOneArgumentTakesItAsTheDirAndTheProjectFromTheLedger(t *testing.T) {
-	target := t.TempDir()
-	var asked string
-	project, dir, err := resolveSyncTarget("push", []string{target}, func(d string) (string, string, error) {
-		asked = d
-		return "from-ledger", d, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dir != target {
-		t.Errorf("dir = %q, want the single argument %q", dir, target)
-	}
-	if project != "from-ledger" {
-		t.Errorf("project = %q, want the ledger's", project)
-	}
-	if asked != target {
-		t.Errorf("the ledger was read for %q, want %q — a lookup against the wrong directory answers about the wrong project", asked, target)
+	if !strings.Contains(msg, "dsx -C "+dir+" pull") {
+		t.Errorf("the refusal does not name the replacement: %q", msg)
 	}
 }
 
-// TestSyncTargetRefusesADirectoryThatIsNotThere: the check is hoisted above the
-// ledger read, so a typo'd path is named as a typo. Without it the caller is
-// told to `dsx pin` a directory that does not exist — accurate message
-// displaced by a misleading one.
-func TestSyncTargetRefusesADirectoryThatIsNotThere(t *testing.T) {
+// TestAPathPositionalIsAnsweredWithDashCNotWithCreation: the missing-directory
+// check left resolveSyncTarget with the positional, so a path that is not there
+// is no longer a special case — it is simply an argument a verb does not take.
+// What must not come back is the old advice, which named a form that created
+// the directory.
+func TestAPathPositionalIsAnsweredWithDashCNotWithCreation(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
 	_, _, err := resolveSyncTarget("pull", []string{missing}, func(string) (string, string, error) {
-		t.Fatal("the ledger was read for a directory that does not exist")
+		t.Fatal("the ledger was read although the invocation could not parse")
 		return "", "", nil
 	})
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Fatalf("kind=%q, want %q", got, dsxerr.KindUsage)
 	}
-	for _, want := range []string{"does not exist", "dsx clone"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("refusal is missing %q: %q", want, err)
-		}
+	if !strings.Contains(err.Error(), "dsx -C "+missing) {
+		t.Errorf("refusal does not name -C: %q", err)
 	}
-	if strings.Contains(err.Error(), "dsx pull <project>") {
-		t.Errorf("the refusal names a form that no longer parses: %q", err)
+	if strings.Contains(err.Error(), "to create it") {
+		t.Errorf("refusal still advises creating the directory: %q", err)
 	}
 }
 
@@ -174,8 +171,8 @@ func TestSyncTargetWithNoArgumentsDefaultsToTheWorkingDirectory(t *testing.T) {
 }
 
 func TestSyncTargetOnAnUnboundDirIsAUsageErrorThatSaysHowToBindIt(t *testing.T) {
-	fresh := t.TempDir()
-	_, _, err := resolveSyncTarget("pull", []string{fresh}, maincliUnbound)
+	t.Chdir(t.TempDir())
+	_, _, err := resolveSyncTarget("pull", nil, maincliUnbound)
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Fatalf("unbound dir classified %q, want %q: retrying the same command cannot help", got, dsxerr.KindUsage)
 	}
@@ -184,7 +181,7 @@ func TestSyncTargetOnAnUnboundDirIsAUsageErrorThatSaysHowToBindIt(t *testing.T) 
 	// caller typed used to be the whole advice, and is now the one thing that
 	// cannot work.
 	msg := err.Error()
-	for _, want := range []string{fresh, "ledger", "dsx pin <project> " + fresh, "dsx clone <project>"} {
+	for _, want := range []string{"ledger", "dsx pin <project>", "dsx clone <project>"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message does not tell the user how to recover (missing %q): %q", want, msg)
 		}
@@ -203,7 +200,8 @@ func TestSyncTargetRefusesMoreThanOnePositionalArgument(t *testing.T) {
 
 func TestSyncTargetPropagatesALedgerReadFailureInsteadOfCallingItUnbound(t *testing.T) {
 	boom := errors.New(".dsx-state.json is corrupt: unexpected end of JSON input")
-	_, _, err := resolveSyncTarget("pull", []string{t.TempDir()}, func(string) (string, string, error) {
+	t.Chdir(t.TempDir())
+	_, _, err := resolveSyncTarget("pull", nil, func(string) (string, string, error) {
 		return "", "", boom
 	})
 	if !errors.Is(err, boom) {
@@ -297,7 +295,7 @@ func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
 	})
 	if err == nil {
 		t.Fatalf("a pull that refused every file reported success; output was %q", out)
@@ -349,7 +347,7 @@ func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
 		_, c, dir := maincliUnverifiedCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "pull", []string{syncBound(t, dir, "proj-uuid")})
+			return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("an unverified collision reported success; output was %q", out)
@@ -372,7 +370,7 @@ func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
 		_, c, dir := maincliUnverifiedCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "push", []string{syncBound(t, dir, "proj-uuid")})
+			return cmdSync(context.Background(), c, "push", syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("an unverified collision reported success; output was %q", out)
@@ -456,7 +454,7 @@ func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
 		_, c, dir := maincliStaleProofCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "pull", []string{syncBound(t, dir, "proj-uuid")})
+			return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("a stale-proof collision reported success; output was %q", out)
@@ -485,7 +483,7 @@ func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
 		_, c, dir := maincliStaleProofCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "push", []string{syncBound(t, dir, "proj-uuid")})
+			return cmdSync(context.Background(), c, "push", syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("a stale-proof collision reported success; output was %q", out)
@@ -512,7 +510,7 @@ func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"-n", syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-n"))
 	})
 	if err != nil {
 		t.Fatalf("a dry run reporting a conflict failed with %v", err)
@@ -522,11 +520,12 @@ func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
 	}
 }
 
-func TestSyncResolvesTheProjectFromTheLedgerWhenOnlyTheDirIsGiven(t *testing.T) {
+func TestSyncResolvesTheProjectFromTheLedgerOfTheTreeItStandsIn(t *testing.T) {
 	f, c, dir := maincliConflictedPull(t)
+	t.Chdir(dir)
 
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{dir})
+		return cmdSync(context.Background(), c, "status", nil)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -558,7 +557,7 @@ func TestStatusReportsBothDirectionsAndTransfersNothing(t *testing.T) {
 	f, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "status", syncIn(t, dir, "proj-uuid"))
 	})
 	if err != nil {
 		t.Fatalf("status reported a conflict as a failure: %v", err)
@@ -581,7 +580,7 @@ func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{syncBound(t, dir, "proj-uuid"), "--json"})
+		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "--json"))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -626,12 +625,12 @@ func TestStatusHumanOutputNamesTheVerifiedCount(t *testing.T) {
 	})
 	c := fakeClient(f)
 
-	if err := cmdFetch(context.Background(), c, []string{syncBound(t, dir, "proj-uuid")}); err != nil {
+	if err := cmdFetch(context.Background(), c, syncIn(t, dir, "proj-uuid")); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "status", syncIn(t, dir, "proj-uuid"))
 	})
 	if err != nil {
 		t.Fatalf("status: %v", err)
@@ -661,7 +660,7 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"-q", syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-q"))
 	})
 	if out != "" {
 		t.Errorf("-q printed %q", out)
@@ -674,7 +673,7 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 func TestStatusQuietPrintsNothing(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"-q", syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "-q"))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -687,7 +686,7 @@ func TestStatusQuietPrintsNothing(t *testing.T) {
 func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", []string{"-j", "0", syncBound(t, dir, "proj-uuid")})
+		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "-j", "0"))
 	})
 	if err != nil {
 		t.Fatalf("-j 0: %v", err)
@@ -733,7 +732,7 @@ func TestPushThatFailsMidBatchStillPrintsThePartialReportBeforeTheError(t *testi
 	c := fakeClient(f)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "push", []string{syncBound(t, dir, project)})
+		return cmdSync(context.Background(), c, "push", syncIn(t, dir, project))
 	})
 	if err == nil {
 		t.Fatalf("push with a malformed write_files reply reported success; output was %q", out)
@@ -772,7 +771,7 @@ func TestPullThatFailsMidFetchStillPrintsThePartialReportBeforeTheError(t *testi
 	c := fakeClient(f)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{syncBound(t, dir, project)})
+		return cmdSync(context.Background(), c, "pull", syncIn(t, dir, project))
 	})
 	if err == nil {
 		t.Fatalf("pull with a size mismatch reported success; output was %q", out)
@@ -829,7 +828,7 @@ func TestStatusForcePreviewsAForcedSync(t *testing.T) {
 			_, c, dir := maincliConflictedPull(t)
 
 			out, err := captureStdout(t, func() error {
-				return cmdSync(context.Background(), c, "status", append([]string{syncBound(t, dir, "proj-uuid")}, tc.args...))
+				return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), tc.args...))
 			})
 			if err != nil {
 				t.Fatalf("status is a dry run and must not fail: %v", err)

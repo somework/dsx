@@ -23,8 +23,8 @@ var syncVerbs = []string{"pull", "push", "status", "fetch", "diff"}
 func TestTheNoLedgerRefusalNamesOnlyFormsThatParse(t *testing.T) {
 	for _, mode := range syncVerbs {
 		t.Run(mode, func(t *testing.T) {
-			dir := t.TempDir()
-			_, _, err := resolveSyncTarget(mode, []string{dir}, boundProject)
+			t.Chdir(t.TempDir())
+			_, _, err := resolveSyncTarget(mode, nil, boundProject)
 			if err == nil {
 				t.Fatal("an unbound directory resolved without a project")
 			}
@@ -37,6 +37,9 @@ func TestTheNoLedgerRefusalNamesOnlyFormsThatParse(t *testing.T) {
 			}
 			if strings.Contains(msg, "dsx "+mode+" <project>") {
 				t.Errorf("refusal advises `dsx %s <project> …`, which no longer parses: %q", mode, msg)
+			}
+			if strings.Contains(msg, "dsx "+mode+" <dir>") {
+				t.Errorf("refusal advises `dsx %s <dir>`, which no longer parses either: %q", mode, msg)
 			}
 		})
 	}
@@ -58,15 +61,16 @@ func TestNoSyncVerbWritesTheBindingItReads(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			dir := t.TempDir()
 			syncSeedState(t, dir, syncer.State{ProjectID: "proj-A"})
+			t.Chdir(dir)
 
 			var err error
 			if mode == "status" {
 				_, err = captureStdout(t, func() error {
-					return cmdSync(context.Background(), fakeClient(f), "status", []string{dir})
+					return cmdSync(context.Background(), fakeClient(f), "status", nil)
 				})
 			} else {
 				_, err = captureStdout(t, func() error {
-					return cmdDiff(context.Background(), fakeClient(f), []string{dir})
+					return cmdDiff(context.Background(), fakeClient(f), nil)
 				})
 			}
 			if err != nil {
@@ -94,6 +98,7 @@ func TestFetchWritesUnderDsxButNotTheLedger(t *testing.T) {
 	body := []byte("hello\n")
 	maincliWriteFile(t, dir, "a.css", string(body))
 	syncSeedState(t, dir, syncer.State{ProjectID: "proj-A"})
+	t.Chdir(dir)
 
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		if name == "list_files" {
@@ -103,7 +108,7 @@ func TestFetchWritesUnderDsxButNotTheLedger(t *testing.T) {
 		return fakeReply{Text: envelopeFor(p, "e1", string(body))}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdFetch(context.Background(), fakeClient(f), []string{dir})
+		return cmdFetch(context.Background(), fakeClient(f), nil)
 	}); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
