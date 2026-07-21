@@ -786,3 +786,81 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 		t.Errorf("file count %d -> %d; fetch must not write any server path", before, after)
 	}
 }
+
+// checkListedEtagAndSize cross-checks the etag write_files returned against
+// what list_files reports for the same path, and the listed size against what
+// was written.
+func checkListedEtagAndSize(t *testing.T, c *mcp.Client, ctx context.Context, path, wantEtag string, wantSize int) {
+	t.Helper()
+	files := liveTree(t, c, ctx)
+	e, ok := files[path]
+	if !ok {
+		t.Fatalf("list_files does not show %s right after a write", path)
+	}
+	if e.Etag != wantEtag {
+		t.Errorf("%s: list_files etag %q disagrees with write_files etag %q", path, e.Etag, wantEtag)
+	}
+	if e.Size != int64(wantSize) {
+		t.Errorf("%s: list_files size %d, want %d", path, e.Size, wantSize)
+	}
+}
+
+// TestLiveEtagIsContentDerivedOrRevisionDerived is a probe, not yet a claim:
+// once it has been run and the answer is known, the verdict below becomes a
+// real assertion plus a PROTOCOL.md line. It settles whether an etag is a pure
+// function of content — the fact invariant 17's `proven` predicate leans on
+// and nothing has ever verified.
+//
+// The middle write of B is the positive control, not scaffolding: without a
+// real revision bump between the two writes of A, a server handing out one
+// constant etag would read as content-derived.
+func TestLiveEtagIsContentDerivedOrRevisionDerived(t *testing.T) {
+	c, ctx := liveClient(t)
+	before := len(liveTree(t, c, ctx))
+	path := liveScratch(t, c, ctx, "-etag-probe.txt")
+
+	bodyA := []byte("dsx live self-test — etag probe A; safe to delete\n")
+	bodyB := []byte("dsx live self-test — etag probe B, longer than A; safe to delete\n")
+
+	etagA1 := liveWrite(t, c, ctx, path, bodyA)
+	if etagA1 == "" {
+		t.Fatal("the first write of A returned no etag")
+	}
+	checkListedEtagAndSize(t, c, ctx, path, etagA1, len(bodyA))
+
+	etagB := liveWrite(t, c, ctx, path, bodyB)
+	if etagB == "" {
+		t.Fatal("the write of B returned no etag")
+	}
+	if etagB == etagA1 {
+		t.Fatalf("positive control failed: writing genuinely different content kept the etag "+
+			"(%s == %s); either the write did not land or the server hands out a constant etag, "+
+			"and either way the rest of this test proves nothing", etagA1, etagB)
+	}
+	checkListedEtagAndSize(t, c, ctx, path, etagB, len(bodyB))
+
+	etagA2 := liveWrite(t, c, ctx, path, bodyA)
+	if etagA2 == "" {
+		t.Fatal("the second write of A returned no etag")
+	}
+	checkListedEtagAndSize(t, c, ctx, path, etagA2, len(bodyA))
+
+	if etagA1 == etagA2 {
+		t.Logf("VERDICT: etag is CONTENT-DERIVED. Re-putting the original bytes (A1=%s) after an "+
+			"intervening different write (B=%s) produced the same etag again (A2=%s). A same-content "+
+			"re-put cannot rotate an etag here, so `proven`'s etag conjunct costs nothing.",
+			etagA1, etagB, etagA2)
+	} else {
+		t.Logf("VERDICT: etag is REVISION-DERIVED. Re-putting the original bytes (A1=%s) after an "+
+			"intervening different write (B=%s) produced a different etag (A2=%s) for identical "+
+			"content. A teammate's identical-bytes re-put can rotate the etag and drop a path out "+
+			"of `proven`, costing one re-download.", etagA1, etagB, etagA2)
+	}
+
+	if err := liveRemove(c, ctx, path); err != nil {
+		t.Fatalf("delete_files: %v", err)
+	}
+	if after := len(liveTree(t, c, ctx)); after != before {
+		t.Errorf("file count %d -> %d; the project did not return to its original state", before, after)
+	}
+}
