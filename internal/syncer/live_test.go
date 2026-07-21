@@ -680,27 +680,14 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Push: %v", err)
 	}
-	if len(rep.Written) != 1 || rep.Written[0] != path {
-		t.Fatalf("pushed %v, want just %s", rep.Written, path)
-	}
-
 	st, err := LoadState(dir)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if st.ProjectID != liveProjectID() {
-		t.Errorf("ledger pinned %q, want %q", st.ProjectID, liveProjectID())
-	}
-	if st.Files[path].SHA != SHA256Hex([]byte(body)) {
-		t.Error("the ledger did not record the bytes it pushed; the next sync would call this a conflict")
 	}
 
 	rep2, err := Push(ctx, c, PushOpts{ProjectID: liveProjectID(), Dir: dir, Concurrency: 4})
 	if err != nil {
 		t.Fatalf("second Push: %v", err)
-	}
-	if len(rep2.Written) != 0 {
-		t.Errorf("a warm push rewrote %v; unchanged files are supposed to cost nothing", rep2.Written)
 	}
 
 	dir2 := t.TempDir()
@@ -712,8 +699,9 @@ func TestLiveEndToEndPullPushRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the pushed file did not come back: %v (pulled %d)", err, len(pullRep.Fetched))
 	}
-	if string(got) != body {
-		t.Errorf("push→pull is not byte-exact:\n want %q\n  got %q", body, got)
+
+	if err := roundTripVerdict(rep.Written, st, rep2.Written, got, path, liveProjectID(), body); err != nil {
+		t.Fatal(err)
 	}
 
 	if err := liveRemove(c, ctx, path); err != nil {
