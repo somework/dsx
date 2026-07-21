@@ -51,6 +51,12 @@ type pullDecision struct {
 	// which is the tracked, genuinely-proven-divergent case. `dsx fetch` is
 	// the only thing that can ever move a path out of here.
 	Unverified []string
+
+	// Untracked, but a fresh baseline (etag matches the current listing) DID
+	// verify the bytes and found them to differ — a genuine, proven
+	// divergence, unlike Unverified. Disjoint from both Conflicts (that's
+	// the tracked case) and Unverified (that's never-checked-or-stale).
+	Diverged []string
 }
 
 func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pullDecision {
@@ -74,6 +80,13 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA == onDisk.SHA
 
+		// A fresh baseline (same conjuncts as proven) that disagrees on sha
+		// instead of matching: the last `dsx fetch` checked exactly this
+		// server revision and found these bytes to differ.
+		diverged := present && !tracked && !onDisk.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
+			b.SHA != "" && b.SHA != onDisk.SHA
+
 		switch {
 		case present && onDisk.Irregular:
 			d.Irregular = append(d.Irregular, path)
@@ -85,6 +98,8 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			d.Verified++
 		case localDirty && !force && tracked:
 			d.Conflicts = append(d.Conflicts, path)
+		case diverged && !force:
+			d.Diverged = append(d.Diverged, path)
 		case localDirty && !force:
 			d.Unverified = append(d.Unverified, path)
 		default:
@@ -148,6 +163,10 @@ type pushDecision struct {
 	// See pullDecision.Unverified: the untracked-collision case, disjoint
 	// from Conflicts (the tracked, remote-moved case).
 	Unverified []string
+
+	// See pullDecision.Diverged: untracked, but a fresh baseline proved the
+	// bytes differ.
+	Diverged []string
 }
 
 func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pushDecision {
@@ -166,6 +185,12 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 		proven := !tracked && !lf.Irregular &&
 			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA == lf.SHA
+
+		// See planPull's diverged: same conjuncts, sha disagrees instead of
+		// matching.
+		diverged := !tracked && !lf.Irregular &&
+			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
+			b.SHA != "" && b.SHA != lf.SHA
 
 		switch {
 		case lf.Irregular:
@@ -188,6 +213,9 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			continue
 		case proven:
 			d.Verified++
+			continue
+		case diverged && !force:
+			d.Diverged = append(d.Diverged, path)
 			continue
 		case !force && !tracked && onServer:
 			d.Unverified = append(d.Unverified, path)

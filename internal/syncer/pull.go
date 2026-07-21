@@ -46,6 +46,10 @@ type PullReport struct {
 	// fetch` is the only thing that can ever clear one.
 	Unverified []string `json:"unverified,omitempty"`
 
+	// Untracked, but a fresh baseline proved these bytes differ from the
+	// server: a subset of Conflicts, disjoint from Unverified.
+	Diverged []string `json:"diverged,omitempty"`
+
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
 
 	// Gone from the server but not prunable at any force level.
@@ -119,8 +123,10 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.PruneBinary...)
 	rep.Conflicts = append(rep.Conflicts, d.Unverified...)
+	rep.Conflicts = append(rep.Conflicts, d.Diverged...)
 	slices.Sort(rep.Conflicts)
 	rep.Unverified = d.Unverified
+	rep.Diverged = d.Diverged
 	rep.PruneConflicts = d.PruneConflicts
 	rep.PruneBinary = d.PruneBinary
 	rep.Irregular = d.Irregular
@@ -280,6 +286,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 
 	slices.Sort(rep.Conflicts)
 	slices.Sort(rep.Unverified)
+	slices.Sort(rep.Diverged)
 	slices.Sort(rep.PruneConflicts)
 	slices.Sort(rep.PruneBinary)
 	slices.Sort(rep.Irregular)
@@ -321,6 +328,10 @@ func (r PullReport) Render(asJSON bool) string {
 		}
 		if slices.Contains(r.Unverified, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — never verified against the server; `dsx fetch` checks without writing, or --force to overwrite", p)
+			continue
+		}
+		if slices.Contains(r.Diverged, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — differs from the server, confirmed by the last `dsx fetch`; --force to overwrite", p)
 			continue
 		}
 		fmt.Fprintf(&sb, "\n  ! %s — local differs; --force to overwrite", p)

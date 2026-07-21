@@ -229,6 +229,23 @@ func TestPlanPush(t *testing.T) {
 		}
 	})
 
+	// The pull-side equivalent is TestAForcedFirstPullStillWrites — --force
+	// must override the Unverified guard exactly as it overrides Conflicts,
+	// not just for tracked collisions ("force sends unconditionally" above).
+	t.Run("force sends an untracked unverified collision unconditionally", func(t *testing.T) {
+		d := planPush(
+			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
+			localOf(localFile{Path: "a.css", SHA: "mine"}),
+			stateOf(nil), nil, true, false)
+
+		if len(d.Unverified) != 0 {
+			t.Errorf("unverified=%v, want none — --force must clear it", d.Unverified)
+		}
+		if len(d.Write) != 1 || d.Write[0].Path != "a.css" {
+			t.Errorf("write=%+v, want one entry for a.css — --force must still send it", d.Write)
+		}
+	})
+
 	t.Run("server ahead with no local change is left to pull", func(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),

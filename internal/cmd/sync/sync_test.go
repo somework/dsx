@@ -256,6 +256,77 @@ func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
 	}
 }
 
+// maincliUnverifiedCollision is maincliConflictedPull's untracked twin: the
+// local file was never named by a ledger entry, so the collision with the
+// server's copy is unverified (case c), not a proven divergence.
+func maincliUnverifiedCollision(t *testing.T) (*fakeMCP, *mcp.Client, string) {
+	t.Helper()
+	dir := t.TempDir()
+
+	maincliWriteFile(t, dir, "a.css", "LOCAL, NEVER COMPARED")
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 11))}
+		case "read_file":
+			return fakeReply{Text: envelopeFor("a.css", "e1", "SERVER COPY")}
+		}
+		return fakeReply{Text: "{}", IsError: true}
+	})
+	return f, fakeClient(f), dir
+}
+
+// TestExitCodeIsUnchangedForAnUnverifiedConflict is the cmd-layer safety
+// guard for the Unverified split: PullReport/PushReport fold Unverified back
+// into Conflicts (pull.go, push.go), so an untracked collision must still
+// exit ExitConflict through cmdSync exactly as a tracked one does — softening
+// the wording must not soften the exit code.
+func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
+	t.Run("pull", func(t *testing.T) {
+		_, c, dir := maincliUnverifiedCollision(t)
+
+		out, err := captureStdout(t, func() error {
+			return cmdSync(context.Background(), c, "pull", []string{"proj-uuid", dir})
+		})
+		if err == nil {
+			t.Fatalf("an unverified collision reported success; output was %q", out)
+		}
+		if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+			t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over bytes nobody compared", got, dsxerr.ExitConflict)
+		}
+		if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
+			t.Errorf("conflict paths = %v, want [a.css]", paths)
+		}
+		if !strings.Contains(out, "conflicts 1") {
+			t.Errorf("summary did not count the unverified path as a conflict: %q", out)
+		}
+		if b, readErr := os.ReadFile(filepath.Join(dir, "a.css")); readErr != nil || string(b) != "LOCAL, NEVER COMPARED" {
+			t.Fatalf("the local file was overwritten: %q, %v", b, readErr)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		_, c, dir := maincliUnverifiedCollision(t)
+
+		out, err := captureStdout(t, func() error {
+			return cmdSync(context.Background(), c, "push", []string{"proj-uuid", dir})
+		})
+		if err == nil {
+			t.Fatalf("an unverified collision reported success; output was %q", out)
+		}
+		if got := dsxerr.ExitCodeFor(err); got != dsxerr.ExitConflict {
+			t.Fatalf("exit code = %d, want %d — a caller reading 0 would carry on over bytes nobody compared", got, dsxerr.ExitConflict)
+		}
+		if paths := dsxerr.Classify(err).Paths; len(paths) != 1 || paths[0] != "a.css" {
+			t.Errorf("conflict paths = %v, want [a.css]", paths)
+		}
+		if !strings.Contains(out, "conflicts 1") {
+			t.Errorf("summary did not count the unverified path as a conflict: %q", out)
+		}
+	})
+}
+
 func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
@@ -356,6 +427,11 @@ func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
 // actually prints that field from a real invocation. A fetch baseline is
 // what turns a byte-identical, untracked file into Verified rather than
 // Unchanged (invariant 17), so `dsx fetch` runs before `dsx status` here.
+//
+// The pull-prefixed and push-prefixed lines are checked independently: a
+// single-file fixture makes both lines report "verified 1", so a substring
+// check against the whole output would still pass if only one side's
+// Verified count were actually wired up (either line alone satisfies it).
 func TestStatusHumanOutputNamesTheVerifiedCount(t *testing.T) {
 	dir := t.TempDir()
 	body := "verified{}"
@@ -379,8 +455,24 @@ func TestStatusHumanOutputNamesTheVerifiedCount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if !strings.Contains(out, "verified 1") {
-		t.Errorf("status did not name the verified count: %q", out)
+
+	var pullLine, pushLine string
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "pull: "):
+			pullLine = line
+		case strings.HasPrefix(line, "push: "):
+			pushLine = line
+		}
+	}
+	if pullLine == "" || pushLine == "" {
+		t.Fatalf("expected both a pull and a push line, got %q", out)
+	}
+	if !strings.Contains(pullLine, "verified 1") {
+		t.Errorf("pull line did not name the verified count: %q", pullLine)
+	}
+	if !strings.Contains(pushLine, "verified 1") {
+		t.Errorf("push line did not name the verified count: %q", pushLine)
 	}
 }
 
