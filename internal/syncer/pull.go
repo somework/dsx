@@ -41,6 +41,11 @@ type PullReport struct {
 
 	Conflicts []string `json:"conflicts"`
 
+	// Untracked and never proven equal to the server (invariant 17): a
+	// subset of Conflicts, disjoint from PruneConflicts/PruneBinary. `dsx
+	// fetch` is the only thing that can ever clear one.
+	Unverified []string `json:"unverified,omitempty"`
+
 	PruneConflicts []string `json:"prune_conflicts,omitempty"`
 
 	// Gone from the server but not prunable at any force level.
@@ -113,7 +118,9 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.PruneConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.PruneBinary...)
+	rep.Conflicts = append(rep.Conflicts, d.Unverified...)
 	slices.Sort(rep.Conflicts)
+	rep.Unverified = d.Unverified
 	rep.PruneConflicts = d.PruneConflicts
 	rep.PruneBinary = d.PruneBinary
 	rep.Irregular = d.Irregular
@@ -272,6 +279,7 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 
 	slices.Sort(rep.Conflicts)
+	slices.Sort(rep.Unverified)
 	slices.Sort(rep.PruneConflicts)
 	slices.Sort(rep.PruneBinary)
 	slices.Sort(rep.Irregular)
@@ -291,6 +299,9 @@ func (r PullReport) Render(asJSON bool) string {
 	if len(r.Deleted) > 0 {
 		fmt.Fprintf(&sb, ", deleted %d", len(r.Deleted))
 	}
+	if r.Verified > 0 {
+		fmt.Fprintf(&sb, ", verified %d", r.Verified)
+	}
 	if len(r.Conflicts) > 0 {
 		fmt.Fprintf(&sb, ", conflicts %d", len(r.Conflicts))
 	}
@@ -306,6 +317,10 @@ func (r PullReport) Render(asJSON bool) string {
 		}
 		if slices.Contains(r.PruneConflicts, p) {
 			fmt.Fprintf(&sb, "\n  ! %s — gone from the server, edited here; --force would DELETE your only copy", p)
+			continue
+		}
+		if slices.Contains(r.Unverified, p) {
+			fmt.Fprintf(&sb, "\n  ! %s — never verified against the server; `dsx fetch` checks without writing, or --force to overwrite", p)
 			continue
 		}
 		fmt.Fprintf(&sb, "\n  ! %s — local differs; --force to overwrite", p)

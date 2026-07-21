@@ -309,6 +309,7 @@ func pushBuckets(d pushDecision) map[string][]string {
 	return map[string][]string{
 		"Write":          writes,
 		"Conflicts":      d.Conflicts,
+		"Unverified":     d.Unverified,
 		"BinaryConfl":    d.BinaryConflicts,
 		"PruneConflicts": d.PruneConflicts,
 		"Delete":         d.Delete,
@@ -321,6 +322,7 @@ func pullBuckets(d pullDecision) map[string][]string {
 		"Fetch":          d.Fetch,
 		"Binary":         d.Binary,
 		"Conflicts":      d.Conflicts,
+		"Unverified":     d.Unverified,
 		"PruneConflicts": d.PruneConflicts,
 		"Delete":         d.Delete,
 		"Irregular":      d.Irregular,

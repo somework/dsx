@@ -39,11 +39,16 @@ func (r PushReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts)
+	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified)
 
 	var parts []string
 	if len(plain) > 0 {
 		parts = append(parts, "server moved ahead; `dsx pull` first, or --force")
+	}
+	if len(r.Unverified) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"never verified against the server (%s) — `dsx fetch` checks without writing, or --force overwrites",
+			strings.Join(r.Unverified, ", ")))
 	}
 	if len(r.BinaryConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(
@@ -70,11 +75,16 @@ func (r PullReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary)
+	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary, r.Unverified)
 
 	var parts []string
 	if len(plain) > 0 {
 		parts = append(parts, "local differs from the server; --force overwrites")
+	}
+	if len(r.Unverified) > 0 {
+		parts = append(parts, fmt.Sprintf(
+			"never verified against the server (%s) — `dsx fetch` checks without writing, or --force overwrites",
+			strings.Join(r.Unverified, ", ")))
 	}
 	if len(r.PruneConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

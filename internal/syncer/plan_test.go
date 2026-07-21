@@ -93,14 +93,14 @@ func TestPlanPull(t *testing.T) {
 		}
 	})
 
-	t.Run("untracked local collision is a conflict", func(t *testing.T) {
+	t.Run("untracked local collision is unverified, not a claimed conflict", func(t *testing.T) {
 		d := planPull(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
 			stateOf(nil), nil, false, false)
 
-		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
-			t.Errorf("conflicts=%v, want [a.css]", d.Conflicts)
+		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("conflicts=%v unverified=%v, want none and [a.css] — no ledger entry ever confirmed these bytes, so it must not claim they differ", d.Conflicts, d.Unverified)
 		}
 	})
 
@@ -218,14 +218,14 @@ func TestPlanPush(t *testing.T) {
 		}
 	})
 
-	t.Run("untracked collision is a conflict", func(t *testing.T) {
+	t.Run("untracked collision is unverified, not a claimed conflict", func(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
 			stateOf(nil), nil, false, false)
 
-		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
-			t.Errorf("conflicts=%v, want [a.css]", d.Conflicts)
+		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("conflicts=%v unverified=%v, want none and [a.css] — no ledger entry ever confirmed these bytes, so it must not claim they differ", d.Conflicts, d.Unverified)
 		}
 	})
 
@@ -326,7 +326,9 @@ func TestAProvenByteMatchIsVerifiedNotAConflict(t *testing.T) {
 // TestStaleBaselineIsIgnored: the listing moved since the baseline was
 // recorded (etags disagree). Trusting the recorded sha as current would be a
 // silent correctness regression strictly worse than today's over-cautious
-// false conflict, so a stale entry must be treated as if it did not exist.
+// false conflict, so a stale entry must be treated as if it did not exist —
+// it lands in Unverified, not Conflicts: dsx never re-checked the new
+// revision, so it must not claim the bytes differ.
 func TestStaleBaselineIsIgnored(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		d := planPull(
@@ -336,8 +338,8 @@ func TestStaleBaselineIsIgnored(t *testing.T) {
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
 			false, false)
 
-		if d.Verified != 0 || !slices.Equal(d.Conflicts, []string{"a.css"}) {
-			t.Errorf("verified=%d conflicts=%v, want 0 and [a.css]", d.Verified, d.Conflicts)
+		if d.Verified != 0 || len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v unverified=%v, want 0, none and [a.css]", d.Verified, d.Conflicts, d.Unverified)
 		}
 	})
 
@@ -349,8 +351,8 @@ func TestStaleBaselineIsIgnored(t *testing.T) {
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
 			false, false)
 
-		if d.Verified != 0 || !slices.Equal(d.Conflicts, []string{"a.css"}) {
-			t.Errorf("verified=%d conflicts=%v, want 0 and [a.css]", d.Verified, d.Conflicts)
+		if d.Verified != 0 || len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
+			t.Errorf("verified=%d conflicts=%v unverified=%v, want 0, none and [a.css]", d.Verified, d.Conflicts, d.Unverified)
 		}
 	})
 }
@@ -378,8 +380,8 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 		if d.Verified != 0 {
 			t.Errorf("verified=%d, want 0 — an empty baseline sha must never prove a byte match", d.Verified)
 		}
-		if !slices.Equal(d.Conflicts, []string{"x.css"}) {
-			t.Errorf("conflicts=%v, want [x.css] — untracked and on the server, so it must still conflict", d.Conflicts)
+		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"x.css"}) {
+			t.Errorf("conflicts=%v unverified=%v, want none and [x.css] — untracked and on the server, so it must still be held back, just not as a claimed conflict", d.Conflicts, d.Unverified)
 		}
 	})
 
@@ -407,8 +409,8 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 		if d.Verified != 0 {
 			t.Errorf("verified=%d, want 0 — an empty baseline sha must never prove a byte match", d.Verified)
 		}
-		if !slices.Equal(d.Conflicts, []string{"x.css"}) {
-			t.Errorf("conflicts=%v, want [x.css] — present and untracked, so it must still conflict", d.Conflicts)
+		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"x.css"}) {
+			t.Errorf("conflicts=%v unverified=%v, want none and [x.css] — present and untracked, so it must still be held back, just not as a claimed conflict", d.Conflicts, d.Unverified)
 		}
 	})
 

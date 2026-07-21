@@ -350,6 +350,40 @@ func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
 	}
 }
 
+// TestStatusHumanOutputNamesTheVerifiedCount is the cmd-layer guard for
+// Defect 1: the syncer-level Render tests only prove PullReport/PushReport
+// render "verified" in isolation, nothing proved cmdSync's status branch
+// actually prints that field from a real invocation. A fetch baseline is
+// what turns a byte-identical, untracked file into Verified rather than
+// Unchanged (invariant 17), so `dsx fetch` runs before `dsx status` here.
+func TestStatusHumanOutputNamesTheVerifiedCount(t *testing.T) {
+	dir := t.TempDir()
+	body := "verified{}"
+	maincliWriteFile(t, dir, "a.css", body)
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		if name == "list_files" {
+			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", int64(len(body))))}
+		}
+		return fakeReply{Text: envelopeFor("a.css", "e1", body)}
+	})
+	c := fakeClient(f)
+
+	if err := cmdFetch(context.Background(), c, []string{"proj-uuid", dir}); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+
+	out, err := captureStdout(t, func() error {
+		return cmdSync(context.Background(), c, "status", []string{"proj-uuid", dir})
+	})
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !strings.Contains(out, "verified 1") {
+		t.Errorf("status did not name the verified count: %q", out)
+	}
+}
+
 func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 

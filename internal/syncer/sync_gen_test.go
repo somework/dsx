@@ -1383,6 +1383,20 @@ func TestPullReportRender(t *testing.T) {
 		}
 	})
 
+	// Round-tripping into the same struct cannot catch a renamed json tag —
+	// both halves rename together and the round-trip still succeeds. This
+	// pins the literal wire key an external --json consumer depends on.
+	t.Run("the wire key is literally \"verified\"", func(t *testing.T) {
+		rep := PullReport{Verified: 4}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(rep.Render(true)), &doc); err != nil {
+			t.Fatalf("--json output is not JSON: %v", err)
+		}
+		if got, ok := doc["verified"]; !ok || got != float64(4) {
+			t.Errorf("doc[\"verified\"] = %v, ok=%v, want 4", got, ok)
+		}
+	})
+
 	t.Run("prose names every path a human has to act on", func(t *testing.T) {
 		want := "pulled 2, unchanged 3, deleted 1, conflicts 1, binary 1 (2.0 KB)" +
 			"\n  ! c.css — local differs; --force to overwrite" +
@@ -1417,6 +1431,19 @@ func TestPushReportRender(t *testing.T) {
 		}
 	})
 
+	// See PullReportRender's twin: a round-trip into the same struct cannot
+	// catch a renamed json tag.
+	t.Run("the wire key is literally \"verified\"", func(t *testing.T) {
+		rep := PushReport{Verified: 4}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(rep.Render(true)), &doc); err != nil {
+			t.Fatalf("--json output is not JSON: %v", err)
+		}
+		if got, ok := doc["verified"]; !ok || got != float64(4) {
+			t.Errorf("doc[\"verified\"] = %v, ok=%v, want 4", got, ok)
+		}
+	})
+
 	t.Run("prose names the conflict and the way out", func(t *testing.T) {
 		want := "pushed 1, unchanged 2, deleted 1, conflicts 1 (1.5 KB)" +
 			"\n  ! c.css — server moved ahead; `dsx pull` first, or --force" +
@@ -1430,6 +1457,54 @@ func TestPushReportRender(t *testing.T) {
 		got := PushReport{Unchanged: 9}.Render(false)
 		if got != "pushed 0, unchanged 9 (0 B)" {
 			t.Errorf("render = %q", got)
+		}
+	})
+}
+
+func TestVerifiedAppearsInTheHumanSummary(t *testing.T) {
+	t.Run("pull", func(t *testing.T) {
+		full := PullReport{
+			Fetched: []string{"a.css", "b.css"}, Unchanged: 3,
+			Deleted: []string{"d.css"}, Verified: 4, Conflicts: []string{"c.css"},
+			Binary: []string{"logo.png"}, Bytes: 2048,
+		}
+		want := "pulled 2, unchanged 3, deleted 1, verified 4, conflicts 1, binary 1 (2.0 KB)" +
+			"\n  ! c.css — local differs; --force to overwrite" +
+			"\n  ~ 1 binary file(s) skipped — read_file serves text only: logo.png" +
+			"\n" + conflictHint
+		if got := full.Render(false); got != want {
+			t.Errorf("render:\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		full := PushReport{
+			Written: []string{"a.css"}, Unchanged: 2,
+			Deleted: []string{"d.css"}, Verified: 4, Conflicts: []string{"c.css"}, Bytes: 1536,
+		}
+		want := "pushed 1, unchanged 2, deleted 1, verified 4, conflicts 1 (1.5 KB)" +
+			"\n  ! c.css — server moved ahead; `dsx pull` first, or --force" +
+			"\n" + conflictHint
+		if got := full.Render(false); got != want {
+			t.Errorf("render:\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
+func TestVerifiedIsAbsentFromTheSummaryWhenZero(t *testing.T) {
+	t.Run("pull", func(t *testing.T) {
+		got := PullReport{Unchanged: 4}.Render(false)
+		want := "pulled 0, unchanged 4 (0 B)"
+		if got != want {
+			t.Errorf("render = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("push", func(t *testing.T) {
+		got := PushReport{Unchanged: 9}.Render(false)
+		want := "pushed 0, unchanged 9 (0 B)"
+		if got != want {
+			t.Errorf("render = %q, want %q", got, want)
 		}
 	})
 }

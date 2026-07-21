@@ -44,6 +44,13 @@ type pullDecision struct {
 
 	// A proven byte match (invariant 17): a determination, not an act.
 	Verified int
+
+	// Present, differs from the ledger's idea of unchanged, but untracked —
+	// no ledger entry has ever confirmed these are dsx's own bytes, so
+	// "local differs" is not a claim dsx can make. Disjoint from Conflicts,
+	// which is the tracked, genuinely-proven-divergent case. `dsx fetch` is
+	// the only thing that can ever move a path out of here.
+	Unverified []string
 }
 
 func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pullDecision {
@@ -76,8 +83,10 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			d.Unchanged++
 		case proven:
 			d.Verified++
-		case localDirty && !force:
+		case localDirty && !force && tracked:
 			d.Conflicts = append(d.Conflicts, path)
+		case localDirty && !force:
+			d.Unverified = append(d.Unverified, path)
 		default:
 			d.Fetch = append(d.Fetch, path)
 		}
@@ -135,6 +144,10 @@ type pushDecision struct {
 
 	// A proven byte match (invariant 17): a determination, not an act.
 	Verified int
+
+	// See pullDecision.Unverified: the untracked-collision case, disjoint
+	// from Conflicts (the tracked, remote-moved case).
+	Unverified []string
 }
 
 func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pushDecision {
@@ -177,7 +190,7 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			d.Verified++
 			continue
 		case !force && !tracked && onServer:
-			d.Conflicts = append(d.Conflicts, path)
+			d.Unverified = append(d.Unverified, path)
 			continue
 		case !force && tracked && prev.Binary && !onServer:
 			d.BinaryGone = append(d.BinaryGone, path)
