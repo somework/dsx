@@ -41,7 +41,7 @@ func cmdCompletion(args []string) error {
 }
 
 // completionScript generates per-command flag lists. A single hardcoded list
-// offered every command the same flags, so `dsx cat --<TAB>` proposed --prune,
+// offered every command the same flags, so `dsx files cat --<TAB>` proposed --prune,
 // which cat rejects as unknown — the shell taught a spelling the binary
 // refuses. Command names come from commandNames, derived from `groups`
 // (invariant 11); flags come from commandFlags, derived from Form and
@@ -157,7 +157,7 @@ compdef _dsx dsx
 		// offers files.
 		//
 		// A noun's verbs hang off __fish_seen_subcommand_from, which knows the
-		// word is present but not that it came first, so `dsx cat conv` would
+		// word is present but not that it came first, so `dsx files cat conv` would
 		// offer conv's verbs too. That invocation does not parse, so the cost is
 		// a suggestion inside an already-broken line.
 		for _, n := range nouns {

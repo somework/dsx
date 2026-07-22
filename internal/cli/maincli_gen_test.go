@@ -377,7 +377,7 @@ func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 
 func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
 	for _, text := range []string{
-		`{"projects":[]}`,
+		`{"project ls":[]}`,
 		"Deleted 3 files.",
 		`{"truncated": `,
 	} {
@@ -456,7 +456,7 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 
 func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
-	err := cmd.EmitFlagged(context.Background(), c, "projects", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
+	err := cmd.EmitFlagged(context.Background(), c, "project ls", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
 		t.Fatal("build ran despite an unparseable flag")
 		return "", nil, nil
 	})

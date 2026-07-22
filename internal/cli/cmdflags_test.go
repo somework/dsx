@@ -16,7 +16,7 @@ func flagsOf(t *testing.T, name string) []string {
 }
 
 // completion.go used to offer one hardcoded list to every command, so
-// `dsx cat --<TAB>` proposed --prune, a flag cat rejects as unknown.
+// `dsx files cat --<TAB>` proposed --prune, a flag cat rejects as unknown.
 func TestCommandFlagsAreThePerCommandTruth(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -27,7 +27,7 @@ func TestCommandFlagsAreThePerCommandTruth(t *testing.T) {
 		{"files cat", []string{"--json", "--out"}, []string{"--prune", "--force", "-n"}},
 		{"files tree", []string{"--json", "-j"}, []string{"--prune", "--force"}},
 		{"files put", []string{"--if-match", "--json", "--plan"}, []string{"--prune", "--force"}},
-		{"projects", []string{"--json"}, []string{"--prune", "--force", "-j"}},
+		{"project ls", []string{"--json"}, []string{"--prune", "--force", "-j"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := flagsOf(t, tc.name)

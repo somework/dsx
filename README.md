@@ -25,7 +25,7 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 ## Use
 
 ```bash
-dsx projects                                   # find your project id
+dsx project ls                                 # find your project id
 dsx clone <project> design                     # first pull into a new directory
 cd design && dsx push                          # disk → server
 dsx status                                     # what changed here, from disk alone; no network call

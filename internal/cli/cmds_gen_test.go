@@ -91,13 +91,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 	}{
 		{
 			name: "new without --ds omits design_system_id",
-			cmd:  "new", argv: []string{"My Project"},
+			cmd:  "project new", argv: []string{"My Project"},
 			wantTool: "create_project",
 			wantArgs: map[string]any{"name": "My Project"},
 		},
 		{
 			name: "new with --ds",
-			cmd:  "new", argv: []string{"My Project", "--ds", "ds-1"},
+			cmd:  "project new", argv: []string{"My Project", "--ds", "ds-1"},
 			wantTool: "create_project",
 			wantArgs: map[string]any{"name": "My Project", "design_system_id": "ds-1"},
 		},
@@ -147,13 +147,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "plan with neither list sends neither key",
-			cmd:  "plan", argv: []string{"p1"},
+			cmd:  "plan new", argv: []string{"p1"},
 			wantTool: "finalize_plan",
 			wantArgs: map[string]any{"project_id": "p1"},
 		},
 		{
 			name: "plan splits comma lists and drops blanks",
-			cmd:  "plan", argv: []string{"p1", "--writes", "a.css, b.css,", "--deletes", "c.css"},
+			cmd:  "plan new", argv: []string{"p1", "--writes", "a.css, b.css,", "--deletes", "c.css"},
 			wantTool: "finalize_plan",
 			wantArgs: map[string]any{
 				"project_id": "p1",
@@ -163,7 +163,7 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "plan --scope project",
-			cmd:  "plan", argv: []string{"p1", "--scope", "project"},
+			cmd:  "plan new", argv: []string{"p1", "--scope", "project"},
 			wantTool: "finalize_plan",
 			wantArgs: map[string]any{"project_id": "p1", "scope": "project"},
 		},
@@ -184,13 +184,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "support-js sends only the project when nothing else is set",
-			cmd:  "support-js", argv: []string{"p1"},
+			cmd:  "project support-js", argv: []string{"p1"},
 			wantTool: "create_support_js",
 			wantArgs: map[string]any{"project_id": "p1"},
 		},
 		{
 			name: "support-js with every optional argument",
-			cmd:  "support-js", argv: []string{"p1", "--path", "s.js", "--if-match", "e1", "--plan", "tok"},
+			cmd:  "project support-js", argv: []string{"p1", "--path", "s.js", "--if-match", "e1", "--plan", "tok"},
 			wantTool: "create_support_js",
 			wantArgs: map[string]any{
 				"project_id": "p1", "path": "s.js", "if_match": "e1", "plan_token": "tok",
@@ -234,13 +234,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "sharing with no options sends only the project",
-			cmd:  "sharing", argv: []string{"p1"},
+			cmd:  "project sharing", argv: []string{"p1"},
 			wantTool: "update_sharing",
 			wantArgs: map[string]any{"project_id": "p1"},
 		},
 		{
 			name: "sharing with both options",
-			cmd:  "sharing", argv: []string{"p1", "--scope", "org", "--link-permission", "read"},
+			cmd:  "project sharing", argv: []string{"p1", "--scope", "org", "--link-permission", "read"},
 			wantTool: "update_sharing",
 			wantArgs: map[string]any{"project_id": "p1", "scope": "org", "link_permission": "read"},
 		},
@@ -305,7 +305,7 @@ func TestPlanRefusesProjectScopeWithPaths(t *testing.T) {
 				return fakeReply{IsError: true, Text: "unexpected"}
 			})
 
-			_, err := cmdsRun(t, f, "plan", tc.argv...)
+			_, err := cmdsRun(t, f, "plan new", tc.argv...)
 			if err == nil {
 				t.Fatal("the invocation was accepted")
 			}
@@ -565,11 +565,11 @@ func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 		argv []string
 	}{
 		{"files ls", "files ls", []string{"p1", "--json"}},
-		{"new", "new", []string{"n", "--json"}},
+		{"project new", "project new", []string{"n", "--json"}},
 		{"prompt", "prompt", []string{"--json"}},
 		{"conv get", "conv get", []string{"p1", "--json"}},
-		{"sharing", "sharing", []string{"p1", "--json"}},
-		{"plan", "plan", []string{"p1", "--json"}},
+		{"project sharing", "project sharing", []string{"p1", "--json"}},
+		{"plan new", "plan new", []string{"p1", "--json"}},
 		{"files preview", "files preview", []string{"p1", "i.html", "--json"}},
 		{"member rm", "member rm", []string{"p1", "u1", "--json"}},
 		{"member role", "member role", []string{"p1", "u1", "viewer", "--json"}},
@@ -1010,7 +1010,7 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		cmd  string
 		argv []string
 	}{
-		{"new without a name", "new", []string{}},
+		{"project new without a name", "project new", []string{}},
 		{"files ls without a project", "files ls", []string{}},
 		{"files tree without a project", "files tree", []string{}},
 		{"files cat without a path", "files cat", []string{"p1"}},
@@ -1018,9 +1018,9 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		{"files rm without a project", "files rm", []string{}},
 		{"files rm without any path", "files rm", []string{"p1"}},
 		{"files cp without a destination", "files cp", []string{"p1", "a.css"}},
-		{"plan without a project", "plan", []string{}},
+		{"plan new without a project", "plan new", []string{}},
 		{"files preview without a path", "files preview", []string{"p1"}},
-		{"support-js without a project", "support-js", []string{}},
+		{"support-js without a project", "project support-js", []string{}},
 		{"conv get without a project", "conv get", []string{}},
 		{"conv put without --messages", "conv put", []string{"p1"}},
 		{"conv put without a project", "conv put", []string{}},
@@ -1030,7 +1030,7 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		{"member add without a project", "member add", []string{}},
 		{"member rm without a uuid", "member rm", []string{"p1"}},
 		{"member role without a role", "member role", []string{"p1", "u1"}},
-		{"sharing without a project", "sharing", []string{}},
+		{"sharing without a project", "project sharing", []string{}},
 		{"raw without a tool", "raw", []string{}},
 		{"raw with a JSON array for arguments", "raw", []string{"t", `[1,2]`}},
 		{"raw with a JSON string for arguments", "raw", []string{"t", `"nope"`}},
@@ -1084,10 +1084,10 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 		argv []string
 	}{
 		{"files ls", "files ls", []string{"p1"}},
-		{"new", "new", []string{"n"}},
-		{"plan", "plan", []string{"p1"}},
+		{"project new", "project new", []string{"n"}},
+		{"plan new", "plan new", []string{"p1"}},
 		{"raw", "raw", []string{"any_tool"}},
-		{"sharing", "sharing", []string{"p1"}},
+		{"project sharing", "project sharing", []string{"p1"}},
 	}
 
 	for _, tc := range cases {

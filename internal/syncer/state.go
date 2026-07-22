@@ -271,9 +271,9 @@ func sameEndpoint(a, b string) bool {
 
 // conflictHint names the one route out of a conflict. It says "synced dir"
 // because conflict paths are relative to the directory that was synced, which
-// is not necessarily the shell's, and `dsx cat` reads its project from the
+// is not necessarily the shell's, and `dsx files cat` reads its project from the
 // ledger of the shell's.
-const conflictHint = "  in the synced dir: dsx cat <path> --out /tmp/a && diff /tmp/a <path>"
+const conflictHint = "  in the synced dir: dsx files cat <path> --out /tmp/a && diff /tmp/a <path>"
 
 // endpointRefusal names both servers and the one env var that explains the
 // drift. It never suggests removing the ledger: clearing it makes every path

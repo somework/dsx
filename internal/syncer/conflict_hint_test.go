@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-const hintNeedle = "dsx cat"
+const hintNeedle = "dsx files cat"
 
-// The only route out of a conflict was `dsx cat <project> <path>`, and the id
+// The only route out of a conflict was `dsx files cat <project> <path>`, and the id
 // had long left the screen. Commit 6 dropped the id; this names the route.
 func TestAPlainPullConflictNamesTheWayToLook(t *testing.T) {
 	out := PullReport{Conflicts: []string{"tokens.css"}}.Render(false)

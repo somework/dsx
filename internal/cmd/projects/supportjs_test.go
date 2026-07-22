@@ -1,17 +1,8 @@
-package plans
+package projects
 
 import (
 	"slices"
 	"testing"
-
-	"github.com/somework/dsx/internal/clitest"
-)
-
-type fakeReply = clitest.Reply
-
-var (
-	newFakeMCP = clitest.New
-	fakeClient = clitest.Client
 )
 
 func TestSupportJSSelfAuthorisesUsingTheServersDocumentedDefaultPath(t *testing.T) {

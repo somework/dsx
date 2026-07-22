@@ -14,29 +14,25 @@ import (
 
 var Group = cmd.Group{
 	Title: "PROJECTS",
+	Noun:  "project",
+	Desc:  "design projects on the server",
 	Cmds: []cmd.Command{
-		{Name: "projects", Form: "projects", Desc: "list projects", Run: cmdProjects},
-		{Name: "project", Form: "project <id>", Desc: "project detail",
+		{Name: "project ls", Form: "project ls", Desc: "list projects", Run: cmdProjects},
+		{Name: "project get", Form: "project get <id>", Desc: "project detail",
 			Tool: func(pos []string) (string, map[string]any, error) {
-				id, rest, err := cmd.Need1(pos, "project <id>")
+				id, rest, err := cmd.Need1(pos, "project get <id>")
 				if err != nil {
 					return "", nil, err
 				}
-				if err := cmd.NoExtra(rest, "project <id>"); err != nil {
+				if err := cmd.NoExtra(rest, "project get <id>"); err != nil {
 					return "", nil, err
 				}
 				return "get_project", map[string]any{"project_id": id}, nil
 			}},
-		{Name: "new", Form: "new <name> [--ds <id>]", Desc: "create project",
+		{Name: "project new", Form: "project new <name> [--ds <id>]", Desc: "create project",
 			Run: cmdNew},
-		{Name: "systems", Form: "systems", Desc: "list design systems",
-			Tool: func(pos []string) (string, map[string]any, error) {
-				if err := cmd.NoExtra(pos, "systems"); err != nil {
-					return "", nil, err
-				}
-				return "list_design_systems", map[string]any{}, nil
-			}},
-		{Name: "sharing", Form: "sharing <project> [--scope s] [--link-permission p]", Run: cmdSharing},
+		{Name: "project support-js", Form: "project support-js <project> [--path p]", Desc: "write the Design Components runtime", Run: cmdSupportJS},
+		{Name: "project sharing", Form: "project sharing <project> [--scope s] [--link-permission p]", Desc: "scope and link permission", Run: cmdSharing},
 	},
 }
 
@@ -65,13 +61,13 @@ func decodeProjects(text string) ([]projectRow, bool) {
 }
 
 func cmdProjects(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("projects")
+	flags := cmd.NewFlagSet("project ls")
 	asJSON := cmd.JSONFlag(flags)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(pos, "projects"); err != nil {
+	if err := cmd.NoExtra(pos, "project ls"); err != nil {
 		return err
 	}
 
@@ -108,18 +104,18 @@ func cmdProjects(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdNew(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("new")
+	flags := cmd.NewFlagSet("project new")
 	ds := flags.String("ds", "", "design system id to attach")
 	asJSON := cmd.JSONFlag(flags)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	name, rest, err := cmd.Need1(pos, "new <name> [--ds <id>]")
+	name, rest, err := cmd.Need1(pos, "project new <name> [--ds <id>]")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "new <name> [--ds <id>]"); err != nil {
+	if err := cmd.NoExtra(rest, "project new <name> [--ds <id>]"); err != nil {
 		return err
 	}
 	a := map[string]any{"name": name}

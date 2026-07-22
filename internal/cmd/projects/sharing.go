@@ -8,7 +8,7 @@ import (
 )
 
 func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("sharing")
+	flags := cmd.NewFlagSet("project sharing")
 	var (
 		scope  = flags.String("scope", "", "sharing scope")
 		link   = flags.String("link-permission", "", "link permission")
@@ -18,11 +18,11 @@ func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "sharing <project> [--scope s] [--link-permission p]")
+	project, rest, err := cmd.Need1(pos, "project sharing <project> [--scope s] [--link-permission p]")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "sharing <project> [--scope s] [--link-permission p]"); err != nil {
+	if err := cmd.NoExtra(rest, "project sharing <project> [--scope s] [--link-permission p]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}

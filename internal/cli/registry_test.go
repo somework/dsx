@@ -51,11 +51,10 @@ SYNC (etag-aware; unchanged files cost no request at all)
   clone is the first pull: both arguments, and <dir> must be empty.
 
 PROJECTS
-  dsx projects                          list projects
-  dsx project <id>                      project detail
-  dsx new <name> [--ds <id>]            create project
-  dsx systems                           list design systems
-  dsx sharing <project> [--scope s] [--link-permission p]
+  dsx project <verb>                    design projects on the server
+
+DESIGN SYSTEMS
+  dsx ds <verb>                         design systems available to you
 
 FILES
   dsx files <verb>                      one project's files, read and written
@@ -64,9 +63,8 @@ FILES
   mean the project or the path, and the working directory must not choose the
   target of a destructive act.
 
-PLANS / PREVIEW
-  dsx plan <project> [--writes a,b] [--deletes c,d] [--scope project]
-  dsx support-js <project> [--path p]
+PLANS
+  dsx plan <verb>                       authorise writes before making them
 
 CONVERSATION
   dsx conv <verb>                       the project's Claude Design chat
@@ -95,8 +93,8 @@ FLAGS
   -j N        concurrency (default 8) — clone, pull, push, files tree, fetch, diff
 
 WRITE GUARDS
-  --if-match E  etag guard ("0" asserts new) — files put, files cp, support-js
-  --plan T      plan_token from dsx plan — files put, files cp, support-js
+  --if-match E  etag guard ("0" asserts new) — files put, files cp, project support-js
+  --plan T      plan_token from dsx plan new — files put, files cp, project support-js
 
 GLOBAL
   dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's

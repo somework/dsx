@@ -6,6 +6,7 @@ import (
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/cmd/conv"
+	"github.com/somework/dsx/internal/cmd/ds"
 	"github.com/somework/dsx/internal/cmd/escape"
 	"github.com/somework/dsx/internal/cmd/files"
 	"github.com/somework/dsx/internal/cmd/members"
@@ -16,7 +17,7 @@ import (
 )
 
 var groups = []cmd.Group{
-	synccmd.Group, projects.Group, files.Group, plans.Group,
+	synccmd.Group, projects.Group, ds.Group, files.Group, plans.Group,
 	conv.Group, members.Group, escape.Group, diagGroup,
 }
 

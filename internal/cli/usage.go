@@ -27,8 +27,8 @@ const usageFooter = `FLAGS
   -j N        concurrency (default 8) — clone, pull, push, files tree, fetch, diff
 
 WRITE GUARDS
-  --if-match E  etag guard ("0" asserts new) — files put, files cp, support-js
-  --plan T      plan_token from dsx plan — files put, files cp, support-js
+  --if-match E  etag guard ("0" asserts new) — files put, files cp, project support-js
+  --plan T      plan_token from dsx plan new — files put, files cp, project support-js
 
 GLOBAL
   dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's

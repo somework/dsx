@@ -40,7 +40,7 @@ func TestRunDispatchesAuthWithoutLoadingTheStoredToken(t *testing.T) {
 }
 
 // TestRunLoadsTheTokenAndDispatchesForANeedClientCommand drives a plain
-// NeedClient command ("projects") through run() with a valid credential and
+// NeedClient command ("project ls") through run() with a valid credential and
 // DSX_ENDPOINT pointed at a fake MCP server. It proves run()'s default branch
 // (cli.go ~64) actually calls auth.LoadToken and builds a real client from
 // it — dispatch must reach the fake endpoint.
@@ -55,11 +55,11 @@ func TestRunLoadsTheTokenAndDispatchesForANeedClientCommand(t *testing.T) {
 	diagPinCredentialStore(t)
 	t.Setenv("DSX_TOKEN", "test-token")
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		return fakeReply{Text: `{"projects":[]}`}
+		return fakeReply{Text: `{"project ls":[]}`}
 	})
 	t.Setenv("DSX_ENDPOINT", f.URL())
 
-	out, err := maincliRun(t, "projects")
+	out, err := maincliRun(t, "project ls")
 	if err != nil {
 		t.Fatalf("dsx projects via run(): %v", err)
 	}
@@ -70,7 +70,7 @@ func TestRunLoadsTheTokenAndDispatchesForANeedClientCommand(t *testing.T) {
 	if want := "Bearer test-token"; call.Authorization != want {
 		t.Errorf("Authorization header = %q, want %q — the token run() loaded via auth.LoadToken must reach mcp.New and flow onto the wire", call.Authorization, want)
 	}
-	if !strings.Contains(out, "projects") {
+	if !strings.Contains(out, "project ls") {
 		t.Errorf("stdout = %q, want the tool's reply", out)
 	}
 }
@@ -92,7 +92,7 @@ func TestRunAbortsANeedClientCommandWhenAuthFails(t *testing.T) {
 	})
 	t.Setenv("DSX_ENDPOINT", f.URL())
 
-	out, err := maincliRun(t, "projects")
+	out, err := maincliRun(t, "project ls")
 	if got := maincliKind(t, err); got != dsxerr.KindAuth {
 		t.Fatalf("kind = %q, want %q", got, dsxerr.KindAuth)
 	}

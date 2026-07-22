@@ -197,7 +197,7 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("files put")
 	var (
 		ifMatch = flags.String("if-match", "", `etag guard; "0" asserts the path is new`)
-		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
+		plan    = flags.String("plan", "", "plan_token from `dsx plan new`")
 		asJSON  = cmd.JSONFlag(flags)
 	)
 	pos, err := cmd.ParseArgs(flags, args)
@@ -277,7 +277,7 @@ func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
 	var (
 		from    = flags.String("from", "", "source project (omit for same-project copy)")
 		ifMatch = flags.String("if-match", "", "etag guard on a single-file dest")
-		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
+		plan    = flags.String("plan", "", "plan_token from `dsx plan new`")
 		asJSON  = cmd.JSONFlag(flags)
 	)
 	pos, err := cmd.ParseArgs(flags, args)

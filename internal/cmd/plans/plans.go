@@ -9,15 +9,16 @@ import (
 )
 
 var Group = cmd.Group{
-	Title: "PLANS / PREVIEW",
+	Title: "PLANS",
+	Noun:  "plan",
+	Desc:  "authorise writes before making them",
 	Cmds: []cmd.Command{
-		{Name: "plan", Form: "plan <project> [--writes a,b] [--deletes c,d] [--scope project]", Run: cmdPlan},
-		{Name: "support-js", Form: "support-js <project> [--path p]", Run: cmdSupportJS},
+		{Name: "plan new", Form: "plan new <project> [--writes a,b] [--deletes c,d] [--scope project]", Desc: "mint a plan_token", Run: cmdPlan},
 	},
 }
 
 func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("plan")
+	flags := cmd.NewFlagSet("plan new")
 	var (
 		writes = flags.String("writes", "", "paths to authorise for writing, comma-separated;\n"+
 			"\ta path containing a comma cannot be expressed — use --scope project")
@@ -30,11 +31,11 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]")
+	project, rest, err := cmd.Need1(pos, "plan new <project> [--writes a,b] [--deletes c,d] [--scope project]")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "plan <project> [--writes a,b] [--deletes c,d] [--scope project]"); err != nil {
+	if err := cmd.NoExtra(rest, "plan new <project> [--writes a,b] [--deletes c,d] [--scope project]"); err != nil {
 		return err
 	}
 	// A project-scoped plan already authorises every path; naming paths as well is a
@@ -57,39 +58,4 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 		a["scope"] = *scope
 	}
 	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON)
-}
-
-const defaultSupportJS = "support.js"
-
-func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("support-js")
-	var (
-		path    = flags.String("path", "", "destination path")
-		ifMatch = flags.String("if-match", "", "etag guard")
-		plan    = flags.String("plan", "", "plan_token")
-		asJSON  = cmd.JSONFlag(flags)
-	)
-	pos, err := cmd.ParseArgs(flags, args)
-	if err != nil {
-		return err
-	}
-	project, rest, err := cmd.Need1(pos, "support-js <project> [--path p]")
-	if err != nil {
-		return err
-	}
-	if err := cmd.NoExtra(rest, "support-js <project> [--path p]"); err != nil {
-		return err
-	}
-	a := map[string]any{"project_id": project}
-	for k, v := range map[string]string{"path": *path, "if_match": *ifMatch, "plan_token": *plan} {
-		if v != "" {
-			a[k] = v
-		}
-	}
-
-	dest := *path
-	if dest == "" {
-		dest = defaultSupportJS
-	}
-	return cmd.EmitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON)
 }

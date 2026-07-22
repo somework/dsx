@@ -72,7 +72,7 @@ func checkCloneTarget(dir string) error {
 	if looksLikeProjectID(dir) {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"%s looks like a project id, not a directory — clone takes `%s` in that "+
-				"order; `dsx projects` lists the ids", dir, cloneForm)}
+				"order; `dsx project ls` lists the ids", dir, cloneForm)}
 	}
 
 	// Lstat, not Stat: a dangling symlink fails Stat and would slip past every

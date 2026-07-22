@@ -128,7 +128,7 @@ type GrantError struct{ ProjectID string }
 
 func (e *GrantError) Error() string {
 	return "needs_project_grant for project " + e.ProjectID +
-		"; mint a token with `dsx plan " + e.ProjectID + " --writes <paths>` and pass plan_token"
+		"; mint a token with `dsx plan new " + e.ProjectID + " --writes <paths>` and pass plan_token"
 }
 
 var readOnlyTools = map[string]bool{

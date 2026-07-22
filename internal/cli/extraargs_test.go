@@ -54,10 +54,10 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"unpin":  {"dir"},
 		"diff":   {"proj", "dir"},
 		// PROJECTS
-		"projects": {},
-		"project":  {"id"},
-		"new":      {"name"},
-		"systems":  {},
+		"project ls":  {},
+		"project get": {"id"},
+		"project new": {"name"},
+		"ds ls":       {},
 		// FILES (rm is variadic — see variadicCommands)
 		"files ls":   {"proj", "path"}, // files ls <project> [path] — 3rd is extra
 		"files tree": {"proj"},
@@ -65,18 +65,18 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"files put":  {"proj", "path", "file"}, // files put <project> <path> [file] — 4th is extra
 		"files cp":   {"proj", "src", "dst"},
 		// PLANS
-		"plan":          {"proj"},
-		"files preview": {"proj", "path"},
-		"support-js":    {"proj"},
+		"plan new":           {"proj"},
+		"files preview":      {"proj", "path"},
+		"project support-js": {"proj"},
 		// CONVERSATION
 		"conv get": {"proj"},
 		"conv put": {"proj", "--messages", msgs},
 		// MEMBERS
-		"member ls":   {"proj"},
-		"member add":  {"proj", "--role", "editor", "--email", "x@y.z"},
-		"member rm":   {"proj", "uuid"},
-		"member role": {"proj", "uuid", "editor"},
-		"sharing":     {"proj"},
+		"member ls":       {"proj"},
+		"member add":      {"proj", "--role", "editor", "--email", "x@y.z"},
+		"member rm":       {"proj", "uuid"},
+		"member role":     {"proj", "uuid", "editor"},
+		"project sharing": {"proj"},
 		// ESCAPE HATCH
 		"prompt": {},
 		"tools":  {},
