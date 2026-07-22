@@ -28,7 +28,7 @@ import (
 // fail, so adding a new variadic command is a conscious choice, never a silent
 // gap.
 var variadicCommands = map[string]string{
-	"rm": "rm <project> <path...> — each extra positional is another path to delete, not a usage error",
+	"files rm": "files rm <project> <path...> — each extra positional is another path to delete, not a usage error",
 }
 
 // baseInvocations gives, for every non-variadic command, a VALID invocation
@@ -59,15 +59,15 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"new":      {"name"},
 		"systems":  {},
 		// FILES (rm is variadic — see variadicCommands)
-		"ls":   {"proj", "path"}, // ls <project> [path] — 3rd is extra
-		"tree": {"proj"},
-		"cat":  {"proj", "path"},
-		"put":  {"proj", "path", "file"}, // put <project> <path> [file] — 4th is extra
-		"cp":   {"proj", "src", "dst"},
+		"files ls":   {"proj", "path"}, // files ls <project> [path] — 3rd is extra
+		"files tree": {"proj"},
+		"files cat":  {"proj", "path"},
+		"files put":  {"proj", "path", "file"}, // files put <project> <path> [file] — 4th is extra
+		"files cp":   {"proj", "src", "dst"},
 		// PLANS
-		"plan":       {"proj"},
-		"preview":    {"proj", "path"},
-		"support-js": {"proj"},
+		"plan":          {"proj"},
+		"files preview": {"proj", "path"},
+		"support-js":    {"proj"},
 		// CONVERSATION
 		"conv get": {"proj"},
 		"conv put": {"proj", "--messages", msgs},

@@ -13,7 +13,7 @@ import (
 func TestPutIsOfferedByTheShells(t *testing.T) {
 	found := false
 	for _, n := range commandNames {
-		if n == "put" {
+		if n == "files put" {
 			found = true
 		}
 	}
@@ -125,7 +125,7 @@ func TestLocalDiskFailureCarriesTheLocalToken(t *testing.T) {
 	t.Setenv("DSX_TOKEN", "sk-ant-oat01-OVERRIDE")
 
 	missing := filepath.Join(t.TempDir(), "absent", "styles.css")
-	_, err := maincliRun(t, "put", "p1", "styles.css", missing, "--json")
+	_, err := maincliRun(t, "files", "put", "p1", "styles.css", missing, "--json")
 	if got := maincliKind(t, err); got != dsxerr.KindLocal {
 		t.Errorf("a failed local read reported %q, want %q", got, dsxerr.KindLocal)
 	}

@@ -222,6 +222,25 @@ func TestEveryNounCommandIsAddressedByItsNoun(t *testing.T) {
 	}
 }
 
+// Sections are all-or-nothing within a group. One verb left without one renders
+// under the previous verb's heading, or under no heading at all when it comes
+// first — a silent miscategorisation rather than a missing line.
+func TestAGroupDeclaresSectionsForEveryVerbOrForNone(t *testing.T) {
+	t.Parallel()
+	for _, g := range groups {
+		withSection := 0
+		for _, c := range g.Cmds {
+			if c.Section != "" {
+				withSection++
+			}
+		}
+		if withSection != 0 && withSection != len(g.Cmds) {
+			t.Errorf("group %q gives %d of %d verbs a section; the rest render under whatever heading precedes them",
+				g.Title, withSection, len(g.Cmds))
+		}
+	}
+}
+
 // A verb spelled like a flag would be unreachable: a leading dash in the verb
 // position is read as a help request, which is what keeps `dsx conv --json`
 // from refusing a flag by calling it an unknown verb.
@@ -311,6 +330,73 @@ func TestSectionsSplitANounHelpAndTheirAbsenceDoesNot(t *testing.T) {
 	if n := strings.Count(sectioned, "READ"); n != 1 {
 		t.Errorf("READ heading appears %d times; a section is one heading, not one per verb:\n%s", n, sectioned)
 	}
+}
+
+// wantFilesHelp is hand-written for the same reason wantUsage is: regenerating
+// it would prove the renderer equals itself. It is here because `dsx files -h`
+// is the only place READ and WRITE are stated, and which verb sits under which
+// is a claim about what the command does to the server. Without these bytes,
+// moving `files rm` into READ passes every test in the repo.
+const wantFilesHelp = `usage: dsx files <verb>
+one project's files, read and written
+
+READ
+  dsx files tree [<project>]                                        every file, recursive, with etags
+  dsx files cat [<project>] <path> [--out f]                        read a file (stdout by default)
+  dsx files preview <project> <path> [--render] [--validators a,b]  preview links for one file
+  dsx files ls <project> [path]                                     list one directory
+
+WRITE
+  dsx files put <project> <path> [file]                             write a file (stdin when file is omitted)
+  dsx files rm <project> <path...>                                  delete files
+  dsx files cp <project> <src> <dst> [--from <project>]
+
+  tree and cat fall back to the directory's project when none is named; a named
+  one still wins. ls and every write always name theirs: a lone positional would
+  mean the project or the path, and the working directory must not choose the
+  target of a destructive act.
+`
+
+func TestTheFilesHelpIsWhatWeWrote(t *testing.T) {
+	t.Parallel()
+	g, ok := nounIndex["files"]
+	if !ok {
+		t.Fatal("files is no longer a noun")
+	}
+	got := renderNounHelp(g)
+	if got == wantFilesHelp {
+		return
+	}
+	gl, wl := strings.Split(got, "\n"), strings.Split(wantFilesHelp, "\n")
+	for i := 0; i < len(gl) && i < len(wl); i++ {
+		if gl[i] != wl[i] {
+			t.Fatalf("dsx files -h line %d differs\n got %q\nwant %q", i+1, gl[i], wl[i])
+		}
+	}
+	t.Fatalf("dsx files -h has %d lines, want %d", len(gl), len(wl))
+}
+
+// One very long form must not push every other description in the group out to
+// meet it. conv put is that form today — 100-odd characters — and the group's
+// other verb would otherwise carry its description far past the terminal's
+// width. The overflowing line itself is accepted; dragging its neighbours is
+// not.
+func TestOneOverlongFormDoesNotDragTheColumn(t *testing.T) {
+	t.Parallel()
+	g := nounFixture()
+	g.Cmds[2].Form = "fixture three " + strings.Repeat("<verylongargument> ", 8)
+
+	for _, line := range strings.Split(renderNounHelp(g), "\n") {
+		if !strings.Contains(line, "the first verb") {
+			continue
+		}
+		if col := strings.Index(line, "the first verb"); col > usageDescColMax {
+			t.Errorf("a short form's description starts at column %d, past the %d cap: %q",
+				col, usageDescColMax, line)
+		}
+		return
+	}
+	t.Fatal("the short verb's description vanished from the rendered help")
 }
 
 func TestHelpJSONCarriesTheNounAndTheFullAddress(t *testing.T) {

@@ -103,19 +103,19 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "ls without a path omits path",
-			cmd:  "ls", argv: []string{"p1"},
+			cmd:  "files ls", argv: []string{"p1"},
 			wantTool: "list_files",
 			wantArgs: map[string]any{"project_id": "p1"},
 		},
 		{
 			name: "ls with a path",
-			cmd:  "ls", argv: []string{"p1", "src/components"},
+			cmd:  "files ls", argv: []string{"p1", "src/components"},
 			wantTool: "list_files",
 			wantArgs: map[string]any{"project_id": "p1", "path": "src/components"},
 		},
 		{
 			name: "cp within one project omits src_project_id",
-			cmd:  "cp", argv: []string{"p1", "a.css", "b.css"},
+			cmd:  "files cp", argv: []string{"p1", "a.css", "b.css"},
 			wantTool: "copy_files",
 			wantArgs: map[string]any{
 				"project_id": "p1",
@@ -124,7 +124,7 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "cp across projects carries src_project_id in the file entry",
-			cmd:  "cp", argv: []string{"p1", "a.css", "b.css", "--from", "p0"},
+			cmd:  "files cp", argv: []string{"p1", "a.css", "b.css", "--from", "p0"},
 			wantTool: "copy_files",
 			wantArgs: map[string]any{
 				"project_id": "p1",
@@ -135,7 +135,7 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "cp puts if-match in the file entry but plan at the top level",
-			cmd:  "cp", argv: []string{"p1", "a.css", "b.css", "--if-match", "e1", "--plan", "tok"},
+			cmd:  "files cp", argv: []string{"p1", "a.css", "b.css", "--if-match", "e1", "--plan", "tok"},
 			wantTool: "copy_files",
 			wantArgs: map[string]any{
 				"project_id": "p1",
@@ -169,13 +169,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "preview without --render omits render",
-			cmd:  "preview", argv: []string{"p1", "index.html"},
+			cmd:  "files preview", argv: []string{"p1", "index.html"},
 			wantTool: "render_preview",
 			wantArgs: map[string]any{"project_id": "p1", "path": "index.html"},
 		},
 		{
 			name: "preview with --render and validators",
-			cmd:  "preview", argv: []string{"p1", "index.html", "--render", "--validators", "a11y,css"},
+			cmd:  "files preview", argv: []string{"p1", "index.html", "--render", "--validators", "a11y,css"},
 			wantTool: "render_preview",
 			wantArgs: map[string]any{
 				"project_id": "p1", "path": "index.html",
@@ -336,7 +336,7 @@ func TestCmdPutSendsIfMatchOnlyWhenAskedAndNeverAsAnEmptyString(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeMCP(t, cmdsReplyJSON(`{"written":{"a.css":"e2"}}`))
-			if _, err := cmdsRun(t, f, "put", tc.argv...); err != nil {
+			if _, err := cmdsRun(t, f, "files put", tc.argv...); err != nil {
 				t.Fatalf("put failed: %v", err)
 			}
 			call := cmdsOnlyCall(t, f)
@@ -371,7 +371,7 @@ func TestCmdPutBase64sTheFileAndDeclaresTheEncoding(t *testing.T) {
 	src := cmdsTempFile(t, "blob.bin", body)
 
 	f := newFakeMCP(t, cmdsReplyJSON(`{"written":{"blob.bin":"e1"}}`))
-	if _, err := cmdsRun(t, f, "put", "p1", "assets/blob.bin", src); err != nil {
+	if _, err := cmdsRun(t, f, "files put", "p1", "assets/blob.bin", src); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 
@@ -397,7 +397,7 @@ func TestCmdPutOmitsPlanTokenWhenNotGiven(t *testing.T) {
 	src := cmdsTempFile(t, "a.css", "x")
 
 	f := newFakeMCP(t, cmdsReplyJSON(`{"written":{"a.css":"e1"}}`))
-	if _, err := cmdsRun(t, f, "put", "p1", "a.css", src); err != nil {
+	if _, err := cmdsRun(t, f, "files put", "p1", "a.css", src); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 	if _, present := cmdsOnlyCall(t, f).Args["plan_token"]; present {
@@ -405,7 +405,7 @@ func TestCmdPutOmitsPlanTokenWhenNotGiven(t *testing.T) {
 	}
 
 	f2 := newFakeMCP(t, cmdsReplyJSON(`{"written":{"a.css":"e1"}}`))
-	if _, err := cmdsRun(t, f2, "put", "p1", "a.css", src, "--plan", "tok-9"); err != nil {
+	if _, err := cmdsRun(t, f2, "files put", "p1", "a.css", src, "--plan", "tok-9"); err != nil {
 		t.Fatalf("put failed: %v", err)
 	}
 	if got := cmdsOnlyCall(t, f2).Args["plan_token"]; got != "tok-9" {
@@ -425,7 +425,7 @@ func TestCmdRmMintsAPathScopedPlanTokenNamingEveryPathBeforeDeleting(t *testing.
 		return fakeReply{IsError: true, Text: "unexpected"}
 	})
 
-	if _, err := cmdsRun(t, f, "rm", "p1", "a.css", "dir/b.css"); err != nil {
+	if _, err := cmdsRun(t, f, "files rm", "p1", "a.css", "dir/b.css"); err != nil {
 		t.Fatalf("rm failed: %v", err)
 	}
 
@@ -460,7 +460,7 @@ func TestCmdRmDeletesNothingWhenFinalizePlanReturnsNoToken(t *testing.T) {
 		return fakeReply{Text: `{"deleted":[]}`}
 	})
 
-	_, err := cmdsRun(t, f, "rm", "p1", "a.css")
+	_, err := cmdsRun(t, f, "files rm", "p1", "a.css")
 	if err == nil {
 		t.Fatal("rm succeeded though it never got a plan_token")
 	}
@@ -478,7 +478,7 @@ func TestCmdRmWithNoPathsTouchesNoNetwork(t *testing.T) {
 		return fakeReply{IsError: true}
 	})
 
-	_, err := cmdsRun(t, f, "rm", "p1")
+	_, err := cmdsRun(t, f, "files rm", "p1")
 	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -564,13 +564,13 @@ func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 		cmd  string
 		argv []string
 	}{
-		{"ls", "ls", []string{"p1", "--json"}},
+		{"files ls", "files ls", []string{"p1", "--json"}},
 		{"new", "new", []string{"n", "--json"}},
 		{"prompt", "prompt", []string{"--json"}},
 		{"conv get", "conv get", []string{"p1", "--json"}},
 		{"sharing", "sharing", []string{"p1", "--json"}},
 		{"plan", "plan", []string{"p1", "--json"}},
-		{"preview", "preview", []string{"p1", "i.html", "--json"}},
+		{"files preview", "files preview", []string{"p1", "i.html", "--json"}},
 		{"member-rm", "member-rm", []string{"p1", "u1", "--json"}},
 		{"member-role", "member-role", []string{"p1", "u1", "viewer", "--json"}},
 		{"raw", "raw", []string{"any_tool", `{}`, "--json"}},
@@ -624,7 +624,7 @@ func TestCmdCatJSONPutsTheBodyInAJSONStringInsteadOfDumpingItOnStdout(t *testing
 		return fakeReply{Text: envelopeFor("a.css", "etag-1", body)}
 	})
 
-	out, err := cmdsRun(t, f, "cat", "p1", "a.css", "--json")
+	out, err := cmdsRun(t, f, "files cat", "p1", "a.css", "--json")
 	if err != nil {
 		t.Fatalf("cat failed: %v", err)
 	}
@@ -654,7 +654,7 @@ func TestCmdCatWithoutJSONWritesTheBodyVerbatimAndAddsNothing(t *testing.T) {
 		return fakeReply{Text: envelopeFor("a.css", "e1", body)}
 	})
 
-	out, err := cmdsRun(t, f, "cat", "p1", "a.css")
+	out, err := cmdsRun(t, f, "files cat", "p1", "a.css")
 	if err != nil {
 		t.Fatalf("cat failed: %v", err)
 	}
@@ -673,7 +673,7 @@ func TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout(t *testing.T) {
 		dst := filepath.Join(t.TempDir(), "out.css")
 		f := newFakeMCP(t, reply)
 
-		out, err := cmdsRun(t, f, "cat", "p1", "a.css", "--out", dst)
+		out, err := cmdsRun(t, f, "files cat", "p1", "a.css", "--out", dst)
 		if err != nil {
 			t.Fatalf("cat failed: %v", err)
 		}
@@ -693,7 +693,7 @@ func TestCmdCatOutWritesTheFileAndKeepsTheBodyOffStdout(t *testing.T) {
 		dst := filepath.Join(t.TempDir(), "out.css")
 		f := newFakeMCP(t, reply)
 
-		out, err := cmdsRun(t, f, "cat", "p1", "a.css", "--out", dst, "--json")
+		out, err := cmdsRun(t, f, "files cat", "p1", "a.css", "--out", dst, "--json")
 		if err != nil {
 			t.Fatalf("cat failed: %v", err)
 		}
@@ -732,7 +732,7 @@ func TestCmdCatOutReportsAFailedWriteInsteadOfFallingBackToStdout(t *testing.T) 
 	})
 
 	dst := filepath.Join(t.TempDir(), "no-such-dir", "out.css")
-	out, err := cmdsRun(t, f, "cat", "p1", "a.css", "--out", dst)
+	out, err := cmdsRun(t, f, "files cat", "p1", "a.css", "--out", dst)
 	if err == nil {
 		t.Fatal("cat reported success though --out could not be written")
 	}
@@ -759,7 +759,7 @@ func TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories(t *testing.T) {
 		return fakeReply{IsError: true}
 	})
 
-	out, err := cmdsRun(t, f, "tree", "p1", "--json")
+	out, err := cmdsRun(t, f, "files tree", "p1", "--json")
 	if err != nil {
 		t.Fatalf("tree failed: %v", err)
 	}
@@ -781,7 +781,7 @@ func TestCmdTreeJSONListsEveryFileSortedAndOmitsDirectories(t *testing.T) {
 func TestCmdTreeJSONOnAnEmptyProjectIsAnEmptyArrayNotNull(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON(listingFor()))
 
-	out, err := cmdsRun(t, f, "tree", "p1", "--json")
+	out, err := cmdsRun(t, f, "files tree", "p1", "--json")
 	if err != nil {
 		t.Fatalf("tree failed: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestCmdTreeWithoutJSONSummarisesEveryFileOnce(t *testing.T) {
 		return fakeReply{IsError: true}
 	})
 
-	out, err := cmdsRun(t, f, "tree", "p1")
+	out, err := cmdsRun(t, f, "files tree", "p1")
 	if err != nil {
 		t.Fatalf("tree failed: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestCmdTreeReportsAListingFailureRatherThanPrintingAShortTree(t *testing.T)
 		return fakeReply{IsError: true, Text: "permission denied"}
 	})
 
-	out, err := cmdsRun(t, f, "tree", "p1", "--json")
+	out, err := cmdsRun(t, f, "files tree", "p1", "--json")
 	if err == nil {
 		t.Fatal("tree reported success though a directory never listed")
 	}
@@ -1011,15 +1011,15 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		argv []string
 	}{
 		{"new without a name", "new", []string{}},
-		{"ls without a project", "ls", []string{}},
-		{"tree without a project", "tree", []string{}},
-		{"cat without a path", "cat", []string{"p1"}},
-		{"put without a path", "put", []string{"p1"}},
-		{"rm without a project", "rm", []string{}},
-		{"rm without any path", "rm", []string{"p1"}},
-		{"cp without a destination", "cp", []string{"p1", "a.css"}},
+		{"files ls without a project", "files ls", []string{}},
+		{"files tree without a project", "files tree", []string{}},
+		{"files cat without a path", "files cat", []string{"p1"}},
+		{"files put without a path", "files put", []string{"p1"}},
+		{"files rm without a project", "files rm", []string{}},
+		{"files rm without any path", "files rm", []string{"p1"}},
+		{"files cp without a destination", "files cp", []string{"p1", "a.css"}},
 		{"plan without a project", "plan", []string{}},
-		{"preview without a path", "preview", []string{"p1"}},
+		{"files preview without a path", "files preview", []string{"p1"}},
 		{"support-js without a project", "support-js", []string{}},
 		{"conv get without a project", "conv get", []string{}},
 		{"conv put without --messages", "conv put", []string{"p1"}},
@@ -1035,9 +1035,9 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		{"raw with a JSON array for arguments", "raw", []string{"t", `[1,2]`}},
 		{"raw with a JSON string for arguments", "raw", []string{"t", `"nope"`}},
 		{"raw with malformed JSON", "raw", []string{"t", `{`}},
-		{"an unknown flag", "ls", []string{"p1", "--nope"}},
-		{"a malformed -j", "tree", []string{"p1", "-j", "lots"}},
-		{"--json=maybe", "ls", []string{"p1", "--json=maybe"}},
+		{"an unknown flag", "files ls", []string{"p1", "--nope"}},
+		{"a malformed -j", "files tree", []string{"p1", "-j", "lots"}},
+		{"--json=maybe", "files ls", []string{"p1", "--json=maybe"}},
 	}
 
 	for _, tc := range cases {
@@ -1067,7 +1067,7 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 func TestFlagsAreAcceptedAfterPositionalArguments(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON("plain prose, not JSON"))
 
-	out, err := cmdsRun(t, f, "ls", "p1", "src", "--json")
+	out, err := cmdsRun(t, f, "files ls", "p1", "src", "--json")
 	if err != nil {
 		t.Fatalf("ls failed: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 		cmd  string
 		argv []string
 	}{
-		{"ls", "ls", []string{"p1"}},
+		{"files ls", "files ls", []string{"p1"}},
 		{"new", "new", []string{"n"}},
 		{"plan", "plan", []string{"p1"}},
 		{"raw", "raw", []string{"any_tool"}},
@@ -1117,7 +1117,7 @@ func TestAToolErrorReachesTheCallerRatherThanBeingPrintedAsSuccess(t *testing.T)
 func TestCmdCatSurfacesAMalformedEnvelopeRatherThanPrintingIt(t *testing.T) {
 	f := newFakeMCP(t, cmdsReplyJSON("this is not an envelope at all"))
 
-	out, err := cmdsRun(t, f, "cat", "p1", "a.css")
+	out, err := cmdsRun(t, f, "files cat", "p1", "a.css")
 	if err == nil {
 		t.Fatal("cat accepted a reply carrying no envelope")
 	}

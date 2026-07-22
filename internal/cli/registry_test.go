@@ -57,17 +57,14 @@ PROJECTS
   dsx systems                           list design systems
 
 FILES
-  dsx ls <project> [path]               list one directory
-  dsx tree [<project>]                  every file, recursive, with etags
-  dsx cat [<project>] <path> [--out f]  read a file (stdout by default)
-  dsx put <project> <path> [file]       write a file (stdin when file is omitted)
-  dsx rm <project> <path...>            delete files
-  dsx cp <project> <src> <dst> [--from <project>]
-  tree and cat take the directory's project when run inside a synced directory.
+  dsx files <verb>                      one project's files, read and written
+  tree and cat fall back to the directory's project when none is named; a named
+  one still wins. ls and every write always name theirs: a lone positional would
+  mean the project or the path, and the working directory must not choose the
+  target of a destructive act.
 
 PLANS / PREVIEW
   dsx plan <project> [--writes a,b] [--deletes c,d] [--scope project]
-  dsx preview <project> <path> [--render] [--validators a,b]
   dsx support-js <project> [--path p]
 
 CONVERSATION
@@ -98,11 +95,11 @@ FLAGS
   --force     overwrite conflicts — pull, push
   -q          suppress the summary line — pull, push, status
   -n          dry run — pull, push
-  -j N        concurrency (default 8) — clone, pull, push, tree, fetch, diff
+  -j N        concurrency (default 8) — clone, pull, push, files tree, fetch, diff
 
 WRITE GUARDS
-  --if-match E  etag guard ("0" asserts new) — put, cp, support-js
-  --plan T      plan_token from dsx plan — put, cp, support-js
+  --if-match E  etag guard ("0" asserts new) — files put, files cp, support-js
+  --plan T      plan_token from dsx plan — files put, files cp, support-js
 
 GLOBAL
   dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's

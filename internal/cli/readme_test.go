@@ -16,8 +16,9 @@ var readmeInlineCode = regexp.MustCompile("`([^`]+)`")
 // code snippet (a fenced line or an inline span) — not anchored, so
 // "cd design && dsx pull" still yields "pull". It requires a literal space
 // after "dsx", which is what keeps ".dsx/state.json" and ".dsx-state.json"
-// out of it: neither has one.
-var readmeDsxWord = regexp.MustCompile(`\bdsx ([a-zA-Z][a-zA-Z0-9-]*)`)
+// out of it: neither has one. The optional second word carries the verb when
+// the first is a noun; a flat command simply never has one to check.
+var readmeDsxWord = regexp.MustCompile(`\bdsx ([a-zA-Z][a-zA-Z0-9-]*)(?: ([a-zA-Z][a-zA-Z0-9-]*))?`)
 
 // readmeFlagOnlySpan matches a code span that names nothing but a flag,
 // optionally with a placeholder value ("--json", "--if-match", "-j N", "-n").
@@ -55,8 +56,18 @@ func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
 	checkSnippet := func(snippet string) {
 		if m := readmeDsxWord.FindStringSubmatch(snippet); m != nil {
 			name := m[1]
+			if g, isNoun := nounIndex[name]; isNoun {
+				// A bare noun in prose is a real invocation — it lists the
+				// verbs — so only a named verb is checked, and it is checked
+				// against the full address rather than against the bare word.
+				if m[2] != "" {
+					name = g.Noun + " " + m[2]
+				}
+			}
 			if _, ok := commandIndex[name]; !ok {
-				t.Errorf("README names `dsx %s`, which is not a registered command (in %q)", name, snippet)
+				if _, isNoun := nounIndex[name]; !isNoun {
+					t.Errorf("README names `dsx %s`, which is not a registered command (in %q)", name, snippet)
+				}
 			}
 			for _, f := range flagTokens(snippet) {
 				if !documentedFlags[f] {

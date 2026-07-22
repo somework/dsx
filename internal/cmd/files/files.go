@@ -17,14 +17,20 @@ import (
 
 var Group = cmd.Group{
 	Title: "FILES",
-	Note:  "  tree and cat take the directory's project when run inside a synced directory.",
+	Noun:  "files",
+	Desc:  "one project's files, read and written",
+	Note: "  tree and cat fall back to the directory's project when none is named; a named\n" +
+		"  one still wins. ls and every write always name theirs: a lone positional would\n" +
+		"  mean the project or the path, and the working directory must not choose the\n" +
+		"  target of a destructive act.",
 	Cmds: []cmd.Command{
-		{Name: "ls", Form: "ls <project> [path]", Desc: "list one directory", Run: cmdLs},
-		{Name: "tree", Form: "tree [<project>]", Desc: "every file, recursive, with etags", Run: cmdTree},
-		{Name: "cat", Form: "cat [<project>] <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
-		{Name: "put", Form: "put <project> <path> [file]", Desc: "write a file (stdin when file is omitted)", Run: cmdPut},
-		{Name: "rm", Form: "rm <project> <path...>", Desc: "delete files", Run: cmdRm},
-		{Name: "cp", Form: "cp <project> <src> <dst> [--from <project>]", Run: cmdCp},
+		{Name: "files tree", Section: "READ", Form: "files tree [<project>]", Desc: "every file, recursive, with etags", Run: cmdTree},
+		{Name: "files cat", Section: "READ", Form: "files cat [<project>] <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
+		{Name: "files preview", Section: "READ", Form: "files preview <project> <path> [--render] [--validators a,b]", Desc: "preview links for one file", Run: cmdPreview},
+		{Name: "files ls", Section: "READ", Form: "files ls <project> [path]", Desc: "list one directory", Run: cmdLs},
+		{Name: "files put", Section: "WRITE", Form: "files put <project> <path> [file]", Desc: "write a file (stdin when file is omitted)", Run: cmdPut},
+		{Name: "files rm", Section: "WRITE", Form: "files rm <project> <path...>", Desc: "delete files", Run: cmdRm},
+		{Name: "files cp", Section: "WRITE", Form: "files cp <project> <src> <dst> [--from <project>]", Run: cmdCp},
 	},
 }
 
@@ -45,15 +51,15 @@ func boundProject(form string) (string, error) {
 }
 
 func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
-	return cmd.EmitFlagged(ctx, c, "ls", args, func(pos []string) (string, map[string]any, error) {
-		project, rest, err := cmd.Need1(pos, "ls <project> [path]")
+	return cmd.EmitFlagged(ctx, c, "files ls", args, func(pos []string) (string, map[string]any, error) {
+		project, rest, err := cmd.Need1(pos, "files ls <project> [path]")
 		if err != nil {
 			return "", nil, err
 		}
 		a := map[string]any{"project_id": project}
 		if len(rest) > 0 {
 			a["path"] = rest[0]
-			if err := cmd.NoExtra(rest[1:], "ls <project> [path]"); err != nil {
+			if err := cmd.NoExtra(rest[1:], "files ls <project> [path]"); err != nil {
 				return "", nil, err
 			}
 		}
@@ -62,7 +68,7 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("tree")
+	flags := cmd.NewFlagSet("files tree")
 	var (
 		jobs   = flags.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(flags)
@@ -73,15 +79,15 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	var project string
 	if len(pos) == 0 {
-		if project, err = boundProject("tree <project>"); err != nil {
+		if project, err = boundProject("files tree <project>"); err != nil {
 			return err
 		}
 	} else {
 		var rest []string
-		if project, rest, err = cmd.Need1(pos, "tree <project>"); err != nil {
+		if project, rest, err = cmd.Need1(pos, "files tree <project>"); err != nil {
 			return err
 		}
-		if err := cmd.NoExtra(rest, "tree <project>"); err != nil {
+		if err := cmd.NoExtra(rest, "files tree <project>"); err != nil {
 			return err
 		}
 	}
@@ -112,7 +118,7 @@ func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("cat")
+	flags := cmd.NewFlagSet("files cat")
 	var (
 		out    = flags.String("out", "", "write to this file instead of stdout")
 		asJSON = cmd.JSONFlag(flags)
@@ -123,16 +129,16 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	var project, path string
 	if len(pos) == 1 {
-		if project, err = boundProject("cat <project> <path> [--out f]"); err != nil {
+		if project, err = boundProject("files cat <project> <path> [--out f]"); err != nil {
 			return err
 		}
 		path = pos[0]
 	} else {
 		var rest []string
-		if project, path, rest, err = cmd.Need2(pos, "cat <project> <path> [--out f]"); err != nil {
+		if project, path, rest, err = cmd.Need2(pos, "files cat <project> <path> [--out f]"); err != nil {
 			return err
 		}
-		if err := cmd.NoExtra(rest, "cat <project> <path> [--out f]"); err != nil {
+		if err := cmd.NoExtra(rest, "files cat <project> <path> [--out f]"); err != nil {
 			return err
 		}
 	}
@@ -188,7 +194,7 @@ func warnIfLedgerNearby(project string) {
 }
 
 func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("put")
+	flags := cmd.NewFlagSet("files put")
 	var (
 		ifMatch = flags.String("if-match", "", `etag guard; "0" asserts the path is new`)
 		plan    = flags.String("plan", "", "plan_token from `dsx plan`")
@@ -198,12 +204,12 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, path, rest, err := cmd.Need2(pos, "put <project> <path> [file]")
+	project, path, rest, err := cmd.Need2(pos, "files put <project> <path> [file]")
 	if err != nil {
 		return err
 	}
 	if len(rest) > 1 {
-		if err := cmd.NoExtra(rest[1:], "put <project> <path> [file]"); err != nil {
+		if err := cmd.NoExtra(rest[1:], "files put <project> <path> [file]"); err != nil {
 			return err
 		}
 	}
@@ -241,18 +247,18 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("rm")
+	flags := cmd.NewFlagSet("files rm")
 	asJSON := cmd.JSONFlag(flags)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "rm <project> <path...>")
+	project, rest, err := cmd.Need1(pos, "files rm <project> <path...>")
 	if err != nil {
 		return err
 	}
 	if len(rest) == 0 {
-		return dsxerr.Usage("rm <project> <path...>")
+		return dsxerr.Usage("files rm <project> <path...>")
 	}
 
 	token, err := syncer.PlanToken(ctx, c, map[string]any{"project_id": project, "deletes": rest})
@@ -267,7 +273,7 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("cp")
+	flags := cmd.NewFlagSet("files cp")
 	var (
 		from    = flags.String("from", "", "source project (omit for same-project copy)")
 		ifMatch = flags.String("if-match", "", "etag guard on a single-file dest")
@@ -278,14 +284,14 @@ func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, src, rest, err := cmd.Need2(pos, "cp <project> <src> <dst> [--from <project>]")
+	project, src, rest, err := cmd.Need2(pos, "files cp <project> <src> <dst> [--from <project>]")
 	if err != nil {
 		return err
 	}
 	if len(rest) == 0 {
-		return dsxerr.Usage("cp <project> <src> <dst> [--from <project>]")
+		return dsxerr.Usage("files cp <project> <src> <dst> [--from <project>]")
 	}
-	if err := cmd.NoExtra(rest[1:], "cp <project> <src> <dst> [--from <project>]"); err != nil {
+	if err := cmd.NoExtra(rest[1:], "files cp <project> <src> <dst> [--from <project>]"); err != nil {
 		return err
 	}
 

@@ -24,11 +24,11 @@ const usageFooter = `FLAGS
   --force     overwrite conflicts — pull, push
   -q          suppress the summary line — pull, push, status
   -n          dry run — pull, push
-  -j N        concurrency (default 8) — clone, pull, push, tree, fetch, diff
+  -j N        concurrency (default 8) — clone, pull, push, files tree, fetch, diff
 
 WRITE GUARDS
-  --if-match E  etag guard ("0" asserts new) — put, cp, support-js
-  --plan T      plan_token from dsx plan — put, cp, support-js
+  --if-match E  etag guard ("0" asserts new) — files put, files cp, support-js
+  --plan T      plan_token from dsx plan — files put, files cp, support-js
 
 GLOBAL
   dsx -C <dir> <command>  run as if dsx had been started in <dir>, like git's
@@ -41,7 +41,10 @@ Env: DSX_TOKEN overrides the stored credential. DSX_ENDPOINT overrides the MCP U
      DSX_PROGRESS=never|always overrides the pull/push transfer counter, which
      otherwise draws on stderr only when stderr is a terminal.`
 
-const usageDescCol = 40
+const (
+	usageDescCol    = 40
+	usageDescColMax = 72
+)
 
 func renderUsage(gs []cmd.Group) string {
 	var sb strings.Builder
@@ -73,26 +76,39 @@ func renderNounHelp(g cmd.Group) string {
 	if g.Desc != "" {
 		sb.WriteString(g.Desc + "\n")
 	}
+	// The root's fixed column is set by the flat forms; every form here carries
+	// the noun as well, so a shared column would leave the longest ones running
+	// into their own description. A form past usageDescColMax is left out of the
+	// measurement and overflows on its own line rather than pushing every
+	// description in the group out to meet it.
+	col := usageDescCol
+	for _, c := range g.Cmds {
+		if w := len("  dsx "+c.Form) + 2; w > col && w <= usageDescColMax {
+			col = w
+		}
+	}
 	section := ""
 	for _, c := range g.Cmds {
 		if c.Section != section {
 			section = c.Section
 			sb.WriteString("\n" + section + "\n")
 		}
-		sb.WriteString(usageLine(c))
+		sb.WriteString(usageLineAt(c, col))
 	}
 	if g.Note != "" {
-		sb.WriteString(g.Note + "\n")
+		sb.WriteString("\n" + g.Note + "\n")
 	}
 	return sb.String()
 }
 
-func usageLine(c cmd.Command) string {
+func usageLine(c cmd.Command) string { return usageLineAt(c, usageDescCol) }
+
+func usageLineAt(c cmd.Command, col int) string {
 	line := "  dsx " + c.Form
 	if c.Desc == "" {
 		return line + "\n"
 	}
-	if pad := usageDescCol - len(line); pad > 0 {
+	if pad := col - len(line); pad > 0 {
 		return line + strings.Repeat(" ", pad) + c.Desc + "\n"
 	}
 	return line + "  " + c.Desc + "\n"

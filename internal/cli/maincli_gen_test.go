@@ -819,7 +819,7 @@ func TestAFlagValueSpelledDashHIsNotAHelpRequest(t *testing.T) {
 	})
 	t.Setenv("DSX_ENDPOINT", f.URL())
 
-	if _, err := maincliRun(t, "cat", "p1", "a.css", "--out", "-h"); err != nil {
+	if _, err := maincliRun(t, "files", "cat", "p1", "a.css", "--out", "-h"); err != nil {
 		t.Fatalf("dsx cat p1 a.css --out -h: %v", err)
 	}
 	call := syncFirstCall(t, f, "read_file")

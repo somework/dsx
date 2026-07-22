@@ -24,9 +24,9 @@ func TestCommandFlagsAreThePerCommandTruth(t *testing.T) {
 		mustNot []string
 	}{
 		{"pull", []string{"--force", "--json", "--prune", "-j", "-n", "-q"}, nil},
-		{"cat", []string{"--json", "--out"}, []string{"--prune", "--force", "-n"}},
-		{"tree", []string{"--json", "-j"}, []string{"--prune", "--force"}},
-		{"put", []string{"--if-match", "--json", "--plan"}, []string{"--prune", "--force"}},
+		{"files cat", []string{"--json", "--out"}, []string{"--prune", "--force", "-n"}},
+		{"files tree", []string{"--json", "-j"}, []string{"--prune", "--force"}},
+		{"files put", []string{"--if-match", "--json", "--plan"}, []string{"--prune", "--force"}},
 		{"projects", []string{"--json"}, []string{"--prune", "--force", "-j"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

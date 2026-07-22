@@ -40,7 +40,7 @@ at all: it acts on the tree you are standing in, finding the ledger by walking u
 ```bash
 cd design/components && dsx pull               # syncs the whole tree, not the subdirectory
 dsx -C design status                           # …or act on it from anywhere
-dsx tree                                       # and cat, likewise
+dsx files tree                                 # and files cat, likewise
 ```
 
 `clone` needs an empty directory, and it is the only way to make one: `pull` no longer creates
