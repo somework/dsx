@@ -173,3 +173,49 @@ func TestSnapshotEntryIsADistinctType(t *testing.T) {
 			"as if it were this run's listing")
 	}
 }
+
+// TestTheSnapshotIsRecordedAlreadyFiltered is what everything downstream
+// rests on. A reader cannot filter the snapshot: filterRemote takes
+// RemoteEntry, SnapshotEntry is deliberately not that type, and
+// TestSyncCallersCannotFilterOneSide forbids anyone but survey from calling
+// the ignore machinery — so if fetch records an ignored path, nothing later
+// can take it back out, and an offline report names a path .dsxignore
+// excludes from both sides of every real sync (invariant 9).
+func TestTheSnapshotIsRecordedAlreadyFiltered(t *testing.T) {
+	dir := t.TempDir()
+	kept := "keep.css"
+	ignored := "vendor/skip.css"
+
+	mkfile(t, dir, ".dsxignore", "vendor/\n")
+	mkfile(t, dir, kept, "a{}\n")
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		if name == "list_files" {
+			return fakeReply{Text: listingFor(
+				fileEntry(kept, "eKeep", 4),
+				fileEntry(ignored, "eSkip", 9))}
+		}
+		p, _ := args["path"].(string)
+		if p == kept {
+			return fakeReply{Text: envelopeFor(p, "eKeep", "a{}\n")}
+		}
+		return fakeReply{Text: "unexpected path " + p, IsError: true}
+	})
+
+	if _, err := Fetch(context.Background(), fakeClient(f), FetchOpts{
+		ProjectID: "proj-A", Dir: dir, Concurrency: 2,
+	}); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	bl, err := loadBaseline(dir)
+	if err != nil {
+		t.Fatalf("loadBaseline: %v", err)
+	}
+	if _, ok := bl.Listing[ignored]; ok {
+		t.Errorf("Listing holds %q, which .dsxignore excludes; no reader can filter it back out", ignored)
+	}
+	if _, ok := bl.Listing[kept]; !ok {
+		t.Errorf("Listing is missing %q — the filter took the wrong side", kept)
+	}
+}
