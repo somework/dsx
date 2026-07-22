@@ -18,10 +18,24 @@ const goldenBaseline = `{
       "size": 42,
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
+  },
+  "listing": {
+    "README.md": {
+      "size": 42,
+      "etag": "W/\"v1-abc\""
+    },
+    "components/button.css": {
+      "size": 118,
+      "etag": "W/\"v3-def\""
+    }
   }
 }
 `
 
+// goldenBaselineValue holds a path in listing that is absent from verified,
+// because that asymmetry is the schema's whole point: the snapshot names
+// every path the server held, the proof names only the ones whose bytes were
+// checked. A golden where the two maps agreed would document neither.
 func goldenBaselineValue() Baseline {
 	return Baseline{
 		ProjectID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -32,6 +46,10 @@ func goldenBaselineValue() Baseline {
 				Size: 42,
 				SHA:  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 			},
+		},
+		Listing: map[string]SnapshotEntry{
+			"README.md":             {Size: 42, Etag: `W/"v1-abc"`},
+			"components/button.css": {Size: 118, Etag: `W/"v3-def"`},
 		},
 	}
 }

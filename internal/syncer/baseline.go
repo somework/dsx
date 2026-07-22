@@ -26,6 +26,35 @@ type Baseline struct {
 	ProjectID string                   `json:"project_id"`
 	Endpoint  string                   `json:"endpoint,omitempty"`
 	Verified  map[string]BaselineEntry `json:"verified"`
+
+	// Listing is the whole ignore-filtered server listing as of this fetch,
+	// which Verified cannot stand in for: Verified is narrow by design
+	// (present on disk, untracked, regular), so a remote-only or a tracked
+	// path never appears in it.
+	//
+	// nil and empty differ and the tag must not carry omitempty, which drops
+	// both alike: nil is "no fetch ever recorded a listing here", empty is
+	// "a fetch found the server holding nothing". Reading the first as the
+	// second makes every baseline written before this field assert an empty
+	// server. loadBaseline's nil-map fixup is Verified's alone for the same
+	// reason.
+	Listing map[string]SnapshotEntry `json:"listing"`
+}
+
+// SnapshotEntry is one path as the last fetch saw it. It is deliberately not
+// RemoteEntry, for the reason BaselineEntry is deliberately not FileState,
+// and the stakes here are higher: a snapshot is shaped like the live listing
+// planPull/planPush take, so were this map[string]RemoteEntry, passing a
+// stale snapshot where this run's listing belongs would compile — and
+// --prune would read every path the server has since gained as a user
+// deletion. Keep the duplication; TestSnapshotEntryIsADistinctType guards it.
+//
+// No Type field: WalkTree returns files only, having already dropped
+// directories. No Binary field: the listing does not say, binary is decided
+// by content at read time.
+type SnapshotEntry struct {
+	Size int64  `json:"size"`
+	Etag string `json:"etag"`
 }
 
 // loadBaseline reads the baseline, fixing up a nil map the way LoadState
