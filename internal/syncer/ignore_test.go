@@ -232,7 +232,7 @@ func TestIgnoredPathIsNeverPrunedFromTheServer(t *testing.T) {
 		"dist/app.js": {Etag: "2", SHA: "abc", Size: 3},
 	}}
 
-	d := planPush(remote, local, st, nil, false, true)
+	d := planPush(remote, local, st, nil, nil, forceNone, true)
 	for _, p := range d.Delete {
 		if p == "dist/app.js" {
 			t.Fatal("push --prune deleted a merely-ignored file from the server")

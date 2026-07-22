@@ -35,6 +35,13 @@ type PushOpts struct {
 	Force       bool
 	DryRun      bool
 
+	// Lease overwrites only what the last fetch still accounts for, writing
+	// that etag as the precondition. Force is the blind overwrite; the two are
+	// refused together at the command layer, and Force wins here if a library
+	// caller sets both, because the narrower promise must never be the one a
+	// contradictory pair silently keeps.
+	Lease bool
+
 	// Where the transfer counter draws, nil for silence. The caller decides;
 	// syncer never asks the terminal itself.
 	Progress io.Writer
@@ -59,6 +66,10 @@ type PushReport struct {
 	// Untracked, but a fresh baseline proved these bytes differ from the
 	// server: a subset of Conflicts, disjoint from Unverified.
 	Diverged []string `json:"diverged,omitempty"`
+
+	// Paths --force-with-lease refused: the server no longer shows what the
+	// last fetch recorded. A subset of Conflicts, disjoint from the rest.
+	LeaseBroken []string `json:"lease_broken,omitempty"`
 
 	// Untracked; a baseline proved these bytes once, but against a server
 	// revision the listing no longer shows — a subset of Conflicts, disjoint
@@ -103,8 +114,19 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		return rep, err
 	}
 	baseline := map[string]BaselineEntry{}
+	snapshot := map[string]SnapshotEntry{}
 	if bl.bound(o.ProjectID, c.Endpoint()) {
 		baseline = bl.Verified
+		snapshot = bl.Listing
+	}
+
+	// Refused before the round trip (invariant 16): a lease with nothing to
+	// lease against would report every path as broken, which reads as "the
+	// world moved" when the truth is "you never looked".
+	if o.Lease && !o.Force && snapshot == nil {
+		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+			"no dsx fetch has run in %s, so there is no recorded server state to lease "+
+				"against — run `dsx fetch` first", o.Dir)}
 	}
 
 	remote, err := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
@@ -117,10 +139,20 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		return rep, err
 	}
 
-	d := planPush(remote, local, st, baseline, o.Force, o.Prune)
+	mode := forceNone
+	switch {
+	case o.Force:
+		mode = forceBlind
+	case o.Lease:
+		mode = forceLease
+	}
+
+	d := planPush(remote, local, st, baseline, snapshot, mode, o.Prune)
 	rep.Unchanged = d.Unchanged
 	rep.Verified = d.Verified
+	rep.LeaseBroken = d.LeaseBroken
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
+	rep.Conflicts = append(rep.Conflicts, d.LeaseBroken...)
 	rep.Conflicts = append(rep.Conflicts, d.PruneConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.BinaryGone...)
 	rep.Conflicts = append(rep.Conflicts, d.Unverified...)

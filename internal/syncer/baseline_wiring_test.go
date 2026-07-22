@@ -324,8 +324,7 @@ func TestBaselineDoesNotSkipAModifiedTrackedFile(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "e1"}),
 		localOf(localFile{Path: "a.css", SHA: "new"}),
 		stateOf(map[string]FileState{"a.css": {Etag: "e1", SHA: "old"}}),
-		map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "new"}},
-		false, false)
+		map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "new"}}, nil, forceNone, false)
 
 	if d.Verified != 0 {
 		t.Errorf("Verified = %d, want 0 — a real ledger entry must ignore the baseline", d.Verified)

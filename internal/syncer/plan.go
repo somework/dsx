@@ -192,9 +192,33 @@ type pushDecision struct {
 	// See pullDecision.StaleProof: untracked, unchanged since a baseline
 	// proved it against a past revision, but the listing etag has moved on.
 	StaleProof []string
+
+	// Paths --force-with-lease refused: the server no longer shows the etag
+	// the last fetch recorded, so someone wrote after we looked. Reached only
+	// under forceLease — forceNone never leases and forceBlind never checks.
+	LeaseBroken []string
 }
 
-func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pushDecision {
+// pushForce is how much a push may overwrite. It replaces a bool because
+// there are three answers, not two, and the middle one is the point: a lease
+// overwrites only what has not moved since the last fetch. Spelled as two
+// bools the impossible fourth state (blind and leased at once) would have to
+// be excluded by hand at every reader.
+type pushForce int
+
+const (
+	// forceNone leaves a conflict a conflict.
+	forceNone pushForce = iota
+	// forceLease overwrites, but only where the server still shows the etag
+	// the last fetch recorded, and writes that etag as the precondition.
+	forceLease
+	// forceBlind overwrites with no precondition at all. This is git's
+	// --force, hazards included: a third party's write is destroyed and the
+	// report says nothing, because nothing was compared.
+	forceBlind
+)
+
+func planPush(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, snapshot map[string]SnapshotEntry, mode pushForce, prune bool) pushDecision {
 	var d pushDecision
 
 	for _, path := range SortedPaths(local) {
@@ -217,6 +241,14 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA != lf.SHA
 
+		// The lease: the server still shows what the last fetch recorded, or
+		// the name was free then and is free now. Both etags must be non-empty
+		// for the reason proven's are — a missing key yields a zero entry, and
+		// "" == "" would lease a path nobody ever saw.
+		snap, inSnapshot := snapshot[path]
+		leaseHeld := (inSnapshot && onServer && snap.Etag != "" && r.Etag != "" && snap.Etag == r.Etag) ||
+			(!inSnapshot && !onServer)
+
 		// See planPull's staleProof: same conjuncts as diverged, but
 		// b.Etag disagrees with r.Etag instead of agreeing. r.Etag != ""
 		// stands in for onServer here, same as proven/diverged above.
@@ -237,37 +269,54 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			continue
 		// Above the generic remoteMoved arm, so a moved binary gets the binary
 		// wording rather than "`dsx pull` first".
-		case !force && tracked && prev.Binary && onServer && (prev.SHA == "" || remoteMoved):
+		case mode == forceNone && tracked && prev.Binary && onServer && (prev.SHA == "" || remoteMoved):
 			d.BinaryConflicts = append(d.BinaryConflicts, path)
 			continue
-		case !force && remoteMoved:
+		case mode == forceNone && remoteMoved:
 			d.Conflicts = append(d.Conflicts, path)
 			continue
 		case proven:
 			d.Verified++
 			continue
-		case diverged && !force:
+		case diverged && mode == forceNone:
 			d.Diverged = append(d.Diverged, path)
 			continue
-		case staleProof && !force:
+		case staleProof && mode == forceNone:
 			d.StaleProof = append(d.StaleProof, path)
 			continue
-		case !force && !tracked && onServer:
+		// Below proven, so a path already equal to the server costs no refusal;
+		// above every remaining arm, because once the server moved after our
+		// fetch nothing else about the path matters.
+		case mode == forceLease && !leaseHeld:
+			d.LeaseBroken = append(d.LeaseBroken, path)
+			continue
+		case mode == forceNone && !tracked && onServer:
 			d.Unverified = append(d.Unverified, path)
 			continue
-		case !force && tracked && prev.Binary && !onServer:
+		case mode == forceNone && tracked && prev.Binary && !onServer:
 			d.BinaryGone = append(d.BinaryGone, path)
 			continue
 		}
 
 		cand := pushCandidate{Path: path}
 
-		if !force {
+		switch mode {
+		case forceNone:
 			switch {
 			case !onServer:
 				cand.IfMatch = "0"
 			case tracked && prev.Etag != "":
 				cand.IfMatch = prev.Etag
+			}
+		case forceLease:
+			// leaseHeld is established above, so r.Etag is the very etag the
+			// snapshot recorded. Sending it rather than nothing is the whole
+			// difference from forceBlind: the server rejects the write if
+			// anything landed between this run's listing and it.
+			if onServer {
+				cand.IfMatch = r.Etag
+			} else {
+				cand.IfMatch = "0"
 			}
 		}
 		d.Write = append(d.Write, cand)
@@ -288,7 +337,7 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			}
 			// The server moved this path ahead of the ledger: a conflict, not a
 			// delete, unless --force.
-			if !force && remote[path].Etag != prev.Etag {
+			if mode == forceNone && remote[path].Etag != prev.Etag {
 				d.PruneConflicts = append(d.PruneConflicts, path)
 				continue
 			}

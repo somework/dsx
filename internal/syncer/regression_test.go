@@ -73,7 +73,7 @@ func TestPlanPushPruneKeepsLocallyEditedFile(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 		localOf(),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-		nil, false, true)
+		nil, nil, forceNone, true)
 
 	if !slices.Equal(d.Delete, []string{"a.css"}) {
 		t.Errorf("delete=%v, want [a.css]", d.Delete)

@@ -42,7 +42,7 @@ func TestPushDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 		"components/Button.tsx": {Etag: "e1", Size: 1, SHA: SHA256Hex([]byte("x"))},
 	}}
 
-	d := planPush(remote, local, st, nil, false, true)
+	d := planPush(remote, local, st, nil, nil, forceNone, true)
 	if len(d.Delete) != 0 {
 		t.Fatalf("push --prune deleted %v from the server; nothing under a symlinked directory "+
 			"was ever scanned, so its absence proves nothing", d.Delete)
@@ -117,7 +117,7 @@ func TestIrregularPathsDoNotBlockASyncForever(t *testing.T) {
 		"logo.svg": {Etag: "e1", Size: 6, SHA: SHA256Hex([]byte("<svg/>"))},
 	}}
 
-	d := planPush(remote, local, st, nil, false, true)
+	d := planPush(remote, local, st, nil, nil, forceNone, true)
 	if slices.Contains(d.Conflicts, "logo.svg") {
 		t.Error("a symlink is reported as a conflict; it is not a disagreement about content, " +
 			"and calling it one means exit 3 forever with no way out")
@@ -277,7 +277,7 @@ func TestPushAssertsAbsenceForAPathTheListingSaysIsGone(t *testing.T) {
 	local := map[string]localFile{"a.css": {Path: "a.css", Size: 1, SHA: "new"}}
 	st := State{Files: map[string]FileState{"a.css": {Etag: "e-old", SHA: "old"}}}
 
-	d := planPush(remote, local, st, nil, false, false)
+	d := planPush(remote, local, st, nil, nil, forceNone, false)
 	if len(d.Write) != 1 {
 		t.Fatalf("write = %+v, want the file re-created", d.Write)
 	}

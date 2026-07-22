@@ -39,7 +39,7 @@ func TestBinaryConflictsStillReachTheExitCode(t *testing.T) {
 	local := map[string]localFile{"a.png": {Path: "a.png", SHA: "new"}}
 	st := State{Files: map[string]FileState{"a.png": {Etag: "e1", Binary: true}}}
 
-	d := planPush(remote, local, st, nil, false, false)
+	d := planPush(remote, local, st, nil, nil, forceNone, false)
 	if len(d.Write) != 0 {
 		t.Fatalf("the write was not refused: %+v", d.Write)
 	}

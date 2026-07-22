@@ -66,7 +66,7 @@ func TestForceFallsThroughTheBaselineConflictArms(t *testing.T) {
 		local := localOf(localFile{Path: "x.css", SHA: diskSHA})
 		base := map[string]BaselineEntry{"x.css": {Etag: remoteEtag, SHA: baseSHA}}
 
-		held := planPush(remote, local, stateOf(nil), base, false, false)
+		held := planPush(remote, local, stateOf(nil), base, nil, forceNone, false)
 		if !slices.Equal(held.Diverged, []string{"x.css"}) {
 			t.Fatalf("unforced Diverged = %v, want [x.css]; the fixture never reached the arm", held.Diverged)
 		}
@@ -74,7 +74,7 @@ func TestForceFallsThroughTheBaselineConflictArms(t *testing.T) {
 			t.Errorf("unforced Writes = %v, want none", writtenPaths(held))
 		}
 
-		forced := planPush(remote, local, stateOf(nil), base, true, false)
+		forced := planPush(remote, local, stateOf(nil), base, nil, forceBlind, false)
 		if len(forced.Diverged) != 0 {
 			t.Errorf("forced Diverged = %v, want none — --force must not leave it a conflict", forced.Diverged)
 		}
@@ -88,7 +88,7 @@ func TestForceFallsThroughTheBaselineConflictArms(t *testing.T) {
 		local := localOf(localFile{Path: "x.css", SHA: diskSHA})
 		base := map[string]BaselineEntry{"x.css": {Etag: baseEtag, SHA: diskSHA}}
 
-		held := planPush(remote, local, stateOf(nil), base, false, false)
+		held := planPush(remote, local, stateOf(nil), base, nil, forceNone, false)
 		if !slices.Equal(held.StaleProof, []string{"x.css"}) {
 			t.Fatalf("unforced StaleProof = %v, want [x.css]; the fixture never reached the arm", held.StaleProof)
 		}
@@ -96,7 +96,7 @@ func TestForceFallsThroughTheBaselineConflictArms(t *testing.T) {
 			t.Errorf("unforced Writes = %v, want none", writtenPaths(held))
 		}
 
-		forced := planPush(remote, local, stateOf(nil), base, true, false)
+		forced := planPush(remote, local, stateOf(nil), base, nil, forceBlind, false)
 		if len(forced.StaleProof) != 0 {
 			t.Errorf("forced StaleProof = %v, want none — --force must not leave it a conflict", forced.StaleProof)
 		}
@@ -149,8 +149,7 @@ func TestEmptyEtagNeverMakesAStaleProof(t *testing.T) {
 			remoteOf(),
 			localOf(localFile{Path: "x.css", SHA: "sha-x"}),
 			stateOf(nil),
-			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}},
-			false, false)
+			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}}, nil, forceNone, false)
 
 		if len(d.StaleProof) != 0 {
 			t.Errorf("StaleProof = %v, want none — a path the server does not have is an upload, not a conflict", d.StaleProof)
@@ -165,8 +164,7 @@ func TestEmptyEtagNeverMakesAStaleProof(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "x.css", Etag: "e2"}),
 			localOf(localFile{Path: "x.css", SHA: "sha-x"}),
 			stateOf(nil),
-			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}},
-			false, false)
+			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}}, nil, forceNone, false)
 
 		if !slices.Equal(d.StaleProof, []string{"x.css"}) {
 			t.Errorf("StaleProof = %v, want [x.css]", d.StaleProof)

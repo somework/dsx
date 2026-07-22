@@ -161,7 +161,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "s"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
-			nil, false, false)
+			nil, nil, forceNone, false)
 
 		if d.Unchanged != 1 || len(d.Write) != 0 {
 			t.Errorf("unchanged=%d write=%v, want 1 and none", d.Unchanged, d.Write)
@@ -173,7 +173,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
-			nil, false, false)
+			nil, nil, forceNone, false)
 
 		if len(d.Write) != 1 || d.Write[0].IfMatch != "1" {
 			t.Fatalf("write=%+v, want one entry guarded by etag 1", d.Write)
@@ -184,7 +184,7 @@ func TestPlanPush(t *testing.T) {
 		d := planPush(
 			remoteOf(),
 			localOf(localFile{Path: "new.css", SHA: "s"}),
-			stateOf(nil), nil, false, false)
+			stateOf(nil), nil, nil, forceNone, false)
 
 		if len(d.Write) != 1 || d.Write[0].IfMatch != "0" {
 			t.Fatalf(`write=%+v, want one entry with if_match "0"`, d.Write)
@@ -196,7 +196,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
-			nil, false, false)
+			nil, nil, forceNone, false)
 
 		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
 			t.Errorf("conflicts=%v, want [a.css]", d.Conflicts)
@@ -211,7 +211,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
-			nil, true, false)
+			nil, nil, forceBlind, false)
 
 		if len(d.Write) != 1 || d.Write[0].IfMatch != "" {
 			t.Fatalf("write=%+v, want one unguarded entry under --force", d.Write)
@@ -222,7 +222,7 @@ func TestPlanPush(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
-			stateOf(nil), nil, false, false)
+			stateOf(nil), nil, nil, forceNone, false)
 
 		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
 			t.Errorf("conflicts=%v unverified=%v, want none and [a.css] — no ledger entry ever confirmed these bytes, so it must not claim they differ", d.Conflicts, d.Unverified)
@@ -236,7 +236,7 @@ func TestPlanPush(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
-			stateOf(nil), nil, true, false)
+			stateOf(nil), nil, nil, forceBlind, false)
 
 		if len(d.Unverified) != 0 {
 			t.Errorf("unverified=%v, want none — --force must clear it", d.Unverified)
@@ -251,7 +251,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "s"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "s"}}),
-			nil, false, false)
+			nil, nil, forceNone, false)
 
 		if d.Unchanged != 1 || len(d.Write) != 0 || len(d.Conflicts) != 0 {
 			t.Errorf("unchanged=%d write=%v conflicts=%v, want 1/none/none",
@@ -264,7 +264,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "gone.css", Etag: "1"}),
 			localOf(),
 			stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "s"}}),
-			nil, false, true)
+			nil, nil, forceNone, true)
 
 		if !slices.Equal(d.Delete, []string{"gone.css"}) {
 			t.Errorf("delete=%v, want [gone.css]", d.Delete)
@@ -276,7 +276,7 @@ func TestPlanPush(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "assets/og.png", Etag: "1"}),
 			localOf(),
 			stateOf(map[string]FileState{"assets/og.png": {Etag: "1", Binary: true}}),
-			nil, false, true)
+			nil, nil, forceNone, true)
 
 		if len(d.Delete) != 0 {
 			t.Fatalf("delete=%v, want none — pruning an unpullable binary destroys it", d.Delete)
@@ -286,7 +286,7 @@ func TestPlanPush(t *testing.T) {
 	t.Run("prune leaves untracked remote files alone", func(t *testing.T) {
 		d := planPush(
 			remoteOf(RemoteEntry{Path: "theirs.css", Etag: "1"}),
-			localOf(), stateOf(nil), nil, false, true)
+			localOf(), stateOf(nil), nil, nil, forceNone, true)
 
 		if len(d.Delete) != 0 {
 			t.Errorf("delete=%v, want none", d.Delete)
@@ -331,8 +331,7 @@ func TestAProvenByteMatchIsVerifiedNotAConflict(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "e1", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "sha1", Size: 3}),
 			stateOf(nil),
-			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}}, nil, forceNone, false)
 
 		if len(d.Conflicts) != 0 || d.Verified != 1 {
 			t.Errorf("conflicts=%v verified=%d, want none and 1", d.Conflicts, d.Verified)
@@ -370,8 +369,7 @@ func TestStaleBaselineWithMatchingBytesIsStaleProofNotUnverified(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "e2", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "sha1", Size: 3}),
 			stateOf(nil),
-			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}}, nil, forceNone, false)
 
 		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.Unverified) != 0 || len(d.Diverged) != 0 ||
 			!slices.Equal(d.StaleProof, []string{"a.css"}) {
@@ -410,8 +408,7 @@ func TestStaleBaselineWithDifferentBytesStaysUnverified(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "e2", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "sha-edited", Size: 3}),
 			stateOf(nil),
-			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}}, nil, forceNone, false)
 
 		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.StaleProof) != 0 || len(d.Diverged) != 0 ||
 			!slices.Equal(d.Unverified, []string{"a.css"}) {
@@ -438,8 +435,7 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "x.css", Etag: "e1"}),
 			localOf(localFile{Path: "x.css", SHA: ""}),
 			stateOf(nil),
-			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: ""}},
-			false, false)
+			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: ""}}, nil, forceNone, false)
 
 		if d.Verified != 0 {
 			t.Errorf("verified=%d, want 0 — an empty baseline sha must never prove a byte match", d.Verified)
@@ -454,8 +450,7 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "x.css", Etag: "e1"}),
 			localOf(localFile{Path: "x.css", SHA: "sha-x"}),
 			stateOf(nil),
-			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}},
-			false, false)
+			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x"}}, nil, forceNone, false)
 
 		if d.Verified != 1 || len(d.Conflicts) != 0 {
 			t.Errorf("verified=%d conflicts=%v, want 1 and none", d.Verified, d.Conflicts)
@@ -515,8 +510,7 @@ func TestBaselineNeverOverridesARealLedgerEntry(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "edited", Size: 3}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-			map[string]BaselineEntry{"a.css": {Etag: "2", SHA: "edited", Size: 3}},
-			false, false)
+			map[string]BaselineEntry{"a.css": {Etag: "2", SHA: "edited", Size: 3}}, nil, forceNone, false)
 
 		if d.Verified != 0 || !slices.Equal(d.Conflicts, []string{"a.css"}) {
 			t.Errorf("verified=%d conflicts=%v, want 0 and [a.css] — a tracked path must ignore the baseline", d.Verified, d.Conflicts)
@@ -611,8 +605,8 @@ func TestBaselineOnlyEverMovesAPathFromConflictsToVerified(t *testing.T) {
 				})
 
 				t.Run(name+"/push", func(t *testing.T) {
-					without := planPush(remote, local, st, map[string]BaselineEntry{}, force, prune)
-					with := planPush(remote, local, st, baseline, force, prune)
+					without := planPush(remote, local, st, map[string]BaselineEntry{}, nil, pushMode(force), prune)
+					with := planPush(remote, local, st, baseline, nil, pushMode(force), prune)
 
 					withoutWrite := writtenPaths(without)
 					withWrite := writtenPaths(with)
@@ -830,8 +824,8 @@ func TestStaleProofOnlyMovesAPathFromUnverifiedToStaleProof(t *testing.T) {
 				})
 
 				t.Run(name+"/push", func(t *testing.T) {
-					without := planPush(remote, local, st, baselineWithout, force, prune)
-					with := planPush(remote, local, st, baselineWith, force, prune)
+					without := planPush(remote, local, st, baselineWithout, nil, pushMode(force), prune)
+					with := planPush(remote, local, st, baselineWith, nil, pushMode(force), prune)
 
 					if len(without.StaleProof) != 0 {
 						t.Fatalf("StaleProof without the injected entries is non-empty: %v", without.StaleProof)

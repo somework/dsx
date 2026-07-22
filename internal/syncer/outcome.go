@@ -39,7 +39,7 @@ func (r PushReport) Outcome(dryRun bool) error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged, r.StaleProof)
+	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged, r.StaleProof, r.LeaseBroken)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -59,6 +59,15 @@ func (r PushReport) Outcome(dryRun bool) error {
 		parts = append(parts, fmt.Sprintf(
 			"verified, but against an earlier revision of the server (%s) — `dsx fetch` re-checks the current one, or --force overwrites the server's copy",
 			strings.Join(r.StaleProof, ", ")))
+	}
+	if len(r.LeaseBroken) > 0 {
+		// Names dsx fetch, never --force. The lease was broken by someone
+		// else's write, and answering that with a blind overwrite is exactly
+		// the destruction the flag was asked for to avoid.
+		parts = append(parts, fmt.Sprintf(
+			"the server moved after the last `dsx fetch` (%s) — the lease does not cover it; "+
+				"run `dsx fetch` to see what landed, then decide",
+			strings.Join(r.LeaseBroken, ", ")))
 	}
 	if len(r.BinaryConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

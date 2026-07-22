@@ -305,7 +305,7 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 			"other1.css": {Etag: "e1", SHA: "s1"},
 			"other2.png": {Etag: "e2", SHA: "s2"},
 			"keep.css":   {Etag: "ek", SHA: "sk"},
-		}), nil, false, true)
+		}), nil, nil, forceNone, true)
 
 		wantDelete := []string{"other1.css", "other2.png"}
 		if !slices.Equal(tracked.Delete, wantDelete) {
@@ -338,7 +338,7 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 
 		untracked := planPush(remote, local, stateOf(map[string]FileState{
 			"keep.css": {Etag: "ek", SHA: "sk"},
-		}), bl.Verified, false, true)
+		}), bl.Verified, nil, forceNone, true)
 
 		if untracked.Delete != nil {
 			t.Errorf("baselined-only paths: Delete=%v, want nil — a baseline entry must never "+
