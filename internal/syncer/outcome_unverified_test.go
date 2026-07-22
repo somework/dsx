@@ -14,7 +14,7 @@ import (
 func TestOutcomeUnverifiedOnlyDoesNotClaimDivergence(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		r := PullReport{Conflicts: []string{"a.css"}, Unverified: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("an unverified collision reported success")
 		}
@@ -29,7 +29,7 @@ func TestOutcomeUnverifiedOnlyDoesNotClaimDivergence(t *testing.T) {
 
 	t.Run("push", func(t *testing.T) {
 		r := PushReport{Conflicts: []string{"a.css"}, Unverified: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("an unverified collision reported success")
 		}
@@ -49,7 +49,7 @@ func TestOutcomeUnverifiedOnlyDoesNotClaimDivergence(t *testing.T) {
 func TestOutcomeDivergedOnlyStatesTheDivergence(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		r := PullReport{Conflicts: []string{"a.css"}, Diverged: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("a proven divergence reported success")
 		}
@@ -67,7 +67,7 @@ func TestOutcomeDivergedOnlyStatesTheDivergence(t *testing.T) {
 
 	t.Run("push", func(t *testing.T) {
 		r := PushReport{Conflicts: []string{"a.css"}, Diverged: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("a proven divergence reported success")
 		}
@@ -95,7 +95,7 @@ func TestOutcomeDivergedOnlyStatesTheDivergence(t *testing.T) {
 func TestOutcomeStaleProofOnlyDoesNotClaimDivergenceOrNeverVerified(t *testing.T) {
 	t.Run("pull", func(t *testing.T) {
 		r := PullReport{Conflicts: []string{"a.css"}, StaleProof: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("a stale-proof collision reported success")
 		}
@@ -116,7 +116,7 @@ func TestOutcomeStaleProofOnlyDoesNotClaimDivergenceOrNeverVerified(t *testing.T
 
 	t.Run("push", func(t *testing.T) {
 		r := PushReport{Conflicts: []string{"a.css"}, StaleProof: []string{"a.css"}}
-		err := r.Outcome(false)
+		err := r.Outcome()
 		if err == nil {
 			t.Fatal("a stale-proof collision reported success")
 		}

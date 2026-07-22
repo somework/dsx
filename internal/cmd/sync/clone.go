@@ -58,7 +58,7 @@ func cmdClone(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 	fmt.Println(rep.Render(*asJSON))
-	return rep.Outcome(false)
+	return rep.Outcome()
 }
 
 // checkCloneTarget refuses before any round trip. Every arm is KindUsage: none

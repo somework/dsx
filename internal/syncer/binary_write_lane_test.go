@@ -89,7 +89,7 @@ func TestPlainPushSendsABinaryDsxItselfUploadedGuardedByItsEtag(t *testing.T) {
 	if !strings.Contains(rendered, "pushed 1") {
 		t.Errorf("rendered line does not report the write:\n%s", rendered)
 	}
-	if out := rep.Outcome(false); out != nil {
+	if out := rep.Outcome(); out != nil {
 		t.Errorf("Outcome is non-nil -> exit %d on an ordinary successful push: %v",
 			dsxerr.ExitCodeFor(out), out)
 	}
@@ -196,7 +196,7 @@ func TestPlainPushRefusesABinaryWhoseServerCopyMovedAhead(t *testing.T) {
 		t.Errorf("conflicts = %v, want [logo.png]", doc.Conflicts)
 	}
 
-	out := rep.Outcome(false)
+	out := rep.Outcome()
 	if out == nil {
 		t.Fatalf("Outcome is nil -> exit 0 on a run that refused to write")
 	}
@@ -241,7 +241,7 @@ func TestPlainPushStillRefusesABinaryDsxHasNeverRead(t *testing.T) {
 	if !strings.Contains(rep.Render(false), "the only copy is gone") {
 		t.Errorf("the binary refusal wording is gone:\n%s", rep.Render(false))
 	}
-	out := rep.Outcome(false)
+	out := rep.Outcome()
 	if out == nil {
 		t.Fatalf("Outcome is nil -> exit 0 on a refused blind overwrite")
 	}

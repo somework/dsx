@@ -48,9 +48,9 @@ func TestPushReportsTheWritesThatLandedAlongsideAConflict(t *testing.T) {
 		t.Errorf("write_files called %d times, want 1", got)
 	}
 
-	outcomeErr := dsxerr.Classify(rep.Outcome(false))
+	outcomeErr := dsxerr.Classify(rep.Outcome())
 	if outcomeErr == nil || outcomeErr.Kind != dsxerr.KindConflict {
-		t.Fatalf("rep.Outcome(false) = %v, want a KindConflict error naming taken.css", outcomeErr)
+		t.Fatalf("rep.Outcome() = %v, want a KindConflict error naming taken.css", outcomeErr)
 	}
 	if len(outcomeErr.Paths) != 1 || outcomeErr.Paths[0] != "taken.css" {
 		t.Errorf("conflict paths = %v, want exactly [taken.css]", outcomeErr.Paths)

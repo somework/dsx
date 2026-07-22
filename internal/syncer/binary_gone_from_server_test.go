@@ -81,7 +81,7 @@ func TestPlainPushDoesNotResurrectABinaryPathTheServerDeleted(t *testing.T) {
 		t.Errorf("--json document omits the path entirely:\n%s", js)
 	}
 
-	out := rep.Outcome(false)
+	out := rep.Outcome()
 	if out == nil {
 		t.Fatalf("Outcome is nil -> exit 0: the run reports plain success on the very run that "+
 			"undid a server-side deletion.\nrendered:\n%s", rendered)
@@ -159,7 +159,7 @@ func TestForcedPushStillRestoresABinaryPathTheServerDeleted(t *testing.T) {
 	if len(wrote) != 1 || wrote[0] != "logo.svg" {
 		t.Errorf("--force no longer re-uploads the path: write_files carried %v", wrote)
 	}
-	if out := rep.Outcome(false); out != nil {
+	if out := rep.Outcome(); out != nil {
 		t.Errorf("--force still reports a conflict: %v", out)
 	}
 }

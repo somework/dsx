@@ -120,7 +120,7 @@ func TestADivergedConflictStillExitsNonZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pull errored instead of reporting: %v", err)
 	}
-	if err := rep.Outcome(false); err == nil {
+	if err := rep.Outcome(); err == nil {
 		t.Fatalf("a proven divergence reported success")
 	}
 	if b, readErr := os.ReadFile(filepath.Join(dir, "a.css")); readErr != nil || string(b) != string(editedBody) {

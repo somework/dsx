@@ -42,7 +42,7 @@ func TestAFirstPullWritesNothingWhenItAlreadyHasAConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pull errored instead of reporting: %v", err)
 	}
-	if rep.Outcome(false) == nil {
+	if rep.Outcome() == nil {
 		t.Fatal("a first pull into a conflicting directory reported no conflict")
 	}
 	if len(rep.Fetched) != 0 {
@@ -91,7 +91,7 @@ func TestAnEstablishedPullStillWritesAroundAConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pull errored instead of reporting: %v", err)
 	}
-	if rep.Outcome(false) == nil {
+	if rep.Outcome() == nil {
 		t.Fatal("want the conflict reported")
 	}
 	if len(rep.Fetched) == 0 {

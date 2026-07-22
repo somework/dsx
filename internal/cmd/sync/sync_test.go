@@ -506,22 +506,81 @@ func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
 	})
 }
 
-func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
+// maincliCleanPull is maincliConflictedPull with the three facts agreeing:
+// the bytes on disk are the bytes the ledger recorded, and the listing still
+// shows the etag the ledger holds. It reaches list_files exactly as the
+// conflicted one does — that is what makes it usable by tests whose subject is
+// the request rather than the verdict.
+func maincliCleanPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
+	t.Helper()
+	dir := t.TempDir()
+	const project = "proj-uuid"
 
-	out, err := captureStdout(t, func() error {
-		return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), "-n"))
+	maincliWriteFile(t, dir, "a.css", "old")
+	syncSeedState(t, dir, syncer.State{
+		ProjectID: project,
+		Files: map[string]syncer.FileState{
+			"a.css": {Etag: "e1", Size: 3, SHA: syncer.SHA256Hex([]byte("old"))},
+		},
 	})
-	if err != nil {
-		t.Fatalf("a dry run reporting a conflict failed with %v", err)
-	}
-	if !strings.Contains(out, "conflicts 1") {
-		t.Errorf("the dry run did not report the conflict it found: %q", out)
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		if name == "list_files" {
+			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 3))}
+		}
+		return fakeReply{Text: "{}", IsError: true}
+	})
+	return f, fakeClient(f), dir
+}
+
+// TestADryRunCarriesTheSameExitCodeAsTheRunItPreviews is the whole claim.
+//
+// Exit 3 in dsx is a statement about the TREE — "both sides hold work; a human
+// must choose" — not a receipt for work the command performed. dsx already
+// reads it that way where nothing is printed at all: under -q a real pull
+// writes no stdout and the exit code alone carries the conflict
+// (TestSyncQuietPrintsNothingButStillReportsTheConflict). A dry run computes
+// the identical fact from the identical plan and used to throw it away, so an
+// agent running `pull -n` to decide whether to proceed was told 0 and then met
+// 3 on the very next command.
+//
+// The two green rows are not padding. The real-run row proves the fixture
+// genuinely conflicts, so the dry-run row cannot pass by a fixture that stopped
+// conflicting; the clean row is what fails if someone satisfies the dry-run row
+// by returning a conflict unconditionally.
+func TestADryRunCarriesTheSameExitCodeAsTheRunItPreviews(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fixture func(*testing.T) (*fakeMCP, *mcp.Client, string)
+		extra   []string
+		want    int
+	}{
+		{"real run on a conflict", maincliConflictedPull, nil, dsxerr.ExitConflict},
+		{"dry run on the same conflict", maincliConflictedPull, []string{"-n"}, dsxerr.ExitConflict},
+		{"dry run on a clean tree", maincliCleanPull, []string{"-n"}, dsxerr.ExitOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, c, dir := tc.fixture(t)
+
+			out, err := captureStdout(t, func() error {
+				return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), tc.extra...))
+			})
+			if got := dsxerr.ExitCodeFor(err); got != tc.want {
+				t.Errorf("exit code = %d, want %d (err: %v)", got, tc.want, err)
+			}
+			if tc.want == dsxerr.ExitConflict && !strings.Contains(out, "conflicts 1") {
+				t.Errorf("the run did not report the conflict it found: %q", out)
+			}
+		})
 	}
 }
 
 func TestSyncResolvesTheProjectFromTheLedgerOfTheTreeItStandsIn(t *testing.T) {
-	f, c, dir := maincliConflictedPull(t)
+	// A clean tree, because the subject is which project id went out, not the
+	// verdict. The conflicted fixture was borrowed here for convenience and
+	// stopped being usable when a dry run started carrying exit 3 — the repair
+	// is a fixture that does not conflict, never a loosened error check.
+	f, c, dir := maincliCleanPull(t)
 	t.Chdir(dir)
 
 	// pull -n, not status: status resolves the same way but never reaches
@@ -570,7 +629,8 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 }
 
 func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
+	// Clean, for the same reason: the subject is that -j 0 returns at all.
+	_, c, dir := maincliCleanPull(t)
 	_, err := captureStdout(t, func() error {
 		return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), "-n", "-j", "0"))
 	})

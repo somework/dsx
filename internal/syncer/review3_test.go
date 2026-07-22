@@ -45,7 +45,7 @@ func TestBinaryConflictsStillReachTheExitCode(t *testing.T) {
 	}
 
 	all := append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
-	if err := ConflictOutcome(all, false, "x"); err == nil {
+	if err := (PushReport{Conflicts: all}).Outcome(); err == nil {
 		t.Error("a binary conflict no longer exits 3; an agent would carry on over it")
 	}
 }

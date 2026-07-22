@@ -136,9 +136,11 @@ dsx's primary caller is a program, so the interface is built for one.
 | `4` | **transport** — the network or the server faulted; a retry may succeed |
 | `5` | **auth** — run any `claude` command, then retry |
 
-A dry run exits `0` even with conflicts: it was asked to move nothing, so refusing to move
-something is the answer it wanted. `dsx status` is a report and exits `0` whatever it finds — read its
-`--json` for the conflict list.
+A dry run carries the same exit code as the run it previews: `pull -n` on a conflicted tree exits
+`3`, exactly as `pull` would. The code states something about the tree — both sides hold work — not
+about whether this invocation moved bytes, which is why `pull -q` prints nothing and still exits `3`.
+`dsx status` and `dsx diff` are reports and exit `0` whatever they find — read their `--json` for the
+list.
 
 **`--json`** makes stdout exactly one JSON document. Tools that already answer in JSON pass
 through untouched; the rest are wrapped as `{"text":…}`.

@@ -214,7 +214,7 @@ func cmdPull(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 	emit(rep)
-	return rep.Outcome(*dry)
+	return rep.Outcome()
 }
 
 func cmdPush(ctx context.Context, c *mcp.Client, args []string) error {
@@ -261,5 +261,5 @@ func cmdPush(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 	emit(rep)
-	return rep.Outcome(*dry)
+	return rep.Outcome()
 }

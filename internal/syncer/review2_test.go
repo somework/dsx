@@ -125,7 +125,7 @@ func TestIrregularPathsDoNotBlockASyncForever(t *testing.T) {
 	if !slices.Contains(d.Irregular, "logo.svg") {
 		t.Errorf("irregular = %v, want logo.svg named in its own class", d.Irregular)
 	}
-	if err := ConflictOutcome(d.Conflicts, false, "x"); err != nil {
+	if err := (PushReport{Conflicts: d.Conflicts}).Outcome(); err != nil {
 		t.Errorf("a directory holding a symlink cannot sync at all: %v", err)
 	}
 }

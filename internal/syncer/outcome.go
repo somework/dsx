@@ -7,13 +7,6 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-func ConflictOutcome(conflicts []string, dryRun bool, hint string) error {
-	if dryRun || len(conflicts) == 0 {
-		return nil
-	}
-	return dsxerr.Conflict(conflicts, hint)
-}
-
 // except returns the members of all not present in any of the excluded sets,
 // order preserved.
 func except(all []string, excluded ...[]string) []string {
@@ -34,8 +27,15 @@ func except(all []string, excluded ...[]string) []string {
 
 // Outcome is the conflict error the command emits. It keeps each conflict class
 // distinct in the machine-facing hint.
-func (r PushReport) Outcome(dryRun bool) error {
-	if dryRun || len(r.Conflicts) == 0 {
+//
+// A dry run gets the same answer as the run it previews, and takes no parameter
+// saying otherwise. Exit 3 states something about the TREE — both sides hold
+// work, a human must choose — not about whether this invocation moved bytes,
+// which is why a real pull under -q prints nothing and still exits 3. A dry run
+// computes that fact from the same plan; suppressing it told an agent 0 and
+// then met it with 3 on the very next command.
+func (r PushReport) Outcome() error {
+	if len(r.Conflicts) == 0 {
 		return nil
 	}
 
@@ -89,8 +89,8 @@ func (r PushReport) Outcome(dryRun bool) error {
 	return dsxerr.Conflict(r.Conflicts, strings.Join(parts, "; "))
 }
 
-func (r PullReport) Outcome(dryRun bool) error {
-	if dryRun || len(r.Conflicts) == 0 {
+func (r PullReport) Outcome() error {
+	if len(r.Conflicts) == 0 {
 		return nil
 	}
 

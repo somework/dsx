@@ -67,7 +67,7 @@ func TestPlainPullPruneReportsAnUnprunableBinaryPath(t *testing.T) {
 		}
 	}
 
-	out := rep.Outcome(false)
+	out := rep.Outcome()
 	if out == nil {
 		t.Fatalf("Outcome is nil -> exit 0: the run reports success while a tracked path was "+
 			"neither pruned nor surfaced.\nrendered:\n%s", rendered)
@@ -134,7 +134,7 @@ func TestPlainPushPruneIsSilentAboutASteadyStateBinaryPath(t *testing.T) {
 	if slices.Contains(deleted, "logo.png") {
 		t.Errorf("push --prune deleted a binary path from the server: delete_files carried %v", deleted)
 	}
-	if out := rep.Outcome(false); out != nil {
+	if out := rep.Outcome(); out != nil {
 		t.Errorf("plain `push --prune` reports a conflict: %v\nrendered:\n%s", out, rep.Render(false))
 	}
 	if strings.Contains(rep.Render(false), "logo.png") {

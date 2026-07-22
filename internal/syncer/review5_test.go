@@ -129,7 +129,7 @@ func TestPushOutcomeEnvelopeNeverTellsAnAgentToPullABinary(t *testing.T) {
 		Conflicts:       []string{"assets/hero.png"},
 		BinaryConflicts: []string{"assets/hero.png"},
 	}
-	err := rep.Outcome(false)
+	err := rep.Outcome()
 	if err == nil {
 		t.Fatal("a binary conflict produced no error; an agent would carry on over it")
 	}
@@ -150,7 +150,7 @@ func TestPushOutcomeMixedConflictKeepsPullForTheTextOnes(t *testing.T) {
 		Conflicts:       []string{"assets/hero.png", "styles.css"},
 		BinaryConflicts: []string{"assets/hero.png"},
 	}
-	msg := rep.Outcome(false).Error()
+	msg := rep.Outcome().Error()
 	if !strings.Contains(msg, "pull") {
 		t.Errorf("a text conflict is present but the hint drops the pull advice: %q", msg)
 	}
@@ -164,7 +164,7 @@ func TestPullOutcomeEnvelopeSaysForceDeletesAPruneConflict(t *testing.T) {
 		Conflicts:      []string{"gone.css"},
 		PruneConflicts: []string{"gone.css"},
 	}
-	err := rep.Outcome(false)
+	err := rep.Outcome()
 	if err == nil {
 		t.Fatal("a prune conflict produced no error")
 	}

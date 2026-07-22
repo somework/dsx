@@ -73,9 +73,9 @@ func TestPutLeavesTheLedgerBehindSoAnEditedPathConflictsBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("push after put returned an error directly: %v", err)
 	}
-	pushErr := dsxerr.Classify(pushRep.Outcome(false))
+	pushErr := dsxerr.Classify(pushRep.Outcome())
 	if pushErr == nil || pushErr.Kind != dsxerr.KindConflict {
-		t.Fatalf("push.Outcome(false) after put = %v (report %+v), want a KindConflict error", pushErr, pushRep)
+		t.Fatalf("push.Outcome() after put = %v (report %+v), want a KindConflict error", pushErr, pushRep)
 	}
 	found := false
 	for _, p := range pushErr.Paths {
@@ -94,9 +94,9 @@ func TestPutLeavesTheLedgerBehindSoAnEditedPathConflictsBothWays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pull after put returned an error directly: %v", err)
 	}
-	pullErr := dsxerr.Classify(pullRep.Outcome(false))
+	pullErr := dsxerr.Classify(pullRep.Outcome())
 	if pullErr == nil || pullErr.Kind != dsxerr.KindConflict {
-		t.Fatalf("pull.Outcome(false) after put = %v (report %+v), want a KindConflict error", pullErr, pullRep)
+		t.Fatalf("pull.Outcome() after put = %v (report %+v), want a KindConflict error", pullErr, pullRep)
 	}
 
 	// (d) --force resolves it by writing what is already there: no data lost.

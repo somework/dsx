@@ -63,10 +63,15 @@ func maincliKind(t *testing.T, err error) dsxerr.Kind {
 	return dsxerr.Classify(err).Kind
 }
 
-func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
-	err := syncer.ConflictOutcome([]string{"z.css", "a.css", "m.css"}, false, "local differs; --force to overwrite")
+// TestConflictsAreExitThreeCarryingTheSortedPaths reads the real Outcome the
+// binary calls, not a helper beside it. It used to exercise
+// syncer.ConflictOutcome, which no production path ever reached — so the
+// sorting and hint-carriage it pinned were pinned on a copy, and the copy is
+// gone with the dry-run suppression it also implemented.
+func TestConflictsAreExitThreeCarryingTheSortedPaths(t *testing.T) {
+	err := syncer.PullReport{Conflicts: []string{"z.css", "a.css", "m.css"}}.Outcome()
 	if err == nil {
-		t.Fatal("a real run that refused to move bytes reported success; a caller reading exit 0 would carry on over work that exists nowhere else")
+		t.Fatal("a run that refused to move bytes reported success; a caller reading exit 0 would carry on over work that exists nowhere else")
 	}
 	de := dsxerr.Classify(err)
 	if de.Kind != dsxerr.KindConflict {
@@ -85,20 +90,18 @@ func TestConflictsOnARealRunAreExitThreeCarryingTheSortedPaths(t *testing.T) {
 	}
 }
 
-func TestConflictsOnADryRunAreNotAFailure(t *testing.T) {
-	if err := syncer.ConflictOutcome([]string{"a.css"}, true, "hint"); err != nil {
-		t.Fatalf("a dry run reporting a conflict failed with %v; it did exactly what it was told", err)
+func TestNoConflictsIsSuccess(t *testing.T) {
+	if err := (syncer.PullReport{}).Outcome(); err != nil {
+		t.Errorf("PullReport{}.Outcome() = %v, want nil", err)
 	}
-}
-
-func TestNoConflictsIsSuccessInEitherMode(t *testing.T) {
-	for _, dry := range []bool{false, true} {
-		if err := syncer.ConflictOutcome(nil, dry, "hint"); err != nil {
-			t.Errorf("syncer.ConflictOutcome(nil, %v) = %v, want nil", dry, err)
-		}
-		if err := syncer.ConflictOutcome([]string{}, dry, "hint"); err != nil {
-			t.Errorf("syncer.ConflictOutcome([], %v) = %v, want nil", dry, err)
-		}
+	if err := (syncer.PullReport{Conflicts: []string{}}).Outcome(); err != nil {
+		t.Errorf("PullReport{Conflicts: []}.Outcome() = %v, want nil", err)
+	}
+	if err := (syncer.PushReport{}).Outcome(); err != nil {
+		t.Errorf("PushReport{}.Outcome() = %v, want nil", err)
+	}
+	if err := (syncer.PushReport{Conflicts: []string{}}).Outcome(); err != nil {
+		t.Errorf("PushReport{Conflicts: []}.Outcome() = %v, want nil", err)
 	}
 }
 
