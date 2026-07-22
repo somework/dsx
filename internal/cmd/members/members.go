@@ -69,7 +69,7 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 	if *uuid != "" {
 		a["account_uuid"] = *uuid
 	}
-	return cmd.Emit(ctx, c, "add_member", a, *asJSON)
+	return cmd.Emit(ctx, c, "add_member", a, *asJSON, nil)
 }
 
 func cmdMemberRm(ctx context.Context, c *mcp.Client, args []string) error {
@@ -82,7 +82,7 @@ func cmdMemberRm(ctx context.Context, c *mcp.Client, args []string) error {
 			return "", nil, err
 		}
 		return "remove_member", map[string]any{"project_id": project, "account_uuid": uuid}, nil
-	})
+	}, nil)
 }
 
 func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
@@ -100,5 +100,5 @@ func cmdMemberRole(ctx context.Context, c *mcp.Client, args []string) error {
 		return "update_member_role", map[string]any{
 			"project_id": project, "account_uuid": uuid, "role": rest[0],
 		}, nil
-	})
+	}, nil)
 }

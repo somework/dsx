@@ -39,7 +39,7 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 	if *chat != "" {
 		a["chat_id"] = *chat
 	}
-	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON)
+	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON, nil)
 }
 
 func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
@@ -97,5 +97,5 @@ func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if *through >= 0 {
 		a["synced_through_idx"] = *through
 	}
-	return cmd.Emit(ctx, c, "put_conversation", a, *asJSON)
+	return cmd.Emit(ctx, c, "put_conversation", a, *asJSON, nil)
 }

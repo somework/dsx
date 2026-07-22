@@ -38,7 +38,10 @@ type Command struct {
 	Section string
 	Needs   Needs
 	Tool    func(pos []string) (string, map[string]any, error)
-	Run     func(ctx context.Context, c *mcp.Client, args []string) error
+	// Human renders this command's reply for a person. nil means the reply is
+	// printed as it arrived, indented when it is JSON.
+	Human Human
+	Run   func(ctx context.Context, c *mcp.Client, args []string) error
 }
 
 type Group struct {
@@ -54,7 +57,7 @@ type Group struct {
 
 func (c Command) Dispatch(ctx context.Context, client *mcp.Client, args []string) error {
 	if c.Tool != nil {
-		return EmitFlagged(ctx, client, c.Name, args, c.Tool)
+		return EmitFlagged(ctx, client, c.Name, args, c.Tool, c.Human)
 	}
 	return c.Run(ctx, client, args)
 }

@@ -42,7 +42,7 @@ func cmdPrompt(ctx context.Context, c *mcp.Client, args []string) error {
 	if *ds != "" {
 		a["design_system_id"] = *ds
 	}
-	return cmd.Emit(ctx, c, "get_claude_design_prompt", a, *asJSON)
+	return cmd.Emit(ctx, c, "get_claude_design_prompt", a, *asJSON, nil)
 }
 
 func cmdTools(ctx context.Context, c *mcp.Client, args []string) error {
@@ -108,5 +108,5 @@ func cmdRaw(ctx context.Context, c *mcp.Client, args []string) error {
 			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "arguments must be a JSON object, not null"}
 		}
 	}
-	return cmd.Emit(ctx, c, tool, a, *asJSON)
+	return cmd.Emit(ctx, c, tool, a, *asJSON, nil)
 }

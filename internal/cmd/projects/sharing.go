@@ -32,5 +32,5 @@ func cmdSharing(ctx context.Context, c *mcp.Client, args []string) error {
 	if *link != "" {
 		a["link_permission"] = *link
 	}
-	return cmd.Emit(ctx, c, "update_sharing", a, *asJSON)
+	return cmd.Emit(ctx, c, "update_sharing", a, *asJSON, nil)
 }

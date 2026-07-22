@@ -365,7 +365,7 @@ func TestSplitListCannotExpressACommaInAPath(t *testing.T) {
 func TestEmitPrintsTheToolsTextVerbatimInProseMode(t *testing.T) {
 	_, c := maincliFake(t, "Deleted 3 files.")
 	out, err := captureStdout(t, func() error {
-		return cmd.Emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false)
+		return cmd.Emit(context.Background(), c, "delete_files", map[string]any{"x": 1}, false, nil)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestEmitUnderJSONAlwaysPrintsExactlyOneJSONDocument(t *testing.T) {
 	} {
 		out, err := captureStdout(t, func() error {
 			_, c := maincliFake(t, text)
-			return cmd.Emit(context.Background(), c, "list_projects", map[string]any{}, true)
+			return cmd.Emit(context.Background(), c, "list_projects", map[string]any{}, true, nil)
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -404,7 +404,7 @@ func TestEmitPrintsNothingWhenTheToolFails(t *testing.T) {
 	})
 	c := fakeClient(f)
 	out, err := captureStdout(t, func() error {
-		return cmd.Emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true)
+		return cmd.Emit(context.Background(), c, "get_project", map[string]any{"project_id": "nope"}, true, nil)
 	})
 	if err == nil {
 		t.Fatal("a tool error was reported as success")
@@ -422,7 +422,7 @@ func TestEmitFlaggedAcceptsJSONAfterThePositionalsEveryCommandTakesIt(t *testing
 			func(pos []string) (string, map[string]any, error) {
 				gotPos = pos
 				return "get_project", map[string]any{"project_id": pos[0]}, nil
-			})
+			}, nil)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -444,7 +444,7 @@ func TestEmitFlaggedTouchesNoNetworkWhenTheArgumentsAreWrong(t *testing.T) {
 	err := cmd.EmitFlagged(context.Background(), c, "project", nil, func(pos []string) (string, map[string]any, error) {
 		_, _, err := cmd.Need1(pos, "project <id>")
 		return "", nil, err
-	})
+	}, nil)
 
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
@@ -459,7 +459,7 @@ func TestEmitFlaggedRejectsAnUnknownFlagBeforeCallingTheTool(t *testing.T) {
 	err := cmd.EmitFlagged(context.Background(), c, "project ls", []string{"--bogus"}, func([]string) (string, map[string]any, error) {
 		t.Fatal("build ran despite an unparseable flag")
 		return "", nil, nil
-	})
+	}, nil)
 
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)

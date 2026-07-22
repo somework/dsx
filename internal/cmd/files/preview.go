@@ -32,5 +32,5 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	if v := cmd.SplitList(*validators); len(v) > 0 {
 		a["validators"] = v
 	}
-	return cmd.Emit(ctx, c, "render_preview", a, *asJSON)
+	return cmd.Emit(ctx, c, "render_preview", a, *asJSON, nil)
 }

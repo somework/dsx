@@ -1,22 +1,72 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/fmtutil"
 	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
 )
 
-func Emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool) error {
+// Human renders one tool reply for a person. It returns false when the reply
+// is not the shape it was written against, and the caller falls back to the
+// reply itself: every shape dsx renders was measured against the real server
+// rather than promised by it — no tool declares an output schema — and three
+// protocol facts were guessed wrong before this rule existed.
+type Human func(text string) (string, bool)
+
+func Emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool, h Human) error {
 	text, err := c.CallTool(ctx, tool, args)
 	if err != nil {
 		return err
 	}
-	fmt.Println(JSONSafe(text, asJSON))
+	PrintReply(text, asJSON, h)
 	return nil
+}
+
+// PrintReply is the one place a tool reply reaches a person or a program.
+//
+// --json is untouched, renderer or not: README pins that where dsx relays a
+// tool result the shape is the server's, and a machine reading it has already
+// been told so.
+func PrintReply(text string, asJSON bool, h Human) {
+	fmt.Println(renderReply(text, asJSON, h))
+}
+
+// renderReply is PrintReply without the writing, so the decision is testable.
+func renderReply(text string, asJSON bool, h Human) string {
+	if asJSON {
+		return JSONSafe(text, true)
+	}
+	if h != nil {
+		if out, ok := h(text); ok {
+			return out
+		}
+	}
+	// Sanitised as a document, not as a field: invariant 7 wants the escapes
+	// gone, and this is the path an unrecognised — so possibly hostile — reply
+	// takes, but flattening dsx's own line breaks in the process would be the
+	// cure doing the damage.
+	return fmtutil.PrintableDoc(indentJSON(strings.TrimSpace(text)))
+}
+
+// indentJSON passes anything that is not JSON through: get_claude_design_prompt
+// answers in prose, and a one-line JSON blob is the wire's shape rather than an
+// answer to a person.
+func indentJSON(text string) string {
+	if !json.Valid([]byte(text)) {
+		return text
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(text), "", "  "); err != nil {
+		return text
+	}
+	return buf.String()
 }
 
 func JSONSafe(text string, asJSON bool) string {
@@ -33,7 +83,7 @@ func JSONSafe(text string, asJSON bool) string {
 	return string(b)
 }
 
-func EmitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error)) error {
+func EmitFlagged(ctx context.Context, c *mcp.Client, name string, args []string, build func(pos []string) (string, map[string]any, error), h Human) error {
 	flags := NewFlagSet(name)
 	asJSON := JSONFlag(flags)
 	pos, err := ParseArgs(flags, args)
@@ -44,10 +94,10 @@ func EmitFlagged(ctx context.Context, c *mcp.Client, name string, args []string,
 	if err != nil {
 		return err
 	}
-	return Emit(ctx, c, tool, toolArgs, *asJSON)
+	return Emit(ctx, c, tool, toolArgs, *asJSON, h)
 }
 
-func EmitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string, asJSON bool) error {
+func EmitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]any, projectID string, paths []string, asJSON bool, h Human) error {
 	var (
 		text string
 		err  error
@@ -63,6 +113,6 @@ func EmitWrite(ctx context.Context, c *mcp.Client, tool string, args map[string]
 		}
 		return err
 	}
-	fmt.Println(JSONSafe(text, asJSON))
+	PrintReply(text, asJSON, h)
 	return nil
 }

@@ -57,5 +57,5 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	if *scope != "" {
 		a["scope"] = *scope
 	}
-	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON)
+	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON, nil)
 }

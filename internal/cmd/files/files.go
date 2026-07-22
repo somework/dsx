@@ -79,7 +79,7 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 			}
 		}
 		return "list_files", a, nil
-	})
+	}, nil)
 }
 
 func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
@@ -259,7 +259,7 @@ func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
 		a["plan_token"] = *plan
 	}
 
-	if err := cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON); err != nil {
+	if err := cmd.EmitWrite(ctx, c, "write_files", a, project, []string{path}, *asJSON, nil); err != nil {
 		return err
 	}
 	// After the write: a note about a ledger is only worth printing once the
@@ -291,7 +291,7 @@ func cmdRm(ctx context.Context, c *mcp.Client, args []string) error {
 		"project_id": project,
 		"plan_token": token,
 		"paths":      rest,
-	}, *asJSON)
+	}, *asJSON, nil)
 }
 
 func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
@@ -328,5 +328,5 @@ func cmdCp(ctx context.Context, c *mcp.Client, args []string) error {
 	if *plan != "" {
 		a["plan_token"] = *plan
 	}
-	return cmd.EmitWrite(ctx, c, "copy_files", a, project, []string{rest[0]}, *asJSON)
+	return cmd.EmitWrite(ctx, c, "copy_files", a, project, []string{rest[0]}, *asJSON, nil)
 }

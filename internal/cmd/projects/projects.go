@@ -122,5 +122,5 @@ func cmdNew(ctx context.Context, c *mcp.Client, args []string) error {
 	if *ds != "" {
 		a["design_system_id"] = *ds
 	}
-	return cmd.Emit(ctx, c, "create_project", a, *asJSON)
+	return cmd.Emit(ctx, c, "create_project", a, *asJSON, nil)
 }

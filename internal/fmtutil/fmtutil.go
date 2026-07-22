@@ -49,3 +49,30 @@ func Printable(s string) string {
 	}
 	return sb.String()
 }
+
+// PrintableDoc is Printable for a whole reply rather than one field: it keeps
+// the line breaks and tabs that are the document's own structure, and disarms
+// everything else Printable disarms. Printable alone answers false to
+// unicode.IsGraphic for '\n' as readily as for '\r', so running it over a
+// multi-line reply collapses the reply into a single '?'-riddled line — which
+// is exactly what an unrecognised reply used to become.
+//
+// A line break dsx is printing is not the threat invariant 7 names. A break
+// inside a field still is, so Printable keeps its old shape and the two are
+// separate functions rather than one with a flag.
+func PrintableDoc(s string) string {
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\t' {
+			sb.WriteRune(r)
+			continue
+		}
+		if r == unicode.ReplacementChar || !unicode.IsGraphic(r) {
+			sb.WriteRune('?')
+			continue
+		}
+		sb.WriteRune(r)
+	}
+	return sb.String()
+}
