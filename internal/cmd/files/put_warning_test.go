@@ -2,6 +2,8 @@ package files
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,41 @@ func TestPutWarnsWhenTheWorkingDirectoryIsBoundToTheSameProject(t *testing.T) {
 	}
 	if !strings.Contains(got, syncer.DirName) {
 		t.Errorf("warning does not name the ledger's home:\n%s", got)
+	}
+}
+
+// The warning follows the same ledger tree and cat resolve their project from.
+// Left at the cwd it goes quiet exactly where the trap is easiest to fall into:
+// deep in a synced tree, where `dsx files tree` answers from the binding above
+// and put's silence reads as "no ledger is affected".
+func TestPutWarnsFromAnyDepthInsideTheBoundTree(t *testing.T) {
+	root := t.TempDir()
+	clitest.SeedState(t, root, syncer.State{ProjectID: "p1", Files: map[string]syncer.FileState{}})
+	deep := filepath.Join(root, "components", "buttons")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mkfile(t, deep, "a.css", "a{}")
+	t.Chdir(deep)
+
+	var warn bytes.Buffer
+	putWarn = &warn
+	t.Cleanup(func() { putWarn = nil })
+
+	if _, err := captureStdout(t, func() error {
+		return cmdPut(t.Context(), fakeClient(putFake(t)), []string{"p1", "a.css", "a.css"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := warn.String()
+	if !strings.Contains(got, "dsx push") {
+		t.Errorf("put wrote to a bound tree from a subdirectory and said nothing:\n%s", got)
+	}
+	// The path has to be the tree it found, not "./": from here "./" names a
+	// directory that holds no ledger at all, so the note would send the reader
+	// looking in the wrong place.
+	if !strings.Contains(got, root) {
+		t.Errorf("warning does not name the tree it actually found (%s):\n%s", root, got)
 	}
 }
 

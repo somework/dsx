@@ -42,16 +42,13 @@ git's.
 ```bash
 cd design/components && dsx pull               # syncs the whole tree, not the subdirectory
 dsx -C design status                           # …or act on it from anywhere
+dsx files tree                                 # and files cat, likewise
 ```
 
-The walk-up belongs to the sync verbs alone. `dsx files tree` and `dsx files cat` will take
-the directory's project when you omit it, but only from the root itself — they read the
-ledger where they stand rather than looking for it above.
-
-```bash
-cd design && dsx files tree                    # takes the project from the ledger here
-cd design/components && dsx files tree         # …does not: name the project
-```
+`files tree` and `files cat` read that binding too, so they take the project from the tree
+you are standing in when you omit it — from any depth, and a named project still wins. The
+writes do not: `files put`, `files rm` and `files cp` always name their project, because the
+working directory must not choose the target of a destructive act.
 
 `clone` needs an empty directory, and it is the only way to make one: `pull` no longer creates
 its target. To sync into a directory that already holds files, bind it first with

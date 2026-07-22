@@ -9,6 +9,7 @@ import (
 
 	"github.com/somework/dsx/internal/clitest"
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
 	"github.com/somework/dsx/internal/syncer"
 )
 
@@ -25,6 +26,101 @@ func bindCwd(t *testing.T, project string) {
 func unboundCwd(t *testing.T) {
 	t.Helper()
 	t.Chdir(t.TempDir())
+}
+
+// bindAbove binds a tree to project and leaves the test standing two levels
+// down inside it, with no ledger of its own anywhere below the root.
+func bindAbove(t *testing.T, project string) {
+	t.Helper()
+	root := t.TempDir()
+	clitest.SeedState(t, root, syncer.State{ProjectID: project, Files: map[string]syncer.FileState{}})
+	deep := filepath.Join(root, "components", "buttons")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(deep)
+}
+
+// The sync verbs find their ledger by walking up, the way git finds .git.
+// tree and cat read the same binding, so standing in a subdirectory must not
+// change the answer — otherwise `cd components && dsx files tree` refuses in a
+// tree where `dsx pull` works, and the difference is invisible from the prompt.
+func TestTreeAndCatWalkUpToTheLedgerLikeTheSyncVerbs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(ctx context.Context, c *mcp.Client, args []string) error
+		argv []string
+	}{
+		{"tree", cmdTree, []string{"--json"}},
+		{"cat", cmdCat, []string{"a.css"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bindAbove(t, "proj-A")
+
+			var seen []map[string]any
+			f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+				seen = append(seen, args)
+				if name == "read_file" {
+					return fakeReply{Text: clitest.EnvelopeFor("a.css", "e1", "body")}
+				}
+				return fakeReply{Text: listingFor(fileEntry("a.css", "e1", 4))}
+			})
+
+			if _, err := captureStdout(t, func() error {
+				return tc.run(context.Background(), fakeClient(f), tc.argv)
+			}); err != nil {
+				t.Fatalf("%s failed two levels inside a synced tree: %v", tc.name, err)
+			}
+			if len(seen) == 0 {
+				t.Fatal("no call was made")
+			}
+			if got := seen[0]["project_id"]; got != "proj-A" {
+				t.Errorf("project_id=%v, want proj-A from the ledger above", got)
+			}
+		})
+	}
+}
+
+// The walk-up is for reads only. A write resolving its project from a ledger
+// the caller never named would let the working directory choose the target of
+// a destructive act — one directory further from the caller's attention than
+// the case invariant 14 already forbids.
+func TestNoWriteWalksUpForItsProject(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(ctx context.Context, c *mcp.Client, args []string) error
+		argv []string
+	}{
+		{"put", cmdPut, []string{"tokens.css"}},
+		{"rm", cmdRm, []string{"tokens.css"}},
+		{"cp", cmdCp, []string{"a.css", "b.css"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bindAbove(t, "proj-A")
+
+			var seen []map[string]any
+			f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+				seen = append(seen, args)
+				return fakeReply{Text: "{}"}
+			})
+
+			_, err := captureStdout(t, func() error {
+				return tc.run(context.Background(), fakeClient(f), tc.argv)
+			})
+			if err == nil {
+				t.Fatalf("%s ran with no project named, inside a synced tree", tc.name)
+			}
+			if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+				t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+			}
+			for _, a := range seen {
+				if a["project_id"] == "proj-A" {
+					t.Errorf("%s took its project from a ledger above the cwd; the working "+
+						"directory must not choose the target of a destructive act", tc.name)
+				}
+			}
+		})
+	}
 }
 
 // tree and cat are read-only against the server and take no <dir>, so reading
@@ -86,6 +182,12 @@ func TestTreeOutsideASyncedDirectoryStillNeedsAProject(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tree <project>") {
 		t.Errorf("refusal does not show the form:\n%s", err)
+	}
+	// The walk-up made the bare form misleading: it says a project is required
+	// without saying that the search for one covered every directory above too.
+	// Left unsaid, `cd .. && dsx files tree` reads as worth trying.
+	if !strings.Contains(err.Error(), "or above") {
+		t.Errorf("refusal does not say the search reached past the cwd:\n%s", err)
 	}
 }
 

@@ -34,13 +34,28 @@ var Group = cmd.Group{
 	},
 }
 
-// boundProject reads the project the working directory is already synced to.
-// tree and cat are read-only against the server and take no <dir>, so this adds
-// no way to name a project — it stops hiding the one pull/push/status already
-// obey. The mutating commands keep naming theirs: cwd must not choose the
-// target of a destructive act.
+// boundProject reads the project the working tree is already synced to, finding
+// its ledger by walking up the way the sync verbs do. tree and cat are
+// read-only against the server and take no <dir>, so this adds no way to name a
+// project — it stops hiding the one pull/push/status already obey, and stopping
+// at the cwd would have hidden it again one directory down. The mutating
+// commands keep naming theirs: cwd must not choose the target of a destructive
+// act, and a ledger the caller never stood in is further from their attention
+// still.
 func boundProject(form string) (string, error) {
-	st, err := syncer.LoadState(".")
+	root, err := syncer.FindRoot(".")
+	if err != nil {
+		return "", err
+	}
+	if root == "" {
+		// Not dsxerr.Usage(form): that says a project is required without
+		// saying the search for one already covered every directory above,
+		// which leaves `cd ..` reading as worth trying. The form still appears
+		// — a refusal names something that parses.
+		return "", &dsxerr.Error{Kind: dsxerr.KindUsage,
+			Msg: "nothing here or above is bound to a project — name one: dsx " + form}
+	}
+	st, err := syncer.LoadState(root)
 	if err != nil {
 		return "", err
 	}
@@ -180,7 +195,11 @@ var putWarn io.Writer
 // directory is not known to be the sync root, and writing there on a guess
 // would be inventing a binding.
 func warnIfLedgerNearby(project string) {
-	st, err := syncer.LoadState(".")
+	root, err := syncer.FindRoot(".")
+	if err != nil || root == "" {
+		return
+	}
+	st, err := syncer.LoadState(root)
 	if err != nil || st.ProjectID != project {
 		return
 	}
@@ -188,9 +207,12 @@ func warnIfLedgerNearby(project string) {
 	if w == nil {
 		w = os.Stderr
 	}
-	fmt.Fprintf(w, "dsx: note: ./%s/ is bound to this project — put writes the server "+
-		"without updating it, so `dsx status` here will report a conflict; "+
-		"use `dsx push` to stay in step\n", syncer.DirName)
+	// The tree it found by name, not "./": from a subdirectory that path holds
+	// no ledger, and the note would send the reader looking where there is
+	// nothing to see.
+	fmt.Fprintf(w, "dsx: note: %s is bound to this project — put writes the server "+
+		"without updating it, so `dsx status` there will report a conflict; "+
+		"use `dsx push` to stay in step\n", syncer.StateDir(root))
 }
 
 func cmdPut(ctx context.Context, c *mcp.Client, args []string) error {
