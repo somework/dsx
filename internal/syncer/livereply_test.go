@@ -4,6 +4,8 @@ package syncer
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/somework/dsx/internal/reply"
@@ -35,10 +37,19 @@ func TestLiveDesignSystemsIsABareArrayOfIDNameDefault(t *testing.T) {
 	if len(rows) == 0 {
 		t.Skip("this account has no design systems; the element claims went untested")
 	}
+	// The id width and the presence of a name are DecodeDesignSystems' own
+	// refusals now, pinned by an ordinary `go test`. What is left here is the
+	// one claim only a real account can answer: PROTOCOL.md says the default is
+	// the one a fresh project would use, which is a claim that exactly one row
+	// carries it.
+	defaults := 0
 	for _, r := range rows {
-		if len(r.ID) != 36 {
-			t.Errorf("id %q is not a 36-char UUID", r.ID)
+		if r.IsDefault {
+			defaults++
 		}
+	}
+	if defaults != 1 {
+		t.Errorf("%d design systems marked default, want exactly 1", defaults)
 	}
 }
 
@@ -53,14 +64,14 @@ func TestLiveGetProjectCarriesNameAndSharing(t *testing.T) {
 	if !ok {
 		t.Fatalf("PROTOCOL.md's get_project shape no longer matches:\n%s", text)
 	}
+	// name, type and sharing.scope are DecodeProject's own refusals, so the
+	// decode above already asserted them under a bare `go test`. Only the
+	// identity claim needs the network.
 	if p.ID != liveProjectID() {
 		t.Errorf("get_project(%s) answered for %s", liveProjectID(), p.ID)
 	}
-	if p.Name == "" {
-		t.Error("no name; PROTOCOL.md says get_project carries one")
-	}
-	if p.Sharing.Scope == "" {
-		t.Error("no sharing.scope; PROTOCOL.md says the sharing block is there")
+	if p.Type != "PROJECT_TYPE_PROJECT" {
+		t.Errorf("type = %q; PROTOCOL.md spells the enum PROJECT_TYPE_PROJECT", p.Type)
 	}
 }
 
@@ -75,7 +86,15 @@ func TestLiveListMembersIsABareArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list_members: %v", err)
 	}
-	if _, ok := reply.Members(text); !ok {
+	// Asserted directly, not through reply.Members: that bool is overloaded —
+	// false means "not a bare array" AND "a non-empty one", and only the first
+	// is a protocol claim failing. A wrapper object would otherwise arrive as
+	// the anticipated, logged case.
+	var rows []json.RawMessage
+	if err := json.Unmarshal([]byte(text), &rows); err != nil || rows == nil {
+		t.Fatalf("PROTOCOL.md says list_members is a bare array:\n%s", text)
+	}
+	if len(rows) > 0 {
 		t.Logf("list_members is no longer empty for this project; dsx renders only the empty case:\n%s", text)
 	}
 }
@@ -87,8 +106,13 @@ func TestLiveWriteCopyDeleteRepliesStillMatchTheirRenderers(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
 
-	src := scratchPrefix + "-reply.css"
-	dst := scratchPrefix + "-reply-copy.css"
+	// liveScratch, not a hand-built path: it registers the removal BEFORE the
+	// first write, so a failure between the write and the delete still cleans
+	// up. Building the path by hand made these two the only mutating live tests
+	// in the package that leaked their scratch file on any early t.Fatalf — and
+	// there is no delete_project, so a leak is permanent.
+	src := liveScratch(t, c, ctx, "-reply.css")
+	dst := liveScratch(t, c, ctx, "-reply-copy.css")
 
 	text, err := c.CallTool(ctx, "write_files", map[string]any{
 		"project_id": liveProjectID(),
@@ -146,7 +170,7 @@ func TestLiveSupportJSReplyIsNotAWriteFilesReply(t *testing.T) {
 	c, ctx := liveClient(t)
 	before := len(liveTree(t, c, ctx))
 
-	path := scratchPrefix + "-reply/support.js"
+	path := liveScratch(t, c, ctx, "-reply/support.js")
 	text, err := c.CallTool(ctx, "create_support_js", map[string]any{
 		"project_id": liveProjectID(), "path": path,
 	})
@@ -157,8 +181,10 @@ func TestLiveSupportJSReplyIsNotAWriteFilesReply(t *testing.T) {
 	if !ok {
 		t.Fatalf("PROTOCOL.md's create_support_js shape no longer matches:\n%s", text)
 	}
-	if s.Bytes == 0 {
-		t.Error("no bytes count; PROTOCOL.md says the reply carries one")
+	// bytes and the etag key are DecodeSupportJS' own refusals. What only the
+	// network answers is that the reply echoes the path that was asked for.
+	if s.Path != path {
+		t.Errorf("asked for %q, reply names %q", path, s.Path)
 	}
 	if _, ok := reply.DecodeWritten(text); ok {
 		t.Error("a create_support_js reply decoded as a write_files reply; " +
@@ -178,5 +204,46 @@ func TestLiveSupportJSReplyIsNotAWriteFilesReply(t *testing.T) {
 	}
 	if after := len(liveTree(t, c, ctx)); after != before {
 		t.Errorf("file count %d → %d; the scratch path was not cleaned up", before, after)
+	}
+}
+
+// list_files is the one shape with two readers: syncer decodes it into
+// RemoteEntry to sync, and reply.DecodeFiles decodes it to render `files ls`.
+// TestLiveListFilesShape judges only the first, which left the seventh
+// renderer the only one whose belief no live test touched.
+func TestLiveListFilesAlsoSatisfiesTheRenderersDecoder(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	text, err := c.CallTool(ctx, "list_files", map[string]any{
+		"project_id": liveProjectID(), "path": "",
+	})
+	if err != nil {
+		t.Fatalf("list_files: %v", err)
+	}
+	rows, ok := reply.DecodeFiles(text)
+	if !ok {
+		t.Fatalf("PROTOCOL.md's list_files shape no longer matches what `files ls` renders:\n%s", text)
+	}
+	if len(rows) == 0 {
+		t.Fatal("the project root listed empty; this would prove nothing")
+	}
+}
+
+// PROTOCOL.md claims create_support_js refuses any basename but support.js.
+// The claim arrived with the reply-shape work and was the only one in that
+// batch with no test, which is the shape of every protocol claim that later
+// turned out to be wrong.
+func TestLiveSupportJSRefusesAnyOtherBasename(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	_, err := c.CallTool(ctx, "create_support_js", map[string]any{
+		"project_id": liveProjectID(), "path": scratchPrefix + "-not-support.js",
+	})
+	if err == nil {
+		t.Fatal("a non-support.js basename was accepted; PROTOCOL.md says it is refused " +
+			"— and a file was just written that this test does not clean up")
+	}
+	if !strings.Contains(err.Error(), "support.js") {
+		t.Errorf("refusal does not name the required basename: %v", err)
 	}
 }

@@ -57,7 +57,13 @@ func DecodeDesignSystems(text string) ([]DesignSystemRow, bool) {
 		return nil, false
 	}
 	for _, r := range rows {
-		if r.ID == "" {
+		// Every field PROTOCOL.md claims, not just the identifying one. A
+		// decoder that gates on `id` alone accepts a reply that renamed `name`
+		// and then prints a blank column — the table of blanks this package
+		// exists to refuse, for the fields the refusal never covered. It is
+		// also what makes the live suite able to falsify the claim: these
+		// decoders ARE its judges.
+		if len(r.ID) != idWidth || r.Name == "" {
 			return nil, false
 		}
 	}
@@ -73,13 +79,56 @@ func DesignSystems(text string) (string, bool) {
 	for _, r := range rows {
 		// The id first, for the reason `project ls` puts it first: names hold
 		// spaces, so it is the only column order that survives awk '{print $1}'.
-		fmt.Fprintf(&b, "%-*s  %s", idWidth, r.ID, fmtutil.Printable(r.Name))
+		fmt.Fprintf(&b, "%-*s  %s", idWidth, fmtutil.Printable(r.ID), fmtutil.Printable(r.Name))
 		if r.IsDefault {
 			b.WriteString("  (default)")
 		}
 		b.WriteString("\n")
 	}
 	b.WriteString(plural(len(rows), "design system", "design systems"))
+	return b.String(), true
+}
+
+// ProjectRow is list_projects' measured element (PROTOCOL.md, list_projects).
+type ProjectRow struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+func DecodeProjects(text string) ([]ProjectRow, bool) {
+	var rows []ProjectRow
+	if err := json.Unmarshal([]byte(text), &rows); err != nil {
+		return nil, false
+	}
+	// See DecodeDesignSystems: `null` is not this shape, an empty list is.
+	if rows == nil {
+		return nil, false
+	}
+	for _, r := range rows {
+		if len(r.ID) != idWidth || r.Name == "" || r.URL == "" {
+			return nil, false
+		}
+	}
+	return rows, true
+}
+
+// Projects is `project ls`, moved here from internal/cmd/projects so it shares
+// the one decision point and the one fallback. Its old hand-rolled fallback
+// ran fmtutil.Printable — the FIELD sanitiser — over a whole document, which
+// collapsed every line break in an unrecognised reply into "?"; that is the
+// exact defect PrintableDoc was written for, and the command that named it in
+// its own comment was still doing it.
+func Projects(text string) (string, bool) {
+	rows, ok := DecodeProjects(text)
+	if !ok {
+		return "", false
+	}
+	var b strings.Builder
+	for _, r := range rows {
+		fmt.Fprintf(&b, "%-*s  %s\n", idWidth, fmtutil.Printable(r.ID), fmtutil.Printable(r.Name))
+	}
+	b.WriteString(plural(len(rows), "project", "projects"))
 	return b.String(), true
 }
 
@@ -101,7 +150,9 @@ func DecodeProject(text string) (ProjectDetail, bool) {
 	if err := json.Unmarshal([]byte(text), &p); err != nil {
 		return ProjectDetail{}, false
 	}
-	if p.ID == "" {
+	// As in DecodeDesignSystems: PROTOCOL.md claims name, type and the sharing
+	// block, and Project prints two of the three, so all three gate the answer.
+	if len(p.ID) != idWidth || p.Name == "" || p.Type == "" || p.Sharing.Scope == "" {
 		return ProjectDetail{}, false
 	}
 	return p, true
@@ -114,7 +165,7 @@ func Project(text string) (string, bool) {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", fmtutil.Printable(p.Name))
-	fmt.Fprintf(&b, "  id       %s\n", p.ID)
+	fmt.Fprintf(&b, "  id       %s\n", fmtutil.Printable(p.ID))
 	// scope and link permission are one fact for a reader — who can open this,
 	// and what may they do — so they share a line.
 	share := fmtutil.Printable(p.Sharing.Scope)
@@ -256,11 +307,13 @@ func DecodeCopied(text string) (CopyAck, bool) {
 	if err := json.Unmarshal([]byte(text), &c); err != nil {
 		return CopyAck{}, false
 	}
-	if len(c.Results) == 0 {
+	if len(c.Results) == 0 || len(c.Etags) == 0 {
 		return CopyAck{}, false
 	}
 	for _, r := range c.Results {
-		if r.Dest == "" {
+		// Both ends, because Copied prints both: a result with no src renders
+		// "copied  → dest.css" and reads as a copy from nowhere.
+		if r.Src == "" || r.Dest == "" {
 			return CopyAck{}, false
 		}
 	}
@@ -322,7 +375,10 @@ func DecodeSupportJS(text string) (SupportJSAck, bool) {
 	if err := json.Unmarshal([]byte(text), &s); err != nil {
 		return SupportJSAck{}, false
 	}
-	if s.Path == "" || s.Bytes == 0 {
+	// The etag has to be keyed by the path the reply itself names, because that
+	// is the lookup SupportJS does; an etags map keyed some other way renders a
+	// trailing blank where the etag belongs.
+	if s.Path == "" || s.Bytes == 0 || s.Etags[s.Path] == "" {
 		return SupportJSAck{}, false
 	}
 	return s, true
@@ -351,6 +407,14 @@ func DecodePlan(text string) (PlanAck, bool) {
 		return PlanAck{}, false
 	}
 	if p.PlanToken == "" {
+		return PlanAck{}, false
+	}
+	// Not sanitised — gated. A plan_token is a capability the caller is told to
+	// copy off stdout (`files put --plan` documents exactly that), so replacing
+	// a byte with '?' would hand them a token that looks right and does not
+	// work. If it is not printable as it stands, this is not the shape that was
+	// measured: refuse, and the reply is printed whole instead.
+	if fmtutil.Printable(p.PlanToken) != p.PlanToken {
 		return PlanAck{}, false
 	}
 	return p, true

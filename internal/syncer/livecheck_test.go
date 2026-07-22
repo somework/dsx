@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"go/ast"
+	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"os"
@@ -55,21 +56,61 @@ func reachesAnAssertion(body *ast.BlockStmt) bool {
 	return found
 }
 
-// liveSources is every file the tag hides, not one file by name. Reading only
-// "live_test.go" was right while there was one; a second live file added
-// beside it would have been outside the floor entirely, which is the failure
-// this guard exists to prevent happening to a test.
+// liveSources is every file the TAG hides, found by reading the tag. Reading
+// one file by name was right while there was one; globbing "live*_test.go"
+// then made the floor depend on a naming habit, and `push_live_test.go` is a
+// perfectly natural name that would sit outside it. The build constraint is
+// the actual thing that hides a file from CI, so it is the thing to match.
 func liveSources(t *testing.T) []string {
 	t.Helper()
-	paths, err := filepath.Glob("live*_test.go")
+	paths, err := filepath.Glob("*_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) == 0 {
-		t.Fatal("no live sources found; the glob matched nothing and this guard proved nothing")
+	var out []string
+	for _, path := range paths {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if hasLiveConstraint(src) {
+			out = append(out, path)
+		}
 	}
-	sort.Strings(paths)
-	return paths
+	if len(out) == 0 {
+		t.Fatal("no live-tagged sources found; the walk matched nothing and this guard proved nothing")
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hasLiveConstraint reads the //go:build line the way the toolchain does,
+// rather than matching the word: `//go:build live && !windows` and
+// `//go:build !live` are different answers and a substring search gives the
+// same one.
+func hasLiveConstraint(src []byte) bool {
+	for _, line := range strings.Split(string(src), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "//") {
+			// The constraint must precede the package clause; past it there is
+			// nothing left to find.
+			if strings.HasPrefix(line, "package ") {
+				return false
+			}
+			continue
+		}
+		expr, err := constraint.Parse(line)
+		if err != nil {
+			continue
+		}
+		if expr.Eval(func(tag string) bool { return tag == "live" }) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEveryLiveTestReachesAnAssertion(t *testing.T) {
@@ -93,14 +134,39 @@ func TestEveryLiveTestReachesAnAssertion(t *testing.T) {
 	}
 }
 
-// The glob has to actually reach the file this commit added, or it is the
-// by-name read again wearing a wildcard.
+// The walk has to reach both real live files, and — the half a glob could
+// never have — it must reach one whose name does not start with "live", and
+// must not sweep in an ordinary test that merely mentions the word.
 func TestTheLiveFloorCoversEveryLiveSource(t *testing.T) {
 	got := liveSources(t)
 	for _, want := range []string{"live_test.go", "livereply_test.go"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("%s is outside the floor; found %v", want, got)
 		}
+	}
+	if slices.Contains(got, "livecheck_test.go") {
+		t.Error("livecheck_test.go carries no live constraint and must not be in the floor")
+	}
+}
+
+func TestTheLiveConstraintIsReadNotMatched(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"plain", "//go:build live\n\npackage syncer\n", true},
+		{"and", "//go:build live && !windows\n\npackage syncer\n", true},
+		{"negated", "//go:build !live\n\npackage syncer\n", false},
+		{"other tag", "//go:build integration\n\npackage syncer\n", false},
+		{"none", "package syncer\n", false},
+		{"the word in a comment after the package clause", "package syncer\n\n// live\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasLiveConstraint([]byte(tc.src)); got != tc.want {
+				t.Errorf("hasLiveConstraint = %v, want %v for:\n%s", got, tc.want, tc.src)
+			}
+		})
 	}
 }
 

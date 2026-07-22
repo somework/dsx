@@ -101,20 +101,29 @@ func TestAnUnrecognisedReplyIsSanitisedToo(t *testing.T) {
 	}
 }
 
-// A reply that does not match the measured shape is passed through verbatim
-// rather than rendered from guesses: PROTOCOL.md's claim is measured, not
-// guaranteed, and three protocol details have already been guessed wrong.
-func TestAnUnrecognisedReplyIsPassedThroughVerbatim(t *testing.T) {
-	for _, text := range []string{
-		`not json at all`,
-		`{"projects":[]}`,
-		`[{"name":"no id here"}]`,
-		`[{"id":"","name":"empty id"}]`,
-		`["a string, not an object"]`,
+// A reply that does not match the measured shape is never rendered from
+// guesses: PROTOCOL.md's claim is measured, not guaranteed, and three protocol
+// details have already been guessed wrong. It is now INDENTED rather than
+// passed through byte for byte — a one-line blob is the wire's shape, not an
+// answer to a person — so what this pins is that nothing is lost and nothing
+// is invented, not that the bytes are identical. Non-JSON still passes through
+// untouched, because there is nothing to indent and reflowing prose is damage.
+func TestAnUnrecognisedReplyIsNeverRenderedFromGuesses(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{`not json at all`, "not json at all"},
+		{`{"projects":[]}`, "{\n  \"projects\": []\n}"},
+		{`[{"name":"no id here"}]`, "no id here"},
+		{`[{"id":"","name":"empty id"}]`, "empty id"},
+		{`["a string, not an object"]`, "a string, not an object"},
 	} {
-		out := runProjects(t, text)
-		if strings.TrimSpace(out) != strings.TrimSpace(text) {
-			t.Errorf("reply %q was reformatted into %q instead of passed through", text, out)
+		out := strings.TrimSpace(runProjects(t, tc.text))
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("reply %q rendered as %q, want it to contain %q", tc.text, out, tc.want)
+		}
+		// The tell that it fell through rather than being rendered: no count
+		// line, which every accepted reply ends with.
+		if strings.HasSuffix(out, " projects") || strings.HasSuffix(out, " project") {
+			t.Errorf("reply %q was rendered as a project list: %q", tc.text, out)
 		}
 	}
 }
@@ -126,9 +135,14 @@ func TestAnEmptyListSaysSo(t *testing.T) {
 	}
 }
 
-// --json gets dsx's own shape, as tree --json does. Reformatting the human
-// half and leaving the machine half an unparsed blob would be backwards.
-func TestProjectsJSONIsDsxsOwnShape(t *testing.T) {
+// --json is the server's own bytes now that `project ls` shares the one
+// decision point: cmd.PrintReply hands the machine half through untouched,
+// renderer or not, which is what README already promised for a relayed tool
+// result. Before, this command re-marshalled its decoded rows and silently
+// dropped any field it did not know — the keys asserted below are the ones
+// that survived either way, so this test could not tell the two apart and its
+// old name claimed the wrong one.
+func TestProjectsJSONIsTheServersOwnBytes(t *testing.T) {
 	out := runProjects(t, twoProjects, "--json")
 
 	var rows []map[string]any

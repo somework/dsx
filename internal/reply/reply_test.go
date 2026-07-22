@@ -130,23 +130,123 @@ func TestDeletedZeroIsAnAnswerAndAnEmptyObjectIsNot(t *testing.T) {
 	}
 }
 
-// Invariant 7: a name, a path and an etag all arrive from the server.
+// Invariant 7, column by column. Every string below is server-supplied and
+// every one of them reaches a line dsx prints, so a carriage return in any of
+// them rewrites what the terminal already showed. The earlier version of this
+// test was named for every column and checked two, which is how an unwrapped
+// `id` survived: an id carrying a newline plus spaces forges a whole extra row
+// that reads exactly like a real one.
 func TestServerTextIsSanitisedInEveryColumn(t *testing.T) {
 	t.Parallel()
+	const uuid = "11111111-1111-1111-1111-111111111111"
+	// Same width as a UUID, with a carriage return where a digit was.
+	const crUUID = `1111111\r-1111-1111-1111-111111111111`
 	// The escape has to be JSON's own: a raw control byte inside a string is
 	// invalid JSON, so the decoder would refuse it and the test would pass
 	// without ever reaching the sanitiser.
-	hostile := `[{"id":"i","name":"safe\rEVIL"}]`
-	got, ok := DesignSystems(hostile)
+	for _, tc := range []struct {
+		column string
+		render func(string) (string, bool)
+		in     string
+	}{
+		// Exactly 36 characters, one of them a carriage return: the width check
+		// refuses a LONGER forged id before the sanitiser is reached, so only a
+		// same-width one tests the sanitiser at all. Both guards are needed and
+		// neither subsumes the other.
+		{"design system id", DesignSystems, `[{"id":"` + crUUID + `","name":"n"}]`},
+		{"design system name", DesignSystems, `[{"id":"` + uuid + `","name":"safe\rEVIL"}]`},
+		{"project id", Project, `{"id":"` + crUUID + `","name":"n","type":"T","sharing":{"scope":"s"}}`},
+		{"project name", Project, `{"id":"` + uuid + `","name":"safe\rEVIL","type":"T","sharing":{"scope":"s"}}`},
+		{"project scope", Project, `{"id":"` + uuid + `","name":"n","type":"T","sharing":{"scope":"safe\rEVIL"}}`},
+		{"project url", Project, `{"id":"` + uuid + `","name":"n","type":"T","url":"safe\rEVIL","sharing":{"scope":"s"}}`},
+		{"file path", Files, `[{"path":"a\rb","type":"file","size":1,"etag":"e"}]`},
+		{"file etag", Files, `[{"path":"a","type":"file","size":1,"etag":"e\rEVIL"}]`},
+		{"directory path", Files, `[{"path":"d\rEVIL","type":"directory"}]`},
+		{"written path", Written, `{"written":1,"etags":{"a\rb":"e"}}`},
+		{"written etag", Written, `{"written":1,"etags":{"a":"e\rEVIL"}}`},
+		{"copied src", Copied, `{"etags":{"d":"e"},"results":[{"src":"s\rEVIL","dest":"d","copied":1}]}`},
+		{"copied dest", Copied, `{"etags":{"d\rEVIL":"e"},"results":[{"src":"s","dest":"d\rEVIL","copied":1}]}`},
+		{"support-js path", SupportJS, `{"path":"p\rEVIL","bytes":1,"etags":{"p\rEVIL":"e"}}`},
+		{"support-js etag", SupportJS, `{"path":"p","bytes":1,"etags":{"p":"e\rEVIL"}}`},
+		{"plan scope", Plan, `{"plan_token":"t","scope":"safe\rEVIL"}`},
+	} {
+		t.Run(tc.column, func(t *testing.T) {
+			t.Parallel()
+			got, ok := tc.render(tc.in)
+			if !ok {
+				t.Fatalf("refused a well-shaped reply:\n%s", tc.in)
+			}
+			if strings.ContainsAny(got, "\r") {
+				t.Errorf("a carriage return reached the terminal from %s: %q", tc.column, got)
+			}
+		})
+	}
+}
+
+// The plan token is the one server string that must not be sanitised, and
+// therefore the one that must be refused. `files put --plan` tells the caller
+// to read it off this stdout, so a token with a byte replaced by '?' looks
+// right and does not work — the silent-wrong-answer shape. Refusing prints the
+// reply whole, which still hands them the token.
+func TestAnUnprintablePlanTokenIsRefusedRatherThanRepaired(t *testing.T) {
+	t.Parallel()
+	if _, ok := Plan(`{"plan_token":"plan_aaa\rbbb","scope":"project"}`); ok {
+		t.Error("rendered a plan token that had to be altered to be printable")
+	}
+	if got, ok := Plan(`{"plan_token":"plan_aaa","scope":"project"}`); !ok || !strings.HasPrefix(got, "plan_aaa") {
+		t.Errorf("a clean token was not printed verbatim: %q, %v", got, ok)
+	}
+}
+
+// Each decoder's own guard, one negative fixture apiece. The shared `foreign`
+// list above is cross-cutting and leaves every individual guard mutation-free:
+// removing any one of them alone left the whole suite green.
+func TestEachGuardHasItsOwnNegative(t *testing.T) {
+	t.Parallel()
+	const uuid = "11111111-1111-1111-1111-111111111111"
+	for _, tc := range []struct {
+		name   string
+		render func(string) (string, bool)
+		in     string
+	}{
+		{"written without etags", Written, `{"written":1}`},
+		{"written without the count", Written, `{"etags":{"a":"e"}}`},
+		{"copied without dest", Copied, `{"etags":{"d":"e"},"results":[{"src":"s","copied":1}]}`},
+		{"copied without src", Copied, `{"etags":{"d":"e"},"results":[{"dest":"d","copied":1}]}`},
+		{"copied without etags", Copied, `{"results":[{"src":"s","dest":"d","copied":1}]}`},
+		{"support-js without bytes", SupportJS, `{"path":"p","etags":{"p":"e"}}`},
+		{"support-js etag keyed elsewhere", SupportJS, `{"path":"p","bytes":1,"etags":{"other":"e"}}`},
+		{"design system without a name", DesignSystems, `[{"id":"` + uuid + `"}]`},
+		{"design system id that is not a uuid", DesignSystems, `[{"id":"short","name":"n"}]`},
+		{"project without a name", Project, `{"id":"` + uuid + `","type":"T","sharing":{"scope":"s"}}`},
+		{"project without a type", Project, `{"id":"` + uuid + `","name":"n","sharing":{"scope":"s"}}`},
+		{"project without a sharing scope", Project, `{"id":"` + uuid + `","name":"n","type":"T"}`},
+		{"files entry without a type", Files, `[{"path":"a","size":1,"etag":"e"}]`},
+		{"files entry without a path", Files, `[{"type":"file","size":1,"etag":"e"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if out, ok := tc.render(tc.in); ok {
+				t.Errorf("accepted %s and rendered:\n%s", tc.name, out)
+			}
+		})
+	}
+}
+
+// A directory carries no size by measurement, so counting one into the total
+// is equivalent on every real reply — and a mutation adding it survived the
+// whole suite. The reply is untrusted input (invariant 7): a directory entry
+// arriving with a size would inflate a number a person reads as the weight of
+// what they are about to pull.
+func TestADirectorysSizeNeverReachesTheTotal(t *testing.T) {
+	t.Parallel()
+	in := `[{"path":"d","type":"directory","size":999999},{"path":"a","type":"file","size":1,"etag":"e"}]`
+	got, ok := Files(in)
 	if !ok {
 		t.Fatal("refused a well-shaped reply")
 	}
-	if strings.Contains(got, "\r") {
-		t.Errorf("a carriage return reached the terminal: %q", got)
-	}
-	files := `[{"path":"a\rb","type":"file","size":1,"etag":"e"}]`
-	if got, _ := Files(files); strings.Contains(got, "\r") {
-		t.Errorf("a carriage return reached the terminal from a path: %q", got)
+	if !strings.HasSuffix(got, "1 file, 1 directory, 1 B") {
+		t.Errorf("count line = %q, want it to end %q", got, "1 file, 1 directory, 1 B")
 	}
 }
 

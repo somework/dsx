@@ -350,10 +350,18 @@ and their truncation notice, `if_none_match`, `write_files`' map reply, `if_matc
 and the structured conflict), `needs_project_grant` as a 403 and its `finalize_plan` recovery,
 delete refusing a project-scoped token, binary-by-content in both directions, `resources` still
 unsupported, `tools/list` still naming every tool dsx wraps, and an end-to-end push/pull round
-trip through the real sync engine.
+trip through the real sync engine. Since the reply-rendering work, also: the reply shapes of
+`list_design_systems`, `get_project`, `list_members`, `copy_files`, `delete_files` and
+`create_support_js`, plus `create_support_js`' refusal of any basename but `support.js` and
+`get_project`'s `PROJECT_TYPE_PROJECT` spelling. Those six are pinned in an unusual way worth
+knowing about: the judge is `internal/reply`'s decoder, the same one that renders the reply for
+a person, so the shape dsx draws and the shape this document claims cannot drift apart — and
+most of each claim is therefore pinned by a bare `go test`, not only by the live run.
 
 **Not pinned live, resting on a one-off probe or on the schema:** the whole **Auth** section
-(unit-tested only — its file lane has never met a real file), `copy_files`, the **Limits**
+(unit-tested only — its file lane has never met a real file), `copy_files`' *cross-project*
+half — `src_project_id` and the 256 KiB-cap exemption, neither of which the reply-shape test
+exercises (it copies one small file inside one project) — the **Limits**
 table, the accepted half of the write allowlist (only `.bin`'s refusal is probed, and softly),
 the `read file: file not found` wording, and the `prompts`/`listChanged` capabilities.
 
