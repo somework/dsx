@@ -146,36 +146,28 @@ compdef _dsx dsx
 
 	case "fish":
 		var sb strings.Builder
-		sb.WriteString("# dsx fish completion — dsx completion fish | source\n")
-		sb.WriteString("complete -c dsx -f\n")
+		sb.WriteString(fishPreamble)
 		for _, n := range top {
-			fmt.Fprintf(&sb, "complete -c dsx -n __fish_use_subcommand -a %s\n", n)
+			fmt.Fprintf(&sb, "complete -c dsx -n '__dsx_want 1' -a %s\n", n)
 		}
-		// -f above turns file completion off for the whole command, so each
-		// subcommand asks for it back: every positional dsx takes is a path or
-		// a project id, and a shell that offers nothing is worse than one that
-		// offers files.
-		//
-		// A noun's verbs hang off __fish_seen_subcommand_from, which knows the
-		// word is present but not that it came first, so `dsx files cat conv` would
-		// offer conv's verbs too. That invocation does not parse, so the cost is
-		// a suggestion inside an already-broken line.
 		for _, n := range nouns {
-			g := nounIndex[n]
-			fmt.Fprintf(&sb, "complete -c dsx -n '__fish_seen_subcommand_from %s' -a %q\n",
-				n, strings.Join(nounVerbs(g), " "))
+			fmt.Fprintf(&sb, "complete -c dsx -n '__dsx_want 2; and __dsx_at 1 %s' -a %q\n",
+				n, strings.Join(nounVerbs(nounIndex[n]), " "))
 		}
-		// A two-token address reaches fish as both its words: the predicate is
-		// a membership test, so "conv get" reads as "saw conv or get".
+		// -f in the preamble turns file completion off for the whole command,
+		// so each address asks for it back: every positional dsx takes is a
+		// path or a project id, and a shell that offers nothing is worse than
+		// one that offers files.
 		for _, n := range addresses {
-			fmt.Fprintf(&sb, "complete -c dsx -n '__fish_seen_subcommand_from %s' -F\n", n)
+			cond := fishAddressCond(n)
+			fmt.Fprintf(&sb, "complete -c dsx -n '%s' -F\n", cond)
 			for _, f := range commandFlags(commandIndex[n]) {
 				spelling := "-l"
 				if !strings.HasPrefix(f, "--") {
 					spelling = "-o"
 				}
-				fmt.Fprintf(&sb, "complete -c dsx -n '__fish_seen_subcommand_from %s' %s %s\n",
-					n, spelling, strings.TrimLeft(f, "-"))
+				fmt.Fprintf(&sb, "complete -c dsx -n '%s' %s %s\n",
+					cond, spelling, strings.TrimLeft(f, "-"))
 			}
 		}
 		return sb.String(), nil
@@ -184,3 +176,68 @@ compdef _dsx dsx
 		return "", dsxerr.Usage("completion <bash|zsh|fish>")
 	}
 }
+
+// fishAddressCond spells one address as a position test. bash and zsh index
+// into the word array and were right from the start; fish has no such array in
+// a completion predicate, so it gets one.
+func fishAddressCond(name string) string {
+	noun, verb, ok := strings.Cut(name, " ")
+	if !ok {
+		return "__dsx_at 1 " + name
+	}
+	return "__dsx_at 1 " + noun + "; and __dsx_at 2 " + verb
+}
+
+// fishPreamble carries the position helpers the generated rules key off.
+//
+// __fish_seen_subcommand_from, which these replace, answers "this word
+// appeared somewhere on the line" — the same thing as a position test only
+// while every word belongs to one command. dsx's do not: get is a verb of
+// project and of conv, put of files and of conv, ls of four nouns. So every
+// address was offered the union of the flags of everything sharing either of
+// its tokens, and "dsx project get --" proposed --chat. That fires on a line
+// that parses, which is what makes it worse than the noun-name-as-argument
+// case the old comment excused.
+const fishPreamble = `# dsx fish completion — dsx completion fish | source
+
+# __dsx_args is the line as dsx's own parser sees it: the command name gone and
+# the globals off the front, mirroring splitGlobalFlags. Skipping them is not
+# cosmetic — "dsx -C dir files" is two tokens longer than "dsx files", so a
+# count of raw tokens reads the wrong one for every -C line. The token under
+# the cursor is absent, so the count is the index of the argument being
+# completed, minus one.
+function __dsx_args
+    set -l t (commandline -pxc)
+    set -e t[1]
+    while set -q t[1]
+        switch $t[1]
+            case -C
+                set -e t[1]
+                if set -q t[1]
+                    set -e t[1]
+                end
+            case '-C=*'
+                set -e t[1]
+            case '*'
+                break
+        end
+    end
+    if set -q t[1]
+        printf '%s\n' $t
+    end
+end
+
+# __dsx_at <n> <word…> — the nth argument is one of these words.
+function __dsx_at
+    set -l a (__dsx_args)
+    test (count $a) -ge $argv[1]; or return 1
+    contains -- $a[$argv[1]] $argv[2..-1]
+end
+
+# __dsx_want <n> — the token being completed is the nth argument.
+function __dsx_want
+    test (count (__dsx_args)) -eq (math $argv[1] - 1)
+end
+
+complete -c dsx -f
+`

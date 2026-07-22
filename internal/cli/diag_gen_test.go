@@ -590,7 +590,7 @@ func TestCmdDoctorRejectsAnUnknownFlagAsUsage(t *testing.T) {
 var (
 	diagBashList = regexp.MustCompile(`compgen -W "([^"]*)"`)
 	diagZshList  = regexp.MustCompile(`cmds=\(([^)]*)\)`)
-	diagFishItem = regexp.MustCompile(`(?m)^complete -c dsx -n __fish_use_subcommand -a (\S+)$`)
+	diagFishItem = regexp.MustCompile(`(?m)^complete -c dsx -n '__dsx_want 1' -a (\S+)$`)
 )
 
 func diagCompletedCommands(t *testing.T, shell, script string) []string {
@@ -627,7 +627,7 @@ var diagShells = []string{"bash", "zsh", "fish"}
 var (
 	diagBashVerbs = regexp.MustCompile(`(?m)^      (\S+)\) verbs="([^"]*)" ;;$`)
 	diagZshVerbs  = regexp.MustCompile(`(?m)^      (\S+)\) verbs=\(([^)]*)\) ;;$`)
-	diagFishVerbs = regexp.MustCompile(`(?m)^complete -c dsx -n '__fish_seen_subcommand_from (\S+)' -a "([^"]*)"$`)
+	diagFishVerbs = regexp.MustCompile(`(?m)^complete -c dsx -n '__dsx_want 2; and __dsx_at 1 (\S+)' -a "([^"]*)"$`)
 )
 
 func diagCompletedVerbs(t *testing.T, shell, script string) map[string][]string {
