@@ -100,10 +100,17 @@ func TestFishOffersAVerbOnlyWhereAVerbGoes(t *testing.T) {
 			t.Errorf("dsx files <TAB> offered %v, missing %q", got, verb)
 		}
 	}
-	// Third position, with the noun's own name typed as an argument. A
-	// membership test reads that as "saw files" and offers the verb list on
-	// top of the path completion cat actually wants.
-	if got := fishComplete(t, "dsx files cat files"); contains(got, "tree") {
+	// Third position. The partial token has to share a prefix with a verb or
+	// the case proves nothing: fish filters candidates by what is typed, so
+	// `dsx files cat files` hides a leaking verb list behind a prefix no verb
+	// matches — a mutation loosening the position test to "at least" survived
+	// exactly that spelling.
+	if got := fishComplete(t, "dsx files cat t"); contains(got, "tree") {
+		t.Errorf("the verb list leaked past the verb position: %v", got)
+	}
+	// And the noun's own name as an argument, which is what a membership test
+	// reads as "saw files".
+	if got := fishComplete(t, "dsx files cat files t"); contains(got, "tree") {
 		t.Errorf("a noun name used as an argument re-triggered the verb list: %v", got)
 	}
 }
