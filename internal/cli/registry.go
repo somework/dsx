@@ -35,6 +35,12 @@ var (
 	// verb maps to every two-token address ending in it. Several nouns share
 	// ls, put, rm, new and get, so the value is a list.
 	verbIndex map[string][]string
+	// noArgAddresses is what the completion generators ask before offering
+	// files. Derived here rather than read from `groups` inside
+	// completionScript: diagGroup holds cmdCompletion and groups holds
+	// diagGroup, so reaching groups from that call chain closes the same
+	// initialization cycle the derivation below exists to avoid.
+	noArgAddresses []string
 )
 
 // Derivation stays in init() rather than in var initialisers: completionScript
@@ -47,6 +53,7 @@ func init() {
 	nounIndex = indexNouns(groups)
 	topNames = topNamesOf(groups)
 	verbIndex = indexVerbs(groups)
+	noArgAddresses = noArgAddressesOf(groups)
 }
 
 // commandSpec is help --json's shape: the registry as a machine reads it,
@@ -110,6 +117,19 @@ func indexNouns(gs []cmd.Group) map[string]cmd.Group {
 			out[g.Noun] = g
 		}
 	}
+	return out
+}
+
+func noArgAddressesOf(gs []cmd.Group) []string {
+	var out []string
+	for _, g := range gs {
+		for _, c := range g.Cmds {
+			if !takesAnArgument(c) {
+				out = append(out, c.Name)
+			}
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/somework/dsx/internal/cmd"
@@ -67,6 +68,16 @@ func completionScript(shell string) (string, error) {
 		return strings.Join(commandFlags(commandIndex[name]), " ")
 	}
 
+	// bare is the set that gets no file completion; the shells spell the same
+	// membership test three ways.
+	bareSet := make(map[string]bool, len(noArgAddresses))
+	var barePattern []string
+	for _, n := range noArgAddresses {
+		bareSet[n] = true
+		barePattern = append(barePattern, strconv.Quote(n))
+	}
+	bareCase := strings.Join(barePattern, "|")
+
 	switch shell {
 	case "bash":
 		var verbCases, flagCases strings.Builder
@@ -102,11 +113,15 @@ _dsx() {
 %s      esac
       COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
       ;;
-    *)  COMPREPLY=( $(compgen -f -- "$cur") ) ;;
+    *)
+      case "$addr" in
+        %s) return ;;
+      esac
+      COMPREPLY=( $(compgen -f -- "$cur") ) ;;
   esac
 }
 complete -F _dsx dsx
-`, list, verbCases.String(), nounPattern, flagCases.String()), nil
+`, list, verbCases.String(), nounPattern, flagCases.String(), bareCase), nil
 
 	case "zsh":
 		var verbCases, flagCases strings.Builder
@@ -139,10 +154,13 @@ _dsx() {
   fi
   case "$addr" in
 %s  esac
+  case "$addr" in
+    %s) _alternative "flags:flag:($opts)"; return ;;
+  esac
   _alternative "flags:flag:($opts)" 'files:file:_files'
 }
 compdef _dsx dsx
-`, list, verbCases.String(), flagCases.String()), nil
+`, list, verbCases.String(), flagCases.String(), bareCase), nil
 
 	case "fish":
 		var sb strings.Builder
@@ -160,7 +178,9 @@ compdef _dsx dsx
 		// one that offers files.
 		for _, n := range addresses {
 			cond := fishAddressCond(n)
-			fmt.Fprintf(&sb, "complete -c dsx -n '%s' -F\n", cond)
+			if !bareSet[n] {
+				fmt.Fprintf(&sb, "complete -c dsx -n '%s' -F\n", cond)
+			}
 			for _, f := range commandFlags(commandIndex[n]) {
 				spelling := "-l"
 				if !strings.HasPrefix(f, "--") {
@@ -175,6 +195,32 @@ compdef _dsx dsx
 	default:
 		return "", dsxerr.Usage("completion <bash|zsh|fish>")
 	}
+}
+
+// takesAnArgument reads a Form for anything a caller can type that is not a
+// flag spelling. Every address used to fall through to file completion,
+// including the ones that take nothing: `dsx pull <TAB>` offered the whole
+// directory and each of those names is refused with exit 2 a keystroke later.
+//
+// The question is deliberately "any argument", not "any positional". A flag's
+// value is an argument the shell should help with — diff's only one lives
+// inside [--out <dir>] — so reading it the narrower way would trade one wrong
+// offer for a missing right one.
+func takesAnArgument(c cmd.Command) bool {
+	rest := strings.TrimPrefix(c.Form, c.Name)
+	for _, f := range strings.Fields(strings.Map(unbracket, rest)) {
+		if !strings.HasPrefix(f, "-") {
+			return true
+		}
+	}
+	return false
+}
+
+func unbracket(r rune) rune {
+	if strings.ContainsRune("[]()|", r) {
+		return ' '
+	}
+	return r
 }
 
 // fishAddressCond spells one address as a position test. bash and zsh index
