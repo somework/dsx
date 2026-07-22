@@ -6,6 +6,7 @@ import (
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/reply"
 )
 
 var Group = cmd.Group{
@@ -23,7 +24,8 @@ var Group = cmd.Group{
 					return "", nil, err
 				}
 				return "list_members", map[string]any{"project_id": id}, nil
-			}},
+			},
+			Human: reply.Members},
 		{Name: "member add", Form: "member add <project> --role <r> (--email e | --uuid u)", Desc: "invite someone", Run: cmdMemberAdd},
 		{Name: "member rm", Form: "member rm <project> <uuid>", Desc: "remove someone", Run: cmdMemberRm},
 		{Name: "member role", Form: "member role <project> <uuid> <role>", Desc: "change a role", Run: cmdMemberRole},

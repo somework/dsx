@@ -179,6 +179,27 @@ Each element is exactly `{"id":…,"name":…,"url":…}`, all three strings; `i
 UUID every other tool takes as `project_id`. The tool declares no output schema, so this was
 measured rather than read — `TestLiveListProjectsIsABareArrayOfIDNameURL` is the claim's test.
 
+### list_design_systems
+
+A bare array again, of `{"id":…,"name":…,"is_default":bool}`. The default is the one a fresh
+project would use. `TestLiveDesignSystemsIsABareArrayOfIDNameDefault`.
+
+### get_project
+
+One object: `{"id","name","type","url","sharing":{"scope","link_permission","view_mode"}}`.
+`type` is an enum spelled `PROJECT_TYPE_PROJECT`. The `sharing` block is the link-scope half
+of access — the per-user half is `list_members`, and the two never overlap.
+`TestLiveGetProjectCarriesNameAndSharing`.
+
+### list_members
+
+A bare array of **per-user grants only**. The owner is not an element — access is implicit —
+and neither is link-scope access, which lives in `get_project`'s `sharing`. It answers `[]` for
+a caller outside the project's organization, and `[]` for an owned project nobody was invited
+to, which is why **the non-empty element's shape is unmeasured**: seeing one costs granting a
+real person access. dsx renders only the empty case and passes anything else through.
+`TestLiveListMembersIsABareArray`.
+
 ## Writing
 
 `write_files` reply — a **map**, not a list:
@@ -238,7 +259,22 @@ refused. `"0"` is invalid as `if_match` here — a delete needs the row to exist
 
 `copy_files` is **server-side**, project→project via `src_project_id`, not subject to the
 256 KiB cap, and never touches local disk. It is the only way to move unreadable files
-between projects.
+between projects. Its reply says the same thing three ways —
+`{"copied":[dest…],"etags":{dest:etag},"results":[{"src","dest","copied"}],"url":…}` — and
+`results` is the only one that names both ends of each copy.
+
+`delete_files` replies `{"deleted":N}` and echoes no paths, so nothing downstream can name
+which ones went.
+
+`create_support_js` is **not** shaped like `write_files`: `{"path":…,"bytes":N,"etags":{path:etag}}`,
+with no `written` field at all. Decoding one as the other reports a write of nothing, so dsx
+keeps two decoders and `TestLiveSupportJSReplyIsNotAWriteFilesReply` asserts they stay
+distinguishable. The tool also **refuses any basename but `support.js`** — pass
+`<dir>/support.js` to place it in a subdirectory.
+
+All three were measured against the sandbox project on scratch paths;
+`TestLiveWriteCopyDeleteRepliesStillMatchTheirRenderers` is the claim's test, and it asserts
+the file count back where it started.
 
 ## Binary: two gates that disagree
 

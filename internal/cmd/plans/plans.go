@@ -6,6 +6,7 @@ import (
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/reply"
 )
 
 var Group = cmd.Group{
@@ -57,5 +58,5 @@ func cmdPlan(ctx context.Context, c *mcp.Client, args []string) error {
 	if *scope != "" {
 		a["scope"] = *scope
 	}
-	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON, nil)
+	return cmd.Emit(ctx, c, "finalize_plan", a, *asJSON, reply.Plan)
 }

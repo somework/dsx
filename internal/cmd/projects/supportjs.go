@@ -5,6 +5,7 @@ import (
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/reply"
 )
 
 const defaultSupportJS = "support.js"
@@ -39,5 +40,5 @@ func cmdSupportJS(ctx context.Context, c *mcp.Client, args []string) error {
 	if dest == "" {
 		dest = defaultSupportJS
 	}
-	return cmd.EmitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON, nil)
+	return cmd.EmitWrite(ctx, c, "create_support_js", a, project, []string{dest}, *asJSON, reply.SupportJS)
 }

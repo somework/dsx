@@ -5,7 +5,9 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -53,20 +55,52 @@ func reachesAnAssertion(body *ast.BlockStmt) bool {
 	return found
 }
 
-func TestEveryLiveTestReachesAnAssertion(t *testing.T) {
-	src, err := os.ReadFile("live_test.go")
+// liveSources is every file the tag hides, not one file by name. Reading only
+// "live_test.go" was right while there was one; a second live file added
+// beside it would have been outside the floor entirely, which is the failure
+// this guard exists to prevent happening to a test.
+func liveSources(t *testing.T) []string {
+	t.Helper()
+	paths, err := filepath.Glob("live*_test.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bad, seen, err := assertionlessLiveTests(src)
-	if err != nil {
-		t.Fatalf("parsing live_test.go: %v", err)
+	if len(paths) == 0 {
+		t.Fatal("no live sources found; the glob matched nothing and this guard proved nothing")
 	}
-	if seen == 0 {
+	sort.Strings(paths)
+	return paths
+}
+
+func TestEveryLiveTestReachesAnAssertion(t *testing.T) {
+	total := 0
+	for _, path := range liveSources(t) {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bad, seen, err := assertionlessLiveTests(src)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		total += seen
+		if len(bad) > 0 {
+			t.Errorf("%s: live tests that never reach an assertion: %v — CI cannot run them, so an assertionless one is dead weight nothing else will catch", path, bad)
+		}
+	}
+	if total == 0 {
 		t.Fatal("no TestLive functions found; the walker matched nothing and this guard proved nothing")
 	}
-	if len(bad) > 0 {
-		t.Errorf("live tests that never reach an assertion: %v — CI cannot run them, so an assertionless one is dead weight nothing else will catch", bad)
+}
+
+// The glob has to actually reach the file this commit added, or it is the
+// by-name read again wearing a wildcard.
+func TestTheLiveFloorCoversEveryLiveSource(t *testing.T) {
+	got := liveSources(t)
+	for _, want := range []string{"live_test.go", "livereply_test.go"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("%s is outside the floor; found %v", want, got)
+		}
 	}
 }
 

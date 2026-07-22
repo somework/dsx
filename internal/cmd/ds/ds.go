@@ -2,6 +2,7 @@ package ds
 
 import (
 	"github.com/somework/dsx/internal/cmd"
+	"github.com/somework/dsx/internal/reply"
 )
 
 // Design systems are not a project's property: list_design_systems takes no
@@ -18,6 +19,7 @@ var Group = cmd.Group{
 					return "", nil, err
 				}
 				return "list_design_systems", map[string]any{}, nil
-			}},
+			},
+			Human: reply.DesignSystems},
 	},
 }

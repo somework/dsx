@@ -10,6 +10,7 @@ import (
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/reply"
 )
 
 var Group = cmd.Group{
@@ -28,7 +29,8 @@ var Group = cmd.Group{
 					return "", nil, err
 				}
 				return "get_project", map[string]any{"project_id": id}, nil
-			}},
+			},
+			Human: reply.Project},
 		{Name: "project new", Form: "project new <name> [--ds <id>]", Desc: "create project",
 			Run: cmdNew},
 		{Name: "project support-js", Form: "project support-js <project> [--path p]", Desc: "write the Design Components runtime", Run: cmdSupportJS},
