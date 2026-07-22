@@ -55,6 +55,7 @@ PROJECTS
   dsx project <id>                      project detail
   dsx new <name> [--ds <id>]            create project
   dsx systems                           list design systems
+  dsx sharing <project> [--scope s] [--link-permission p]
 
 FILES
   dsx files <verb>                      one project's files, read and written
@@ -70,12 +71,8 @@ PLANS / PREVIEW
 CONVERSATION
   dsx conv <verb>                       the project's Claude Design chat
 
-MEMBERS / SHARING
-  dsx members <project>
-  dsx member-add <project> --role <r> (--email e | --uuid u)
-  dsx member-rm <project> <uuid>
-  dsx member-role <project> <uuid> <role>
-  dsx sharing <project> [--scope s] [--link-permission p]
+MEMBERS
+  dsx member <verb>                     who may open the project, and with what role
 
 ESCAPE HATCH
   dsx prompt [--project id] [--ds id]   the server's own Claude Design prompt

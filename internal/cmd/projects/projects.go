@@ -36,6 +36,7 @@ var Group = cmd.Group{
 				}
 				return "list_design_systems", map[string]any{}, nil
 			}},
+		{Name: "sharing", Form: "sharing <project> [--scope s] [--link-permission p]", Run: cmdSharing},
 	},
 }
 

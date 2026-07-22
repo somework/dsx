@@ -34,7 +34,7 @@ var variadicCommands = map[string]string{
 // baseInvocations gives, for every non-variadic command, a VALID invocation
 // (required flags and minimal positionals) whose only defect once a trailing
 // positional is appended is that extra arg. conv-put needs --messages pointing
-// at a real JSON array and member-add needs --role plus --email, supplied here
+// at a real JSON array and member add needs --role plus --email, supplied here
 // so the surfaced error is the stray arg, not a missing flag.
 func baseInvocations(t *testing.T) map[string][]string {
 	t.Helper()
@@ -72,10 +72,10 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"conv get": {"proj"},
 		"conv put": {"proj", "--messages", msgs},
 		// MEMBERS
-		"members":     {"proj"},
-		"member-add":  {"proj", "--role", "editor", "--email", "x@y.z"},
-		"member-rm":   {"proj", "uuid"},
-		"member-role": {"proj", "uuid", "editor"},
+		"member ls":   {"proj"},
+		"member add":  {"proj", "--role", "editor", "--email", "x@y.z"},
+		"member rm":   {"proj", "uuid"},
+		"member role": {"proj", "uuid", "editor"},
 		"sharing":     {"proj"},
 		// ESCAPE HATCH
 		"prompt": {},
