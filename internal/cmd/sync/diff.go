@@ -9,7 +9,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-const diffForm = "diff [--out <dir>] [-j N]"
+const diffForm = "diff [--out <dir>]"
 
 // cmdDiff classifies each path as same, local-only, remote-only or differs —
 // see syncer.Diff's doc comment for the download-skipping rule and why it
@@ -19,7 +19,7 @@ func cmdDiff(ctx context.Context, c *mcp.Client, args []string) error {
 	fs := cmd.NewFlagSet("diff")
 	var (
 		out    = fs.String("out", "", "materialise the remote side of differing paths into this (empty) directory")
-		jobs   = fs.Int("j", 8, "concurrency")
+		jobs   = fs.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(fs)
 	)
 	pos, err := cmd.ParseArgs(fs, args)

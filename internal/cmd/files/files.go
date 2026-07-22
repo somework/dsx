@@ -64,7 +64,7 @@ func cmdLs(ctx context.Context, c *mcp.Client, args []string) error {
 func cmdTree(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("tree")
 	var (
-		jobs   = flags.Int("j", 8, "concurrency")
+		jobs   = flags.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(flags)
 	)
 	pos, err := cmd.ParseArgs(flags, args)

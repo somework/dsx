@@ -34,14 +34,14 @@ func cmdImportNames(file *ast.File) map[string]bool {
 const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth token; never writes it.
 
 SYNC (etag-aware; unchanged files cost no request at all)
-  dsx clone <project> <dir> [-j N]      first pull into a new directory
-  dsx pull  [--prune] [--force] [-n] [-j N]
-  dsx push  [--prune] [--force | --force-with-lease] [-n] [-j N]
+  dsx clone <project> <dir>             first pull into a new directory
+  dsx pull  [--prune] [--force] [-n]
+  dsx push  [--prune] [--force | --force-with-lease] [-n]
   dsx status                            what changed here, from disk alone; makes no network call
-  dsx fetch [-j N]                      record what the server holds; writes .dsx/, not the tree
+  dsx fetch                             record what the server holds; writes .dsx/, not the tree
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip
   dsx unpin [<dir>]                     release a binding that has synced nothing
-  dsx diff [--out <dir>] [-j N]         classify each path: same, local-only, remote-only, differs
+  dsx diff [--out <dir>]                classify each path: same, local-only, remote-only, differs
   Only clone and pin name a project or a directory. Every other verb acts on the
   tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
@@ -99,7 +99,7 @@ FLAGS
   --force     overwrite conflicts — pull, push
   -q          suppress the summary line — pull, push, status
   -n          dry run — pull, push
-  -j N        concurrency (default 8) — clone, pull, push, tree
+  -j N        concurrency (default 8) — clone, pull, push, tree, fetch, diff
 
 WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js
@@ -380,11 +380,13 @@ func footerFlagScopes(t *testing.T) map[string]map[string]bool {
 // stayed green while documenting a flag for a command that has none.
 //
 // The two halves have different reach, and the difference is the guard's real
-// limit. A FlagSet built from a non-literal name — synccmd's
-// `cmd.NewFlagSet(mode)` serves pull, push and status from one body — cannot be
-// attributed to a single command, so its flags are attributed to every command
-// its package's Group declares. That is exact for synccmd and conservative
-// elsewhere: it can only over-demand documentation, never let a flag through.
+// limit. A FlagSet built from a non-literal name cannot be attributed to a
+// single command, so its flags are attributed to every command its package's
+// Group declares — conservative by construction: it can only over-demand
+// documentation, never let a flag through. Nothing builds one that way today
+// (synccmd did, from one body serving pull, push and status, until the split
+// gave each its own literal), which is why --force-with-lease could be
+// documented for push alone at all.
 // The one scope not name-checked is `every command`; see footerFlagScopes.
 func TestEveryDeclaredFlagIsDocumented(t *testing.T) {
 	t.Parallel()
@@ -559,8 +561,11 @@ func groupCommandNames(file *ast.File, cmdNames map[string]bool) []string {
 
 // flagSetOwners maps a local variable holding a *flag.FlagSet to the commands it
 // belongs to: the one its string-literal name identifies, or — when the name is
-// an expression, as in synccmd's `cmd.NewFlagSet(mode)` — every command the
-// package's Group declares.
+// an expression — every command the package's Group declares.
+//
+// No command builds a FlagSet from an expression today; synccmd's
+// `cmd.NewFlagSet(mode)` did until pull and push were split apart, and the
+// fallback stays because the next one will not announce itself.
 func flagSetOwners(fn *ast.FuncDecl, cmdNames map[string]bool, pkgCommands []string) map[string][]string {
 	owner := map[string][]string{}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {

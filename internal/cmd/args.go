@@ -45,6 +45,14 @@ func NoPositionals(pos []string, form string) error {
 
 func JSONFlag(fs *flag.FlagSet) *bool { return fs.Bool("json", false, "machine-readable output") }
 
+// DefaultConcurrency is how many workers -j starts when nobody says. Six
+// commands take the flag and each used to spell the number itself, which made
+// the default six facts that merely agreed. It is a constant rather than a
+// ConcurrencyFlag helper on purpose: TestEveryDeclaredFlagIsDocumented finds a
+// flag by matching a selector literally named String/Bool/Int, so a wrapper
+// would hide every -j from the guard that keeps it documented.
+const DefaultConcurrency = 8
+
 func NewFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

@@ -12,7 +12,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-const cloneForm = "clone <project> <dir> [-j N]"
+const cloneForm = "clone <project> <dir>"
 
 // cmdClone is the first pull, named. It is a thin wrapper over syncer.Pull
 // rather than its own act, which is what earns it invariant 12's reporting
@@ -27,7 +27,7 @@ const cloneForm = "clone <project> <dir> [-j N]"
 func cmdClone(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("clone")
 	var (
-		jobs   = flags.Int("j", 8, "concurrency")
+		jobs   = flags.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(flags)
 	)
 	pos, err := cmd.ParseArgs(flags, args)

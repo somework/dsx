@@ -28,7 +28,7 @@ var diagGroup = cmd.Group{
 
 func cmdAuth(args []string) error {
 	flags := cmd.NewFlagSet("auth")
-	asJSON := flags.Bool("json", false, "JSON output")
+	asJSON := cmd.JSONFlag(flags)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err

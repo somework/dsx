@@ -9,7 +9,7 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-const fetchForm = "fetch [-j N]"
+const fetchForm = "fetch"
 
 // cmdFetch records what the server holds without touching the tree — see
 // syncer.Fetch's doc comment for the narrow-set rationale and the wholesale
@@ -17,7 +17,7 @@ const fetchForm = "fetch [-j N]"
 func cmdFetch(ctx context.Context, c *mcp.Client, args []string) error {
 	fs := cmd.NewFlagSet("fetch")
 	var (
-		jobs   = fs.Int("j", 8, "concurrency")
+		jobs   = fs.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(fs)
 	)
 	pos, err := cmd.ParseArgs(fs, args)

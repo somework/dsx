@@ -26,9 +26,9 @@ var Group = cmd.Group{
 	Cmds: []cmd.Command{
 		{Name: "clone", Form: cloneForm,
 			Desc: "first pull into a new directory", Run: cmdClone},
-		{Name: "pull", Form: "pull  [--prune] [--force] [-n] [-j N]",
+		{Name: "pull", Form: "pull  [--prune] [--force] [-n]",
 			Run: cmdPull},
-		{Name: "push", Form: "push  [--prune] [--force | --force-with-lease] [-n] [-j N]",
+		{Name: "push", Form: "push  [--prune] [--force | --force-with-lease] [-n]",
 			Run: cmdPush},
 		{Name: "status", Form: statusForm,
 			Desc:  "what changed here, from disk alone; makes no network call",
@@ -179,8 +179,8 @@ func cmdPull(ctx context.Context, c *mcp.Client, args []string) error {
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
 		force  = fs.Bool("force", false, "overwrite conflicts")
 		dry    = fs.Bool("n", false, "dry run")
-		jobs   = fs.Int("j", 8, "concurrency")
-		asJSON = fs.Bool("json", false, "JSON output")
+		jobs   = fs.Int("j", cmd.DefaultConcurrency, "concurrency")
+		asJSON = cmd.JSONFlag(fs)
 		quiet  = fs.Bool("q", false, "suppress summary")
 	)
 	pos, err := cmd.ParseArgs(fs, args)
@@ -224,8 +224,8 @@ func cmdPush(ctx context.Context, c *mcp.Client, args []string) error {
 		force  = fs.Bool("force", false, "overwrite conflicts")
 		lease  = fs.Bool("force-with-lease", false, "overwrite only what the last fetch still accounts for")
 		dry    = fs.Bool("n", false, "dry run")
-		jobs   = fs.Int("j", 8, "concurrency")
-		asJSON = fs.Bool("json", false, "JSON output")
+		jobs   = fs.Int("j", cmd.DefaultConcurrency, "concurrency")
+		asJSON = cmd.JSONFlag(fs)
 		quiet  = fs.Bool("q", false, "suppress summary")
 	)
 	pos, err := cmd.ParseArgs(fs, args)
