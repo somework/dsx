@@ -59,6 +59,10 @@ func run() error {
 		// refuse a flag by calling it unknown. TestNoVerbIsSpelledLikeAFlag
 		// keeps that branch from swallowing a real verb.
 		if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+			if i := misplacedVerb(g, args); i >= 0 {
+				return &dsxerr.Error{Kind: dsxerr.KindUsage,
+					Msg: "flags go after the verb — " + reorderVerbFirst(g.Noun, args, i)}
+			}
 			return printNounHelp(g, args)
 		}
 		verb := args[0]
@@ -83,6 +87,42 @@ func run() error {
 		return printCommandHelp(entry, err, args)
 	}
 	return err
+}
+
+// misplacedVerb finds this noun's verb standing behind a flag, and returns its
+// index. The dash branch above reads a leading dash as "no verb was given",
+// which is right for `dsx files -h` and silently wrong for `dsx member --json
+// rm p uuid`: the verb is there, one token along, and answering with the verb
+// list dropped a delete on the floor under exit 0 with an empty stderr. The
+// root level refuses the same mistake (`dsx --json pull` is a usage error), so
+// this branch was strictly the weaker of the two. Only a verb this noun
+// declares counts, which is what keeps a flag's value or a foreign noun's verb
+// from being read as one.
+func misplacedVerb(g cmd.Group, args []string) int {
+	for i, a := range args {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		for _, v := range nounVerbs(g) {
+			if a == v {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// reorderVerbFirst rebuilds the caller's own line with the verb in front.
+// Invariant 18 wants a refusal to name a form that parses, and here the form
+// that parses is the line they typed: ParseArgs takes flags before, between
+// and after positionals once a verb's FlagSet is reached, so nothing needs
+// dropping or reordering beyond the verb itself.
+func reorderVerbFirst(noun string, args []string, verbAt int) string {
+	out := make([]string, 0, len(args)+2)
+	out = append(out, "dsx", noun, args[verbAt])
+	out = append(out, args[:verbAt]...)
+	out = append(out, args[verbAt+1:]...)
+	return strings.Join(out, " ")
 }
 
 // helpRequested spots the two spellings flag itself answers, and only in the
