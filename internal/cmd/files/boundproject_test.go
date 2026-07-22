@@ -169,6 +169,35 @@ func TestLsStillRequiresAProjectInsideASyncedDirectory(t *testing.T) {
 	}
 }
 
+// The one-positional arm above is only half of ls's refusal. `dsx ls` with none
+// is the other half, and it is the arm a ledger fallback would be added to:
+// tree and cat both take theirs there. Left unheld, a fallback here goes in
+// silently — the whole suite stays green.
+// TestTreeWithNoProjectUsesTheDirectoryBinding is the positive control: it
+// proves bindCwd makes that fallback reachable at all.
+func TestLsWithNoProjectRefusesInsideASyncedDirectory(t *testing.T) {
+	bindCwd(t, "proj-A")
+
+	var seen []map[string]any
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		seen = append(seen, args)
+		return fakeReply{Text: "[]"}
+	})
+
+	_, err := captureStdout(t, func() error {
+		return cmdLs(context.Background(), fakeClient(f), nil)
+	})
+	if err == nil {
+		t.Fatal("bare `dsx ls` ran inside a synced directory")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind=%v, want %v", got, dsxerr.KindUsage)
+	}
+	if len(seen) > 0 {
+		t.Errorf("ls called the server with %v; it took its project from the ledger", seen[0])
+	}
+}
+
 // The mutating commands keep naming their project: a ledger read on put/rm/cp
 // would let cwd decide the target of a destructive act.
 func TestMutatingCommandsDoNotReadTheLedger(t *testing.T) {
