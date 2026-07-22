@@ -69,8 +69,8 @@ func baseInvocations(t *testing.T) map[string][]string {
 		"preview":    {"proj", "path"},
 		"support-js": {"proj"},
 		// CONVERSATION
-		"conv":     {"proj"},
-		"conv-put": {"proj", "--messages", msgs},
+		"conv get": {"proj"},
+		"conv put": {"proj", "--messages", msgs},
 		// MEMBERS
 		"members":     {"proj"},
 		"member-add":  {"proj", "--role", "editor", "--email", "x@y.z"},

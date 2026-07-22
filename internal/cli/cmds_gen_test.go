@@ -198,13 +198,13 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 		},
 		{
 			name: "conv without --chat omits chat_id",
-			cmd:  "conv", argv: []string{"p1"},
+			cmd:  "conv get", argv: []string{"p1"},
 			wantTool: "get_conversation",
 			wantArgs: map[string]any{"project_id": "p1"},
 		},
 		{
 			name: "conv with --chat",
-			cmd:  "conv", argv: []string{"p1", "--chat", "c1"},
+			cmd:  "conv get", argv: []string{"p1", "--chat", "c1"},
 			wantTool: "get_conversation",
 			wantArgs: map[string]any{"project_id": "p1", "chat_id": "c1"},
 		},
@@ -567,7 +567,7 @@ func TestJSONOutputIsExactlyOneJSONDocument(t *testing.T) {
 		{"ls", "ls", []string{"p1", "--json"}},
 		{"new", "new", []string{"n", "--json"}},
 		{"prompt", "prompt", []string{"--json"}},
-		{"conv", "conv", []string{"p1", "--json"}},
+		{"conv get", "conv get", []string{"p1", "--json"}},
 		{"sharing", "sharing", []string{"p1", "--json"}},
 		{"plan", "plan", []string{"p1", "--json"}},
 		{"preview", "preview", []string{"p1", "i.html", "--json"}},
@@ -906,7 +906,7 @@ func TestCmdConvPutSendsSyncedThroughIdxOnlyWhenGiven(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeMCP(t, cmdsReplyJSON(`{"ok":true}`))
-			if _, err := cmdsRun(t, f, "conv-put", tc.argv...); err != nil {
+			if _, err := cmdsRun(t, f, "conv put", tc.argv...); err != nil {
 				t.Fatalf("conv-put failed: %v", err)
 			}
 			got, present := cmdsOnlyCall(t, f).Args["synced_through_idx"]
@@ -924,7 +924,7 @@ func TestCmdConvPutForwardsTheMessagesArrayAndTheOptionalMetadata(t *testing.T) 
 	msgs := cmdsTempFile(t, "m.json", `[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]`)
 	f := newFakeMCP(t, cmdsReplyJSON(`{"ok":true}`))
 
-	if _, err := cmdsRun(t, f, "conv-put",
+	if _, err := cmdsRun(t, f, "conv put",
 		"p1", "--messages", msgs, "--chat", "c1", "--title", "T", "--append"); err != nil {
 		t.Fatalf("conv-put failed: %v", err)
 	}
@@ -953,7 +953,7 @@ func TestCmdConvPutRejectsAMessagesFileThatIsNotAnArrayBeforeCallingTheServer(t 
 			return fakeReply{IsError: true}
 		})
 
-		_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", bad)
+		_, err := cmdsRun(t, f, "conv put", "p1", "--messages", bad)
 		if err == nil {
 			t.Errorf("conv-put accepted a messages file holding %q", content)
 		} else if k := dsxerr.Classify(err).Kind; k != dsxerr.KindUsage {
@@ -973,7 +973,7 @@ func TestCmdConvPutRejectsMessagesThatAreNotJSONObjects(t *testing.T) {
 			return fakeReply{IsError: true}
 		})
 
-		_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", bad)
+		_, err := cmdsRun(t, f, "conv put", "p1", "--messages", bad)
 		if err == nil {
 			t.Errorf("conv-put accepted a messages file holding %q", content)
 		} else if k := dsxerr.Classify(err).Kind; k != dsxerr.KindUsage {
@@ -992,7 +992,7 @@ func TestCmdConvPutSurfacesAMissingMessagesFileWithoutCallingTheServer(t *testin
 	})
 
 	missing := filepath.Join(t.TempDir(), "nope.json")
-	_, err := cmdsRun(t, f, "conv-put", "p1", "--messages", missing)
+	_, err := cmdsRun(t, f, "conv put", "p1", "--messages", missing)
 	if err == nil {
 		t.Fatal("conv-put succeeded with a missing messages file")
 	}
@@ -1021,9 +1021,9 @@ func TestUsageErrorsClassifyAsUsageAndTouchNoNetwork(t *testing.T) {
 		{"plan without a project", "plan", []string{}},
 		{"preview without a path", "preview", []string{"p1"}},
 		{"support-js without a project", "support-js", []string{}},
-		{"conv without a project", "conv", []string{}},
-		{"conv-put without --messages", "conv-put", []string{"p1"}},
-		{"conv-put without a project", "conv-put", []string{}},
+		{"conv get without a project", "conv get", []string{}},
+		{"conv put without --messages", "conv put", []string{"p1"}},
+		{"conv put without a project", "conv put", []string{}},
 		{"member-add without --role", "member-add", []string{"p1", "--email", "a@b.c"}},
 		{"member-add without --email or --uuid", "member-add", []string{"p1", "--role", "editor"}},
 		{"member-add with both --email and --uuid", "member-add", []string{"p1", "--role", "editor", "--email", "a@b.c", "--uuid", "u1"}},

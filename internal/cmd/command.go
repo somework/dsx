@@ -23,22 +23,33 @@ const (
 )
 
 type Command struct {
+	// Name is the full invocation minus "dsx": one token for a flat command,
+	// two for one under a noun ("conv get"). Dispatch keys off it, and it is
+	// what a refusal prints, so a bare verb here would name a form that no
+	// longer parses.
 	Name string
 
 	Aliases []string
 
 	Form string
 
-	Desc  string
-	Needs Needs
-	Tool  func(pos []string) (string, map[string]any, error)
-	Run   func(ctx context.Context, c *mcp.Client, args []string) error
+	Desc string
+	// Section groups a noun's verbs in its own help. Presentation only.
+	Section string
+	Needs   Needs
+	Tool    func(pos []string) (string, map[string]any, error)
+	Run     func(ctx context.Context, c *mcp.Client, args []string) error
 }
 
 type Group struct {
 	Title string
-	Note  string
-	Cmds  []Command
+	// Noun is the first token of every command in the group, empty for a group
+	// of flat commands. It is what the root usage offers in place of the verbs.
+	Noun string
+	// Desc summarises the noun for that one root line.
+	Desc string
+	Note string
+	Cmds []Command
 }
 
 func (c Command) Dispatch(ctx context.Context, client *mcp.Client, args []string) error {

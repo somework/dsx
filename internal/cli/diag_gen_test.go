@@ -624,9 +624,71 @@ func diagCompletedCommands(t *testing.T, shell, script string) []string {
 
 var diagShells = []string{"bash", "zsh", "fish"}
 
+var (
+	diagBashVerbs = regexp.MustCompile(`(?m)^      (\S+)\) verbs="([^"]*)" ;;$`)
+	diagZshVerbs  = regexp.MustCompile(`(?m)^      (\S+)\) verbs=\(([^)]*)\) ;;$`)
+	diagFishVerbs = regexp.MustCompile(`(?m)^complete -c dsx -n '__fish_seen_subcommand_from (\S+)' -a "([^"]*)"$`)
+)
+
+func diagCompletedVerbs(t *testing.T, shell, script string) map[string][]string {
+	t.Helper()
+	var re *regexp.Regexp
+	switch shell {
+	case "bash":
+		re = diagBashVerbs
+	case "zsh":
+		re = diagZshVerbs
+	case "fish":
+		re = diagFishVerbs
+	default:
+		t.Fatalf("unhandled shell %q", shell)
+	}
+	out := map[string][]string{}
+	for _, m := range re.FindAllStringSubmatch(script, -1) {
+		out[m[1]] = strings.Fields(m[2])
+	}
+	return out
+}
+
+// A noun offered in the first position and nothing under it is worse than not
+// offering it: the shell then teaches a prefix the binary refuses to run alone.
+// The flat half of the completion is pinned by the sibling test above, so this
+// one cannot pass by finding nothing anywhere.
+func TestEveryVerbIsOfferedUnderItsNoun(t *testing.T) {
+	t.Parallel()
+	if len(nounIndex) == 0 {
+		t.Skip("no noun groups registered")
+	}
+	for _, shell := range diagShells {
+		t.Run(shell, func(t *testing.T) {
+			t.Parallel()
+			script, err := completionScript(shell)
+			if err != nil {
+				t.Fatalf("completionScript(%q): %v", shell, err)
+			}
+			got := diagCompletedVerbs(t, shell, script)
+			if len(got) != len(nounIndex) {
+				t.Errorf("%s offers verbs for %d nouns, want %d: %v", shell, len(got), len(nounIndex), got)
+			}
+			for noun, g := range nounIndex {
+				want := append([]string(nil), nounVerbs(g)...)
+				sort.Strings(want)
+				have := append([]string(nil), got[noun]...)
+				sort.Strings(have)
+				if !reflect.DeepEqual(have, want) {
+					t.Errorf("%s completes %q with %v, want %v", shell, noun, have, want)
+				}
+			}
+		})
+	}
+}
+
+// The first position offers topNames — every flat command plus every noun, and
+// none of the verbs. TestEveryVerbIsOfferedUnderItsNoun holds the second
+// position; between them every address stays reachable from a shell.
 func TestEveryCommandNameIsOfferedByEveryShell(t *testing.T) {
 	t.Parallel()
-	want := append([]string(nil), commandNames...)
+	want := append([]string(nil), topNames...)
 	sort.Strings(want)
 
 	for _, shell := range diagShells {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/somework/dsx/internal/auth"
@@ -51,6 +52,22 @@ func run() error {
 
 	name := args[0]
 	args = args[1:]
+
+	if g, isNoun := nounIndex[name]; isNoun {
+		// A dash where the verb goes is a question about the noun, not a verb
+		// spelled oddly: `dsx conv --json` must list the verbs rather than
+		// refuse a flag by calling it unknown. TestNoVerbIsSpelledLikeAFlag
+		// keeps that branch from swallowing a real verb.
+		if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+			return printNounHelp(g, args)
+		}
+		verb := args[0]
+		name, args = g.Noun+" "+verb, args[1:]
+		if _, ok := commandIndex[name]; !ok {
+			return &dsxerr.Error{Kind: dsxerr.KindUsage,
+				Msg: "unknown " + g.Noun + " verb " + strconv.Quote(verb) + " — run `dsx " + g.Noun + " -h`"}
+		}
+	}
 
 	entry, ok := commandIndex[name]
 	if !ok {
@@ -111,6 +128,29 @@ func dispatch(entry cmd.Command, args []string) error {
 	// stderr, not stdout: the notice explains a wait, and stdout is the report
 	// a caller may be piping.
 	return entry.Dispatch(ctx, mcp.New(token, mcp.WithRetryNotice(os.Stderr)), args)
+}
+
+// printNounHelp answers `dsx <noun>` and `dsx <noun> -h`. It runs before any
+// Command is resolved, so no Needs exists yet and no credential is read — the
+// same ordering TestPullHelpAnswersBeforeAuth pins one level down.
+func printNounHelp(g cmd.Group, args []string) error {
+	if !dsxerr.JSONRequested(args) {
+		fmt.Print(renderNounHelp(g))
+		return nil
+	}
+	verbs := make([]commandSpec, 0, len(g.Cmds))
+	for _, c := range g.Cmds {
+		verbs = append(verbs, commandSpec{
+			Group: g.Title, Noun: g.Noun, Name: c.Name,
+			Form: c.Form, Desc: c.Desc, Section: c.Section, Aliases: c.Aliases,
+		})
+	}
+	b, err := json.Marshal(map[string]any{"noun": g.Noun, "desc": g.Desc, "verbs": verbs})
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(b))
+	return nil
 }
 
 func printCommandHelp(entry cmd.Command, help error, args []string) error {

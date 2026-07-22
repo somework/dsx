@@ -71,8 +71,7 @@ PLANS / PREVIEW
   dsx support-js <project> [--path p]
 
 CONVERSATION
-  dsx conv <project> [--chat id]
-  dsx conv-put <project> --messages <file.json> [--chat id] [--title t] [--append] [--synced-through-idx N]
+  dsx conv <verb>                       the project's Claude Design chat
 
 MEMBERS / SHARING
   dsx members <project>
@@ -145,14 +144,17 @@ func TestEveryCommandHasExactlyOneShape(t *testing.T) {
 	}
 }
 
+// Name is the full address — two tokens under a noun — so the Form must open
+// with all of it. Cutting at the first space would compare "conv" against
+// "conv get" and call every noun command mis-formed.
 func TestEveryCommandFormStartsWithItsName(t *testing.T) {
 	t.Parallel()
 	for _, g := range groups {
 		for _, c := range g.Cmds {
-			first, _, _ := strings.Cut(c.Form, " ")
-			if first != c.Name {
-				t.Errorf("%q has Form %q, which documents `dsx %s`", c.Name, c.Form, first)
+			if c.Form == c.Name || strings.HasPrefix(c.Form, c.Name+" ") {
+				continue
 			}
+			t.Errorf("%q has Form %q, which documents another invocation", c.Name, c.Form)
 		}
 	}
 }

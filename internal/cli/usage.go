@@ -49,14 +49,41 @@ func renderUsage(gs []cmd.Group) string {
 	sb.WriteString(usageHeader + "\n")
 	for _, g := range gs {
 		sb.WriteString("\n" + g.Title + "\n")
-		for _, c := range g.Cmds {
-			sb.WriteString(usageLine(c))
+		if g.Noun != "" {
+			sb.WriteString(usageLine(cmd.Command{Form: g.Noun + " <verb>", Desc: g.Desc}))
+		} else {
+			for _, c := range g.Cmds {
+				sb.WriteString(usageLine(c))
+			}
 		}
 		if g.Note != "" {
 			sb.WriteString(g.Note + "\n")
 		}
 	}
 	sb.WriteString("\n" + usageFooter)
+	return sb.String()
+}
+
+// renderNounHelp is what `dsx <noun>` prints: every verb in full, under its
+// section heading when the group declares one. A group declaring no section
+// renders one flat list — the heading is not invented for it.
+func renderNounHelp(g cmd.Group) string {
+	var sb strings.Builder
+	sb.WriteString("usage: dsx " + g.Noun + " <verb>\n")
+	if g.Desc != "" {
+		sb.WriteString(g.Desc + "\n")
+	}
+	section := ""
+	for _, c := range g.Cmds {
+		if c.Section != section {
+			section = c.Section
+			sb.WriteString("\n" + section + "\n")
+		}
+		sb.WriteString(usageLine(c))
+	}
+	if g.Note != "" {
+		sb.WriteString(g.Note + "\n")
+	}
 	return sb.String()
 }
 

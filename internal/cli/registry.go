@@ -2,6 +2,7 @@ package cli
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/cmd/conv"
@@ -23,21 +24,34 @@ var (
 	commandIndex map[string]cmd.Command
 	commandNames []string
 	commandSpecs []commandSpec
+	// nounIndex answers the only question dispatch asks of the first token:
+	// is this a noun, and if so which group does it open?
+	nounIndex map[string]cmd.Group
+	// topNames is what a shell offers in the first position: every flat
+	// command plus every noun, and none of the verbs.
+	topNames []string
 )
 
+// Derivation stays in init() rather than in var initialisers: completionScript
+// reads these, diagGroup holds cmdCompletion, and groups holds diagGroup, so a
+// var initialiser closes an initialization cycle the compiler refuses.
 func init() {
 	commandIndex = indexCommands(groups)
 	commandNames = commandNamesOf(groups)
 	commandSpecs = commandSpecsOf(groups)
+	nounIndex = indexNouns(groups)
+	topNames = topNamesOf(groups)
 }
 
 // commandSpec is help --json's shape: the registry as a machine reads it,
 // so per-command invocation syntax does not survive only as prose.
 type commandSpec struct {
 	Group   string   `json:"group"`
+	Noun    string   `json:"noun,omitempty"`
 	Name    string   `json:"name"`
 	Form    string   `json:"form"`
 	Desc    string   `json:"desc,omitempty"`
+	Section string   `json:"section,omitempty"`
 	Aliases []string `json:"aliases,omitempty"`
 }
 
@@ -71,12 +85,49 @@ func commandSpecsOf(gs []cmd.Group) []commandSpec {
 		for _, c := range g.Cmds {
 			out = append(out, commandSpec{
 				Group:   g.Title,
+				Noun:    g.Noun,
 				Name:    c.Name,
 				Form:    c.Form,
 				Desc:    c.Desc,
+				Section: c.Section,
 				Aliases: c.Aliases,
 			})
 		}
+	}
+	return out
+}
+
+func indexNouns(gs []cmd.Group) map[string]cmd.Group {
+	out := make(map[string]cmd.Group)
+	for _, g := range gs {
+		if g.Noun != "" {
+			out[g.Noun] = g
+		}
+	}
+	return out
+}
+
+func topNamesOf(gs []cmd.Group) []string {
+	var out []string
+	for _, g := range gs {
+		if g.Noun != "" {
+			out = append(out, g.Noun)
+			continue
+		}
+		for _, c := range g.Cmds {
+			out = append(out, c.Name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// nounVerbs is the second completion level: the verbs of one noun, spelled
+// without it.
+func nounVerbs(g cmd.Group) []string {
+	var out []string
+	for _, c := range g.Cmds {
+		out = append(out, strings.TrimPrefix(c.Name, g.Noun+" "))
 	}
 	return out
 }

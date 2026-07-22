@@ -12,25 +12,27 @@ import (
 
 var Group = cmd.Group{
 	Title: "CONVERSATION",
+	Noun:  "conv",
+	Desc:  "the project's Claude Design chat",
 	Cmds: []cmd.Command{
-		{Name: "conv", Form: "conv <project> [--chat id]", Run: cmdConv},
-		{Name: "conv-put", Form: "conv-put <project> --messages <file.json> [--chat id] [--title t] [--append] [--synced-through-idx N]", Run: cmdConvPut},
+		{Name: "conv get", Form: "conv get <project> [--chat id]", Desc: "read a conversation", Run: cmdConv},
+		{Name: "conv put", Form: "conv put <project> --messages <file.json> [--chat id] [--title t] [--append] [--synced-through-idx N]", Desc: "write one", Run: cmdConvPut},
 	},
 }
 
 func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("conv")
+	flags := cmd.NewFlagSet("conv get")
 	chat := flags.String("chat", "", "chat id")
 	asJSON := cmd.JSONFlag(flags)
 	pos, err := cmd.ParseArgs(flags, args)
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "conv <project> [--chat id]")
+	project, rest, err := cmd.Need1(pos, "conv get <project> [--chat id]")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "conv <project> [--chat id]"); err != nil {
+	if err := cmd.NoExtra(rest, "conv get <project> [--chat id]"); err != nil {
 		return err
 	}
 	a := map[string]any{"project_id": project}
@@ -41,7 +43,7 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 }
 
 func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
-	flags := cmd.NewFlagSet("conv-put")
+	flags := cmd.NewFlagSet("conv put")
 	var (
 		msgFile = flags.String("messages", "", "JSON file holding the messages array (required)")
 		chat    = flags.String("chat", "", "chat id")
@@ -54,15 +56,15 @@ func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {
 	if err != nil {
 		return err
 	}
-	project, rest, err := cmd.Need1(pos, "conv-put <project> --messages <file.json>")
+	project, rest, err := cmd.Need1(pos, "conv put <project> --messages <file.json>")
 	if err != nil {
 		return err
 	}
-	if err := cmd.NoExtra(rest, "conv-put <project> --messages <file.json>"); err != nil {
+	if err := cmd.NoExtra(rest, "conv put <project> --messages <file.json>"); err != nil {
 		return err
 	}
 	if *msgFile == "" {
-		return dsxerr.Usage("conv-put <project> --messages <file.json>")
+		return dsxerr.Usage("conv put <project> --messages <file.json>")
 	}
 	b, err := os.ReadFile(*msgFile)
 	if err != nil {
