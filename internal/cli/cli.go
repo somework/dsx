@@ -75,7 +75,12 @@ func run() error {
 
 	entry, ok := commandIndex[name]
 	if !ok {
-		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "unknown command " + strconv.Quote(name) + " — run `dsx help`"}
+		msg := "unknown command " + strconv.Quote(name) + " — run `dsx help`"
+		if alts := didYouMean(name); len(alts) > 0 {
+			msg = "unknown command " + strconv.Quote(name) +
+				" — did you mean " + strings.Join(alts, ", ") + "? run `dsx help`"
+		}
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: msg}
 	}
 
 	err = dispatch(entry, args)
@@ -87,6 +92,37 @@ func run() error {
 		return printCommandHelp(entry, err, args)
 	}
 	return err
+}
+
+// didYouMean turns an unknown first token into the addresses it could have
+// meant, already quoted. Two shapes cover the mistakes the migration created
+// and nothing else does: a bare verb, which is how every removed flat spelling
+// was written, and a pluralised noun, which is how the nouns themselves get
+// mistyped — dsx members reads as natural English and the registry is singular
+// there only because the server's own tools are. The mechanism is not new; the
+// second token already had it, since a dead form whose first token is still a
+// noun gets a specific refusal. Anything else gets none: a suggestion invented
+// for every typo is worth nothing.
+func didYouMean(name string) []string {
+	quote := func(addrs []string) []string {
+		out := make([]string, 0, len(addrs))
+		for _, a := range addrs {
+			out = append(out, "`dsx "+a+"`")
+		}
+		return out
+	}
+	if addrs := verbIndex[name]; len(addrs) > 0 {
+		return quote(addrs)
+	}
+	for _, alt := range []string{strings.TrimSuffix(name, "s"), name + "s"} {
+		if alt == name {
+			continue
+		}
+		if _, ok := nounIndex[alt]; ok {
+			return quote([]string{alt})
+		}
+	}
+	return nil
 }
 
 // misplacedVerb finds this noun's verb standing behind a flag, and returns its

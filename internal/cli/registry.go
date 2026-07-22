@@ -31,6 +31,10 @@ var (
 	// topNames is what a shell offers in the first position: every flat
 	// command plus every noun, and none of the verbs.
 	topNames []string
+	// verbIndex answers what a removed flat spelling would have meant: a bare
+	// verb maps to every two-token address ending in it. Several nouns share
+	// ls, put, rm, new and get, so the value is a list.
+	verbIndex map[string][]string
 )
 
 // Derivation stays in init() rather than in var initialisers: completionScript
@@ -42,6 +46,7 @@ func init() {
 	commandSpecs = commandSpecsOf(groups)
 	nounIndex = indexNouns(groups)
 	topNames = topNamesOf(groups)
+	verbIndex = indexVerbs(groups)
 }
 
 // commandSpec is help --json's shape: the registry as a machine reads it,
@@ -104,6 +109,23 @@ func indexNouns(gs []cmd.Group) map[string]cmd.Group {
 		if g.Noun != "" {
 			out[g.Noun] = g
 		}
+	}
+	return out
+}
+
+func indexVerbs(gs []cmd.Group) map[string][]string {
+	out := make(map[string][]string)
+	for _, g := range gs {
+		if g.Noun == "" {
+			continue
+		}
+		for _, c := range g.Cmds {
+			verb := strings.TrimPrefix(c.Name, g.Noun+" ")
+			out[verb] = append(out[verb], c.Name)
+		}
+	}
+	for _, addrs := range out {
+		sort.Strings(addrs)
 	}
 	return out
 }
