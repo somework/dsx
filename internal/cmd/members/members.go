@@ -52,7 +52,14 @@ func cmdMemberAdd(ctx context.Context, c *mcp.Client, args []string) error {
 	if *role == "" {
 		return dsxerr.Usage("member add <project> --role <r> (--email e | --uuid u)")
 	}
-	if (*email == "") == (*uuid == "") {
+	// Two mistakes, two messages. One condition covered both — it is true when
+	// neither flag is given as well as when both are — and it named only the
+	// duplicate, so a caller who had simply not said whom to invite went
+	// looking for a second flag they never typed.
+	if *email == "" && *uuid == "" {
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "name the invitee: give --email or --uuid"}
+	}
+	if *email != "" && *uuid != "" {
 		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "give --email or --uuid, not both"}
 	}
 	a := map[string]any{"project_id": project, "role": *role}
