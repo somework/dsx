@@ -95,67 +95,60 @@ func TestPinThenFetchThenStatusReportsNoConflicts(t *testing.T) {
 		t.Fatalf("fetch: %v", err)
 	}
 
-	statusJSON := func() (pull syncer.PullReport, push syncer.PushReport) {
+	statusJSON := func() syncer.StatusReport {
 		t.Helper()
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "status", []string{"--json"})
+			return cmdStatus([]string{"--json"})
 		})
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
-		var got struct {
-			Pull syncer.PullReport `json:"pull"`
-			Push syncer.PushReport `json:"push"`
-		}
+		var got syncer.StatusReport
 		if uErr := json.Unmarshal([]byte(out), &got); uErr != nil {
 			t.Fatalf("status --json is not one JSON document: %v\n%s", uErr, out)
 		}
-		return got.Pull, got.Push
+		return got
 	}
 
-	pull, push := statusJSON()
-	if len(pull.Conflicts) != 0 {
-		t.Errorf("pull conflicts = %v, want none", pull.Conflicts)
+	// shared.css was on disk when fetch ran, so fetch downloaded it and proved
+	// its bytes. status reads that proof and says so, instead of calling an
+	// adopted file a conflict.
+	rep := statusJSON()
+	if !containsPath(rep.UntrackedSame, "shared.css") {
+		t.Errorf("UntrackedSame = %v, want shared.css — fetch proved these exact bytes", rep.UntrackedSame)
 	}
-	if len(push.Conflicts) != 0 {
-		t.Errorf("push conflicts = %v, want none", push.Conflicts)
+	if containsPath(rep.UntrackedDiffers, "shared.css") {
+		t.Errorf("shared.css read as differing from the server it was just verified against")
 	}
-	if pull.Verified != 1 {
-		t.Errorf("pull verified = %d, want 1 (shared.css)", pull.Verified)
+	// new.css is on the server but not yet on disk, so it is remote-only and
+	// nothing local can be said about it.
+	if !containsPath(rep.RemoteOnly, "new.css") {
+		t.Errorf("RemoteOnly = %v, want new.css", rep.RemoteOnly)
 	}
 
 	// Now the file appears — byte-identical to what the server already holds,
-	// but dsx has no way to know that without downloading it.
+	// but no fetch has downloaded it, so nothing here proves that.
 	maincliWriteFile(t, dir, "new.css", newBody)
 
-	pull2, push2 := statusJSON()
-	pullText, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", nil)
-	})
-	if err != nil {
-		t.Fatalf("status (text): %v", err)
-	}
+	rep2 := statusJSON()
 
-	// This is the finding, not a bug this test is meant to catch: a file
-	// created after `dsx fetch` reads as a conflict even when its bytes are
-	// identical to the server's, because nothing ever verified it. Report the
-	// actual text; do not change the design to make this assertion pass
-	// differently — see "surprises" in the C9 report.
-	if !containsPath(pull2.Conflicts, "new.css") {
-		t.Errorf("pull conflicts after adding new.css = %v, want it to include new.css "+
-			"(unverified — this is the documented gap, not a defect)", pull2.Conflicts)
+	// The gap this test has always documented, narrowed rather than closed.
+	// The snapshot holds the whole listing, so status now knows new.css EXISTS
+	// on the server and says "untracked, differs" instead of the barer
+	// "untracked" it could manage before. What it still cannot say is whether
+	// the bytes match: that costs a download, and only `dsx fetch` spends it.
+	// Do not change the design to make this assertion read differently.
+	if !containsPath(rep2.UntrackedDiffers, "new.css") {
+		t.Errorf("UntrackedDiffers = %v, want new.css — it is listed but never verified", rep2.UntrackedDiffers)
 	}
-	if !containsPath(push2.Conflicts, "new.css") {
-		t.Errorf("push conflicts after adding new.css = %v, want it to include new.css", push2.Conflicts)
+	if containsPath(rep2.Untracked, "new.css") {
+		t.Errorf("new.css read as merely untracked; the snapshot knows the server holds it: %v", rep2.Untracked)
 	}
-	// shared.css must still read clean — the new conflict must not spill onto
-	// the path that was actually fetched and verified.
-	if containsPath(pull2.Conflicts, "shared.css") || containsPath(push2.Conflicts, "shared.css") {
-		t.Errorf("shared.css leaked into a conflict list: pull=%v push=%v", pull2.Conflicts, push2.Conflicts)
+	// shared.css must still read clean — the new path must not spill onto the
+	// one that was actually fetched and verified.
+	if !containsPath(rep2.UntrackedSame, "shared.css") {
+		t.Errorf("shared.css stopped reading as proven when new.css appeared: %+v", rep2)
 	}
-
-	t.Logf("dsx status (text) after adding a file identical to the server's copy, "+
-		"without re-running fetch:\n%s", pullText)
 }
 
 // TestPinRecordsTheClientsEndpoint proves cmdPin's wiring of c.Endpoint()

@@ -28,7 +28,7 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 dsx projects                                   # find your project id
 dsx clone <project> design                     # first pull into a new directory
 cd design && dsx push                          # disk → server
-dsx status                                     # what a sync would do; transfers nothing
+dsx status                                     # what changed here, from disk alone; no network call
 dsx help
 ```
 
@@ -136,7 +136,7 @@ dsx's primary caller is a program, so the interface is built for one.
 | `5` | **auth** — run any `claude` command, then retry |
 
 A dry run exits `0` even with conflicts: it was asked to move nothing, so refusing to move
-something is the answer it wanted. `dsx status` is a report and always exits `0` — read its
+something is the answer it wanted. `dsx status` is a report and exits `0` whatever it finds — read its
 `--json` for the conflict list.
 
 **`--json`** makes stdout exactly one JSON document. Tools that already answer in JSON pass

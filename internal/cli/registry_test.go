@@ -37,7 +37,7 @@ SYNC (etag-aware; unchanged files cost no request at all)
   dsx clone <project> <dir> [-j N]      first pull into a new directory
   dsx pull  [--prune] [--force] [-n] [-j N]
   dsx push  [--prune] [--force] [-n] [-j N]
-  dsx status                            what a sync would do; transfers nothing
+  dsx status                            what changed here, from disk alone; makes no network call
   dsx fetch [-j N]                      record what the server holds; writes .dsx/, not the tree
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip
   dsx unpin [<dir>]                     release a binding that has synced nothing
@@ -45,7 +45,9 @@ SYNC (etag-aware; unchanged files cost no request at all)
   Only clone and pin name a project or a directory. Every other verb acts on the
   tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
-  status accepts pull/push's flags and previews them: --force hides conflicts.
+  status answers from disk alone and makes no network call: it reads the ledger
+  against your files, and the last dsx fetch against both. Use pull -n or push -n
+  to ask the server what a sync would do right now.
   clone is the first pull: both arguments, and <dir> must be empty.
 
 PROJECTS
@@ -93,10 +95,11 @@ DIAGNOSTICS
 
 FLAGS
   --json      machine-readable output — every command
-  --prune     delete what the other side lacks — pull, push, status
-  --force     overwrite conflicts — pull, push, status
-  -q  -n      suppress the summary line, dry run — pull, push, status
-  -j N        concurrency (default 8) — clone, pull, push, status, tree
+  --prune     delete what the other side lacks — pull, push
+  --force     overwrite conflicts — pull, push
+  -q          suppress the summary line — pull, push, status
+  -n          dry run — pull, push
+  -j N        concurrency (default 8) — clone, pull, push, tree
 
 WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js

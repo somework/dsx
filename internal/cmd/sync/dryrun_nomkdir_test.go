@@ -9,17 +9,23 @@ import (
 	"github.com/somework/dsx/internal/dsxerr"
 )
 
-// status's Desc promises "transfers nothing", and -n is a dry run. Both
-// created the directory they were pointed at, so a typo'd path silently became
-// a real directory and the report described a sync into it.
+// -n is a dry run, and it created the directory it was pointed at, so a
+// typo'd path silently became a real directory and the report described a
+// sync into it.
+//
+// status was the other half of this pair and is gone from it, not by
+// oversight: it takes no directory and makes no network call, so there is no
+// path it could be pointed at to create. Left in, the case would have passed
+// on the "takes no arguments" refusal instead of the one this test is about —
+// green for a reason the name does not mention.
 func TestADryRunCreatesNoDirectory(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		mode string
 		args func(dir string) []string
 	}{
-		{"status", "status", func(d string) []string { return []string{d} }},
 		{"pull -n", "pull", func(d string) []string { return []string{d, "-n"} }},
+		{"push -n", "push", func(d string) []string { return []string{d, "-n"} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parent := t.TempDir()

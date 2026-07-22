@@ -11,30 +11,39 @@ import (
 	"github.com/somework/dsx/internal/syncer"
 )
 
-// TestUnpinIsTheOnlySyncVerbThatNeedsNoCredential is the structural half of
-// unpin's reason to exist: a caller wanting out of a binding may be in exactly
-// the state where auth fails, and dispatch aborts a NeedClient command before
-// Run is ever called. Declared as data in Group, so only reading Group proves
-// it — cmdUnpin's own signature (no *mcp.Client) cannot, since cmd.NoClient
-// wraps it either way.
-func TestUnpinIsTheOnlySyncVerbThatNeedsNoCredential(t *testing.T) {
-	var seen bool
+// TestOnlyTheOfflineSyncVerbsNeedNoCredential is the structural half of
+// unpin's and status's reason to exist: a caller wanting out of a binding, or
+// wanting to know what is on their disk, may be in exactly the state where
+// auth fails, and dispatch aborts a NeedClient command before Run is ever
+// called. Declared as data in Group, so only reading Group proves it — the
+// cmdX signature (no *mcp.Client) cannot, since cmd.NoClient wraps it either
+// way.
+//
+// The list is the whole point and must stay short: a verb earns a place here
+// by making no network call at all, and every other sync verb does make one.
+// Adding a name is a claim about that verb, not a way to silence this.
+func TestOnlyTheOfflineSyncVerbsNeedNoCredential(t *testing.T) {
+	offline := map[string]bool{"unpin": true, "status": true}
+
+	seen := map[string]bool{}
 	for _, c := range Group.Cmds {
-		if c.Name != "unpin" {
+		if !offline[c.Name] {
 			if c.Needs == cmd.NeedNothing {
-				t.Errorf("%s also declares NeedNothing; if that is deliberate this test "+
-					"is the wrong shape, but a sync verb that talks to the server must not", c.Name)
+				t.Errorf("%s declares NeedNothing but is not in the offline set; "+
+					"a sync verb that talks to the server must not", c.Name)
 			}
 			continue
 		}
-		seen = true
+		seen[c.Name] = true
 		if c.Needs != cmd.NeedNothing {
-			t.Errorf("unpin declares Needs=%v; dispatch aborts on an expired token before "+
-				"Run is reached, so unpin would be unavailable in the state it exists for", c.Needs)
+			t.Errorf("%s declares Needs=%v; dispatch aborts on an expired token before "+
+				"Run is reached, so it would be unavailable in the state it exists for", c.Name, c.Needs)
 		}
 	}
-	if !seen {
-		t.Fatal("unpin is not registered in Group")
+	for name := range offline {
+		if !seen[name] {
+			t.Fatalf("%s is not registered in Group", name)
+		}
 	}
 }
 

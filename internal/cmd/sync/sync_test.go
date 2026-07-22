@@ -524,8 +524,10 @@ func TestSyncResolvesTheProjectFromTheLedgerOfTheTreeItStandsIn(t *testing.T) {
 	f, c, dir := maincliConflictedPull(t)
 	t.Chdir(dir)
 
+	// pull -n, not status: status resolves the same way but never reaches
+	// list_files, so it cannot witness which project id went out.
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", nil)
+		return cmdSync(context.Background(), c, "pull", []string{"-n"})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -553,109 +555,6 @@ func TestSyncOnAnUnboundDirFailsBeforeTouchingTheNetwork(t *testing.T) {
 	}
 }
 
-func TestStatusReportsBothDirectionsAndTransfersNothing(t *testing.T) {
-	f, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", syncIn(t, dir, "proj-uuid"))
-	})
-	if err != nil {
-		t.Fatalf("status reported a conflict as a failure: %v", err)
-	}
-	if !strings.Contains(out, "pull:") || !strings.Contains(out, "push:") {
-		t.Errorf("status must report both directions: %q", out)
-	}
-	if n := f.CountTool("read_file"); n != 0 {
-		t.Errorf("status fetched %d file(s); it transfers nothing", n)
-	}
-	if n := f.CountTool("write_files"); n != 0 {
-		t.Errorf("status wrote %d file(s); it transfers nothing", n)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "a.css")); string(b) != "LOCAL EDIT" {
-		t.Errorf("status modified the working tree: %q", b)
-	}
-}
-
-func TestStatusJSONIsOneDocumentHoldingBothReports(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "--json"))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := strings.TrimSuffix(out, "\n")
-	var got struct {
-		Pull *syncer.PullReport `json:"pull"`
-		Push *syncer.PushReport `json:"push"`
-	}
-	if err := json.Unmarshal([]byte(line), &got); err != nil {
-		t.Fatalf("status --json is not one JSON document: %v\n%s", err, line)
-	}
-	if got.Pull == nil || got.Push == nil {
-		t.Fatalf("status --json must carry both directions: %s", line)
-	}
-	if len(got.Pull.Conflicts) != 1 {
-		t.Errorf("pull conflicts = %v, want the one we set up", got.Pull.Conflicts)
-	}
-}
-
-// TestStatusHumanOutputNamesTheVerifiedCount is the cmd-layer guard for
-// Defect 1: the syncer-level Render tests only prove PullReport/PushReport
-// render "verified" in isolation, nothing proved cmdSync's status branch
-// actually prints that field from a real invocation. A fetch baseline is
-// what turns a byte-identical, untracked file into Verified rather than
-// Unchanged (invariant 17), so `dsx fetch` runs before `dsx status` here.
-//
-// The pull-prefixed and push-prefixed lines are checked independently: a
-// single-file fixture makes both lines report "verified 1", so a substring
-// check against the whole output would still pass if only one side's
-// Verified count were actually wired up (either line alone satisfies it).
-func TestStatusHumanOutputNamesTheVerifiedCount(t *testing.T) {
-	dir := t.TempDir()
-	body := "verified{}"
-	maincliWriteFile(t, dir, "a.css", body)
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		if name == "list_files" {
-			return fakeReply{Text: listingFor(fileEntry("a.css", "e1", int64(len(body))))}
-		}
-		return fakeReply{Text: envelopeFor("a.css", "e1", body)}
-	})
-	c := fakeClient(f)
-
-	if err := cmdFetch(context.Background(), c, syncIn(t, dir, "proj-uuid")); err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", syncIn(t, dir, "proj-uuid"))
-	})
-	if err != nil {
-		t.Fatalf("status: %v", err)
-	}
-
-	var pullLine, pushLine string
-	for _, line := range strings.Split(out, "\n") {
-		switch {
-		case strings.HasPrefix(line, "pull: "):
-			pullLine = line
-		case strings.HasPrefix(line, "push: "):
-			pushLine = line
-		}
-	}
-	if pullLine == "" || pushLine == "" {
-		t.Fatalf("expected both a pull and a push line, got %q", out)
-	}
-	if !strings.Contains(pullLine, "verified 1") {
-		t.Errorf("pull line did not name the verified count: %q", pullLine)
-	}
-	if !strings.Contains(pushLine, "verified 1") {
-		t.Errorf("push line did not name the verified count: %q", pushLine)
-	}
-}
-
 func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
@@ -670,23 +569,10 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	}
 }
 
-func TestStatusQuietPrintsNothing(t *testing.T) {
-	_, c, dir := maincliConflictedPull(t)
-	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "-q"))
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != "" {
-		t.Errorf("-q printed %q", out)
-	}
-}
-
 func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), "-j", "0"))
+		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-n", "-j", "0"))
 	})
 	if err != nil {
 		t.Fatalf("-j 0: %v", err)
@@ -804,51 +690,6 @@ func TestNeitherPullNorPushCreatesTheTargetDirectory(t *testing.T) {
 			}
 			if _, sErr := os.Stat(never); sErr == nil {
 				t.Errorf("%s created the directory it refused", mode)
-			}
-		})
-	}
-}
-
-// TestStatusForcePreviewsAForcedSync locks a decision rather than catching a
-// defect: status shares one flagset with pull and push, so --force reaches it
-// and suppresses the very conflicts status exists to surface. That is a
-// faithful preview of `pull --force`, not a bug — it transfers nothing and
-// leaves the working tree untouched. Anyone "fixing" it by rejecting --force
-// on status deletes a real capability, and this test says so.
-func TestStatusForcePreviewsAForcedSync(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		args         []string
-		wantConflict bool
-	}{
-		{"plain status surfaces the conflict", nil, true},
-		{"--force previews a forced sync, so none remain", []string{"--force"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, c, dir := maincliConflictedPull(t)
-
-			out, err := captureStdout(t, func() error {
-				return cmdSync(context.Background(), c, "status", append(syncIn(t, dir, "proj-uuid"), tc.args...))
-			})
-			if err != nil {
-				t.Fatalf("status is a dry run and must not fail: %v", err)
-			}
-			for _, side := range []string{"pull:", "push:"} {
-				line := ""
-				for _, l := range strings.Split(out, "\n") {
-					if strings.HasPrefix(l, side) {
-						line = l
-					}
-				}
-				if line == "" {
-					t.Fatalf("status printed no %s summary: %q", side, out)
-				}
-				if got := strings.Contains(line, "conflicts 1"); got != tc.wantConflict {
-					t.Errorf("%s summary %q reports a conflict = %v, want %v", side, line, got, tc.wantConflict)
-				}
-			}
-			if b, _ := os.ReadFile(filepath.Join(dir, "a.css")); string(b) != "LOCAL EDIT" {
-				t.Fatalf("status touched the working tree: %q — a preview must move no bytes", b)
 			}
 		})
 	}

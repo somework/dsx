@@ -20,10 +20,11 @@ const usageHeader = `dsx — Claude Design sync. Reads Claude Code's own OAuth t
 // and a scope may name no command that does not declare the flag.
 const usageFooter = `FLAGS
   --json      machine-readable output — every command
-  --prune     delete what the other side lacks — pull, push, status
-  --force     overwrite conflicts — pull, push, status
-  -q  -n      suppress the summary line, dry run — pull, push, status
-  -j N        concurrency (default 8) — clone, pull, push, status, tree
+  --prune     delete what the other side lacks — pull, push
+  --force     overwrite conflicts — pull, push
+  -q          suppress the summary line — pull, push, status
+  -n          dry run — pull, push
+  -j N        concurrency (default 8) — clone, pull, push, tree
 
 WRITE GUARDS
   --if-match E  etag guard ("0" asserts new) — put, cp, support-js

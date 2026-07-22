@@ -4,7 +4,6 @@ package synccmd
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -21,7 +20,9 @@ var Group = cmd.Group{
 	Note: `  Only clone and pin name a project or a directory. Every other verb acts on the
   tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
-  status accepts pull/push's flags and previews them: --force hides conflicts.
+  status answers from disk alone and makes no network call: it reads the ledger
+  against your files, and the last dsx fetch against both. Use pull -n or push -n
+  to ask the server what a sync would do right now.
   clone is the first pull: both arguments, and <dir> must be empty.`,
 	Cmds: []cmd.Command{
 		{Name: "clone", Form: cloneForm,
@@ -30,9 +31,9 @@ var Group = cmd.Group{
 			Run: syncMode("pull")},
 		{Name: "push", Form: "push  [--prune] [--force] [-n] [-j N]",
 			Run: syncMode("push")},
-		{Name: "status", Form: "status",
-			Desc: "what a sync would do; transfers nothing",
-			Run:  syncMode("status")},
+		{Name: "status", Form: statusForm,
+			Desc:  "what changed here, from disk alone; makes no network call",
+			Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdStatus)},
 		{Name: "fetch", Form: fetchForm,
 			Desc: "record what the server holds; writes .dsx/, not the tree", Run: cmdFetch},
 		{Name: "pin", Form: pinForm,
@@ -45,6 +46,10 @@ var Group = cmd.Group{
 	},
 }
 
+// syncMode carries pull and push only. status was one of these while it was
+// a DryRun of both; now that it answers from disk it shares neither their
+// flags nor their round trip, and leaving it reachable here would keep a
+// second, unreachable status alive for tests to guard.
 func syncMode(mode string) func(context.Context, *mcp.Client, []string) error {
 	return func(ctx context.Context, c *mcp.Client, args []string) error {
 		return cmdSync(ctx, c, mode, args)
@@ -175,13 +180,10 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	// literal, and an expression makes it fall back to attributing these flags
 	// to every command the package declares.
 	var fs *flag.FlagSet
-	switch mode {
-	case "pull":
-		fs = cmd.NewFlagSet("pull")
-	case "push":
+	if mode == "push" {
 		fs = cmd.NewFlagSet("push")
-	default:
-		fs = cmd.NewFlagSet("status")
+	} else {
+		fs = cmd.NewFlagSet("pull")
 	}
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
@@ -209,7 +211,7 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	// still holds, one layer up: "the directory is not there" never reaches a
 	// plan, so an empty local scan can never make `push --prune` read the whole
 	// server tree as user deletions.
-	dryRun := *dry || mode == "status"
+	dryRun := *dry
 
 	if mode == "push" {
 		emit := func(r syncer.PushReport) {
@@ -240,45 +242,10 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 		Prune: *prune, Force: *force, DryRun: dryRun, Progress: cmd.Progress,
 	})
 	if err != nil {
-		// status is the two-key {pull,push} envelope; rendering one half alone
-		// breaks it here for exactly the reason spelled out at the push half's
-		// error return below.
-		if mode != "status" {
-			pullRep.Incomplete = true
-			emit(pullRep)
-		}
-		return err
-	}
-
-	if mode == "pull" {
+		pullRep.Incomplete = true
 		emit(pullRep)
-		return pullRep.Outcome(dryRun)
-	}
-
-	pushRep, err := syncer.Push(ctx, c, syncer.PushOpts{
-		ProjectID: project, Dir: dir, Concurrency: *jobs,
-		Prune: *prune, Force: *force, DryRun: true,
-	})
-	if err != nil {
-		// status is a read-only DryRun query — no bytes moved, so unlike
-		// push/pull there is no single report to render here. Rendering
-		// pushRep alone would violate the {pull,push} two-key JSON envelope
-		// TestStatusJSONIsOneDocumentHoldingBothReports expects; bare err
-		// return is deliberate, not a missed render.
 		return err
 	}
-	if *quiet {
-		return nil
-	}
-	if *asJSON {
-		b, err := json.Marshal(map[string]any{"pull": pullRep, "push": pushRep})
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(b))
-		return nil
-	}
-	fmt.Println("pull: " + pullRep.Render(false))
-	fmt.Println("push: " + pushRep.Render(false))
-	return nil
+	emit(pullRep)
+	return pullRep.Outcome(dryRun)
 }
