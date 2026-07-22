@@ -39,7 +39,7 @@ func (r PushReport) Outcome() error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged, r.StaleProof, r.LeaseBroken)
+	plain := except(r.Conflicts, r.BinaryConflicts, r.BinaryGone, r.PruneConflicts, r.Unverified, r.Diverged, r.StaleProof, r.LeaseBroken, r.PruneLeaseBroken)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -68,6 +68,16 @@ func (r PushReport) Outcome() error {
 			"the server moved after the last `dsx fetch` (%s) — the lease does not cover it; "+
 				"run `dsx fetch` to see what landed, then decide",
 			strings.Join(r.LeaseBroken, ", ")))
+	}
+	if len(r.PruneLeaseBroken) > 0 {
+		// Says DELETE out loud. The generic lease wording says "not written",
+		// which is true here and tells the reader nothing about what --prune
+		// was about to remove. Names dsx fetch, never --force, for the same
+		// reason the write lane does.
+		parts = append(parts, fmt.Sprintf(
+			"--prune would delete paths the server moved after the last `dsx fetch` (%s) — "+
+				"the lease does not cover deleting them; run `dsx fetch` to see what landed, then decide",
+			strings.Join(r.PruneLeaseBroken, ", ")))
 	}
 	if len(r.BinaryConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

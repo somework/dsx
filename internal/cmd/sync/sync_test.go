@@ -551,19 +551,28 @@ func maincliCleanPull(t *testing.T) (*fakeMCP, *mcp.Client, string) {
 func TestADryRunCarriesTheSameExitCodeAsTheRunItPreviews(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
+		verb    func(context.Context, *mcp.Client, []string) error
 		fixture func(*testing.T) (*fakeMCP, *mcp.Client, string)
 		extra   []string
 		want    int
 	}{
-		{"real run on a conflict", maincliConflictedPull, nil, dsxerr.ExitConflict},
-		{"dry run on the same conflict", maincliConflictedPull, []string{"-n"}, dsxerr.ExitConflict},
-		{"dry run on a clean tree", maincliCleanPull, []string{"-n"}, dsxerr.ExitOK},
+		{"pull: real run on a conflict", cmdPull, maincliConflictedPull, nil, dsxerr.ExitConflict},
+		{"pull: dry run on the same conflict", cmdPull, maincliConflictedPull, []string{"-n"}, dsxerr.ExitConflict},
+		{"pull: dry run on a clean tree", cmdPull, maincliCleanPull, []string{"-n"}, dsxerr.ExitOK},
+		// The push rows are not symmetry for its own sake. The suppression
+		// lived in one shared Outcome, but the report wiring that feeds it is
+		// per-verb: push.go's own DryRun branch returns early, and dropping
+		// rep.Conflicts there reintroduces this defect on the push side alone
+		// while every pull row stays green.
+		{"push: real run on a conflict", cmdPush, maincliConflictedPull, nil, dsxerr.ExitConflict},
+		{"push: dry run on the same conflict", cmdPush, maincliConflictedPull, []string{"-n"}, dsxerr.ExitConflict},
+		{"push: dry run on a clean tree", cmdPush, maincliCleanPull, []string{"-n"}, dsxerr.ExitOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, c, dir := tc.fixture(t)
 
 			out, err := captureStdout(t, func() error {
-				return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), tc.extra...))
+				return tc.verb(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), tc.extra...))
 			})
 			if got := dsxerr.ExitCodeFor(err); got != tc.want {
 				t.Errorf("exit code = %d, want %d (err: %v)", got, tc.want, err)

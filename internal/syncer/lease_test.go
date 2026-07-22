@@ -161,3 +161,67 @@ func TestAnEmptyEtagNeverHoldsALease(t *testing.T) {
 		})
 	}
 }
+
+// leasedPruneFixture is the delete lane's shape: the path is on the server and
+// tracked in the ledger, but absent from disk, so prune schedules it. What the
+// lease has to decide is whether the server still shows what the last fetch
+// recorded.
+func leasedPruneFixture(serverEtag, snapshotEtag string) (map[string]RemoteEntry, map[string]localFile, State, map[string]SnapshotEntry) {
+	remote := map[string]RemoteEntry{"gone.css": {Path: "gone.css", Size: 3, Etag: serverEtag}}
+	local := map[string]localFile{}
+	st := State{ProjectID: "p", Files: map[string]FileState{
+		"gone.css": {Etag: "LEDGER", Size: 3, SHA: SHA256Hex([]byte("old"))},
+	}}
+	snap := map[string]SnapshotEntry{"gone.css": {Size: 3, Etag: snapshotEtag}}
+	return remote, local, st, snap
+}
+
+// TestALeasedPruneRefusesAPathTheServerMovedPast closes the delete half of
+// invariant 20, which the write half had all along and the delete half never
+// did. The prune loop gated its only staleness check on `mode == forceNone`,
+// so forceLease fell straight through to Delete: `--force-with-lease --prune`
+// removed a teammate's newer file while claiming to overwrite only what the
+// last fetch still accounted for. leaseHeld is computed for the write loop and
+// was never read here.
+//
+// The rows are paired on purpose. A held lease must still delete — a refusal
+// that fires on every path would pass an "it does not delete" assertion while
+// making --prune useless — and a blind --force must still delete, because
+// invariant 20 says --force stays exactly as dangerous as it was.
+func TestALeasedPruneRefusesAPathTheServerMovedPast(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		serverEtag string
+		snapEtag   string
+		mode       pushForce
+		wantDelete bool
+	}{
+		{"lease broken by someone else's write", "SERVER-NEW", "FETCHED", forceLease, false},
+		{"lease holds", "FETCHED", "FETCHED", forceLease, true},
+		{"blind force ignores the lease", "SERVER-NEW", "FETCHED", forceBlind, true},
+		{"an empty etag never holds a leased prune", "", "", forceLease, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			remote, local, st, snap := leasedPruneFixture(tc.serverEtag, tc.snapEtag)
+
+			d := planPush(remote, local, st, map[string]BaselineEntry{}, snap, tc.mode, true)
+
+			deleted := slices.Contains(d.Delete, "gone.css")
+			if deleted != tc.wantDelete {
+				t.Errorf("Delete = %v, want deleted=%v (LeaseBroken=%v PruneLeaseBroken=%v PruneConflicts=%v)",
+					d.Delete, tc.wantDelete, d.LeaseBroken, d.PruneLeaseBroken, d.PruneConflicts)
+			}
+			if tc.wantDelete {
+				return
+			}
+			if !slices.Equal(d.PruneLeaseBroken, []string{"gone.css"}) {
+				t.Errorf("PruneLeaseBroken = %v, want [gone.css] — a refused delete must be named, "+
+					"or the report says nothing happened and the caller cannot tell why", d.PruneLeaseBroken)
+			}
+			if slices.Contains(d.LeaseBroken, "gone.css") {
+				t.Error("a refused DELETE was filed under LeaseBroken, whose Outcome wording says " +
+					"the path was not written; nothing was written here either way")
+			}
+		})
+	}
+}

@@ -71,6 +71,11 @@ type PushReport struct {
 	// last fetch recorded. A subset of Conflicts, disjoint from the rest.
 	LeaseBroken []string `json:"lease_broken,omitempty"`
 
+	// The same refusal on the delete lane. Separate from LeaseBroken because
+	// that field's Outcome wording says the path was not written, which is
+	// true of a refused delete only in the uninformative sense.
+	PruneLeaseBroken []string `json:"prune_lease_broken,omitempty"`
+
 	// Untracked; a baseline proved these bytes once, but against a server
 	// revision the listing no longer shows — a subset of Conflicts, disjoint
 	// from both Unverified and Diverged. `dsx fetch` re-checks the current
@@ -157,8 +162,10 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	rep.Unchanged = d.Unchanged
 	rep.Verified = d.Verified
 	rep.LeaseBroken = d.LeaseBroken
+	rep.PruneLeaseBroken = d.PruneLeaseBroken
 	rep.Conflicts = append(append([]string(nil), d.Conflicts...), d.BinaryConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.LeaseBroken...)
+	rep.Conflicts = append(rep.Conflicts, d.PruneLeaseBroken...)
 	rep.Conflicts = append(rep.Conflicts, d.PruneConflicts...)
 	rep.Conflicts = append(rep.Conflicts, d.BinaryGone...)
 	rep.Conflicts = append(rep.Conflicts, d.Unverified...)

@@ -178,6 +178,13 @@ type pushDecision struct {
 
 	PruneConflicts []string
 
+	// Paths --force-with-lease refused to DELETE: the server no longer shows
+	// what the last fetch recorded. Kept apart from LeaseBroken, whose Outcome
+	// wording says the path was not written, and from PruneConflicts, whose
+	// wording offers --force as the cure — the answer to a lease broken by
+	// someone else's write is never a blind overwrite.
+	PruneLeaseBroken []string
+
 	// A proven byte match (invariant 17): a determination, not an act.
 	Verified int
 
@@ -334,6 +341,23 @@ func planPush(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 			// Silent by design; see TestPlainPushPruneIsSilentAboutASteadyStateBinaryPath.
 			if prev.Binary {
 				continue
+			}
+			// A lease covers the delete lane too, and it is asked first: under
+			// forceLease the forceNone arm below never fires, so without this
+			// the path fell straight through to Delete and --force-with-lease
+			// removed whatever landed after the fetch — the one thing the flag
+			// exists to prevent. The question is the write lane's, against the
+			// snapshot rather than the ledger: does the server still show what
+			// the last fetch recorded. Both etags must be non-empty for the
+			// same reason as there — "" == "" is not a lease.
+			if mode == forceLease {
+				snap, inSnapshot := snapshot[path]
+				leaseHeld := inSnapshot && snap.Etag != "" && remote[path].Etag != "" &&
+					snap.Etag == remote[path].Etag
+				if !leaseHeld {
+					d.PruneLeaseBroken = append(d.PruneLeaseBroken, path)
+					continue
+				}
 			}
 			// The server moved this path ahead of the ledger: a conflict, not a
 			// delete, unless --force.

@@ -63,14 +63,16 @@ func TestReportOmitemptyContract(t *testing.T) {
 
 	t.Run("push: the omitted keys appear when filled", func(t *testing.T) {
 		b, err := json.Marshal(PushReport{
-			Unverified:      []string{"u"},
-			Diverged:        []string{"d"},
-			StaleProof:      []string{"s"},
-			BinaryConflicts: []string{"bc"},
-			BinaryGone:      []string{"bg"},
-			PruneConflicts:  []string{"pc"},
-			Irregular:       []string{"i"},
-			Incomplete:      true,
+			Unverified:       []string{"u"},
+			Diverged:         []string{"d"},
+			StaleProof:       []string{"s"},
+			BinaryConflicts:  []string{"bc"},
+			BinaryGone:       []string{"bg"},
+			PruneConflicts:   []string{"pc"},
+			LeaseBroken:      []string{"lb"},
+			PruneLeaseBroken: []string{"plb"},
+			Irregular:        []string{"i"},
+			Incomplete:       true,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -79,7 +81,7 @@ func TestReportOmitemptyContract(t *testing.T) {
 		if err := json.Unmarshal(b, &doc); err != nil {
 			t.Fatal(err)
 		}
-		for _, k := range []string{"unverified", "diverged", "stale_proof", "binary_conflicts", "binary_gone", "prune_conflicts", "irregular", "incomplete"} {
+		for _, k := range []string{"unverified", "diverged", "stale_proof", "binary_conflicts", "binary_gone", "prune_conflicts", "lease_broken", "prune_lease_broken", "irregular", "incomplete"} {
 			if _, ok := doc[k]; !ok {
 				t.Errorf("key %q missing when its field is non-empty: %s", k, b)
 			}
