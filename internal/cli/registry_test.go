@@ -42,8 +42,8 @@ SYNC (etag-aware; unchanged files cost no request at all)
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip
   dsx unpin [<dir>]                     release a binding that has synced nothing
   dsx diff [--out <dir>]                classify each path: same, local-only, remote-only, differs
-  Only clone and pin name a project or a directory. Every other verb acts on the
-  tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
+  Only clone and pin name a project; unpin may name a directory. Every other verb
+  acts on the tree it stands in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
   status answers from disk alone and makes no network call: it reads the ledger
   against your files, and the last dsx fetch against both. Use pull -n or push -n

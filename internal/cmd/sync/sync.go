@@ -16,8 +16,8 @@ import (
 
 var Group = cmd.Group{
 	Title: "SYNC (etag-aware; unchanged files cost no request at all)",
-	Note: `  Only clone and pin name a project or a directory. Every other verb acts on the
-  tree you are standing in, finding its ledger by walking up; dsx -C <dir> moves first.
+	Note: `  Only clone and pin name a project; unpin may name a directory. Every other verb
+  acts on the tree it stands in, finding its ledger by walking up; dsx -C <dir> moves first.
   .dsxignore excludes paths from the sync, in both directions.
   status answers from disk alone and makes no network call: it reads the ledger
   against your files, and the last dsx fetch against both. Use pull -n or push -n

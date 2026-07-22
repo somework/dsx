@@ -28,19 +28,29 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 dsx project ls                                 # find your project id
 dsx clone <project> design                     # first pull into a new directory
 cd design && dsx push                          # disk → server
+dsx fetch                                      # record what the server holds — status answers from this
 dsx status                                     # what changed here, from disk alone; no network call
 dsx push --force-with-lease                    # overwrite, but only what the last fetch still accounts for
 dsx help
 ```
 
-Only `clone` and `pin` name a project or a directory. Every other sync verb takes no argument
-at all: it acts on the tree you are standing in, finding the ledger by walking up the way
-`git status` does. `dsx -C <dir> <command>` moves first, exactly like git's.
+Only `clone` and `pin` name a project; `unpin` may name a directory. Every other sync verb
+takes no argument at all: it acts on the tree you are standing in, finding the ledger by
+walking up the way `git status` does. `dsx -C <dir> <command>` moves first, exactly like
+git's.
 
 ```bash
 cd design/components && dsx pull               # syncs the whole tree, not the subdirectory
 dsx -C design status                           # …or act on it from anywhere
-dsx files tree                                 # and files cat, likewise
+```
+
+The walk-up belongs to the sync verbs alone. `dsx files tree` and `dsx files cat` will take
+the directory's project when you omit it, but only from the root itself — they read the
+ledger where they stand rather than looking for it above.
+
+```bash
+cd design && dsx files tree                    # takes the project from the ledger here
+cd design/components && dsx files tree         # …does not: name the project
 ```
 
 `clone` needs an empty directory, and it is the only way to make one: `pull` no longer creates
@@ -74,9 +84,10 @@ collides — resolve it by hand, or pass `--force` to take the server's copy.
 downloaded to classify. `--out <dir>` materialises the remote side of `differs` paths into an
 empty directory so `diff -ru` does the work locally.
 
-Every MCP tool is reachable — `projects`, `tree`, `cat`, `put`, `rm`, `cp`,
-`plan`, `preview`, `conv`, `members`, `sharing`, `prompt`. `dsx raw <tool> '<json-args>'` covers
-anything the named commands do not wrap.
+Every MCP tool is reachable — `project ls`, `files tree`, `files cat`, `files put`,
+`files rm`, `files cp`, `plan new`, `files preview`, `conv get`, `member ls`,
+`project sharing`, `prompt`. `dsx raw <tool> '<json-args>'` covers anything the named
+commands do not wrap.
 
 `--json` on every command, `-j N` for concurrency, `-n` for a dry run.
 

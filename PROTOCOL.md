@@ -149,7 +149,7 @@ Measured on a 316,540-byte file (4,655 lines), returned as `lines="1-3855"` then
 
 Concatenating window bodies verbatim splices that sentence into the middle of the user's
 file. `dsx pull` is saved by the size assertion — the decoded length disagrees with
-`list_files` and the write is refused, so large files simply will not pull — but `dsx cat`
+`list_files` and the write is refused, so large files simply will not pull — but `dsx files cat`
 has no such assertion, and wrote the notice into its output until dsx learned to strip it.
 
 dsx strips it and **refuses** any windowed body whose trailer it cannot account for. If the
