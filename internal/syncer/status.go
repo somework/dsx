@@ -168,10 +168,19 @@ func Status(o StatusOpts) (StatusReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	// bound() discards a baseline recorded for another project or endpoint,
-	// so a foreign snapshot lands here exactly as an absent one does. It is
-	// the same state: nothing on disk describes this binding's server.
-	if bl.Listing == nil || !bl.bound(o.ProjectID, st.Endpoint) {
+	// The project half of the binding is checked always; the endpoint half
+	// only when the ledger names one. Status holds no client, so the ledger is
+	// its only source for "this run's endpoint" — and comparing a recorded
+	// endpoint against an empty one would fail every time, refusing every
+	// ledger written before invariant 13 existed. Both of that invariant's own
+	// guards short-circuit on an empty value for the same reason; this is the
+	// same rule read from the side that has no client to ask.
+	//
+	// A mismatch lands exactly where an absent snapshot does. It is the same
+	// state: nothing on disk describes this binding's server.
+	snapshotBound := bl.ProjectID == o.ProjectID &&
+		(st.Endpoint == "" || sameEndpoint(bl.Endpoint, st.Endpoint))
+	if bl.Listing == nil || !snapshotBound {
 		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
 			"no dsx fetch has run in %s, so nothing here knows what the server holds — "+
 				"run `dsx fetch` to record it, or `dsx pull -n` to ask the server now",

@@ -29,6 +29,7 @@ dsx projects                                   # find your project id
 dsx clone <project> design                     # first pull into a new directory
 cd design && dsx push                          # disk → server
 dsx status                                     # what changed here, from disk alone; no network call
+dsx push --force-with-lease                    # overwrite, but only what the last fetch still accounts for
 dsx help
 ```
 

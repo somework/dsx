@@ -36,7 +36,7 @@ const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth tok
 SYNC (etag-aware; unchanged files cost no request at all)
   dsx clone <project> <dir> [-j N]      first pull into a new directory
   dsx pull  [--prune] [--force] [-n] [-j N]
-  dsx push  [--prune] [--force] [-n] [-j N]
+  dsx push  [--prune] [--force | --force-with-lease] [-n] [-j N]
   dsx status                            what changed here, from disk alone; makes no network call
   dsx fetch [-j N]                      record what the server holds; writes .dsx/, not the tree
   dsx pin <project> [<dir>]             bind an existing directory to a project; no round trip

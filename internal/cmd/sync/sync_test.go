@@ -295,7 +295,7 @@ func TestPullThatRefusedToMoveBytesExitsThreeNotZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
+		return cmdPull(context.Background(), c, syncIn(t, dir, "proj-uuid"))
 	})
 	if err == nil {
 		t.Fatalf("a pull that refused every file reported success; output was %q", out)
@@ -347,7 +347,7 @@ func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
 		_, c, dir := maincliUnverifiedCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
+			return cmdPull(context.Background(), c, syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("an unverified collision reported success; output was %q", out)
@@ -370,7 +370,7 @@ func TestExitCodeIsUnchangedForAnUnverifiedConflict(t *testing.T) {
 		_, c, dir := maincliUnverifiedCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "push", syncIn(t, dir, "proj-uuid"))
+			return cmdPush(context.Background(), c, syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("an unverified collision reported success; output was %q", out)
@@ -454,7 +454,7 @@ func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
 		_, c, dir := maincliStaleProofCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "pull", syncIn(t, dir, "proj-uuid"))
+			return cmdPull(context.Background(), c, syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("a stale-proof collision reported success; output was %q", out)
@@ -483,7 +483,7 @@ func TestExitCodeIsUnchangedForAStaleProofConflict(t *testing.T) {
 		_, c, dir := maincliStaleProofCollision(t)
 
 		out, err := captureStdout(t, func() error {
-			return cmdSync(context.Background(), c, "push", syncIn(t, dir, "proj-uuid"))
+			return cmdPush(context.Background(), c, syncIn(t, dir, "proj-uuid"))
 		})
 		if err == nil {
 			t.Fatalf("a stale-proof collision reported success; output was %q", out)
@@ -510,7 +510,7 @@ func TestDryRunPullReportsTheSameConflictAndStillExitsZero(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-n"))
+		return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), "-n"))
 	})
 	if err != nil {
 		t.Fatalf("a dry run reporting a conflict failed with %v", err)
@@ -527,7 +527,7 @@ func TestSyncResolvesTheProjectFromTheLedgerOfTheTreeItStandsIn(t *testing.T) {
 	// pull -n, not status: status resolves the same way but never reaches
 	// list_files, so it cannot witness which project id went out.
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", []string{"-n"})
+		return cmdPull(context.Background(), c, []string{"-n"})
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -542,7 +542,7 @@ func TestSyncOnAnUnboundDirFailsBeforeTouchingTheNetwork(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
 	dir := t.TempDir()
 
-	err := cmdSync(context.Background(), c, "pull", []string{dir})
+	err := cmdPull(context.Background(), c, []string{dir})
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Fatalf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -559,7 +559,7 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-q"))
+		return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), "-q"))
 	})
 	if out != "" {
 		t.Errorf("-q printed %q", out)
@@ -572,7 +572,7 @@ func TestSyncQuietPrintsNothingButStillReportsTheConflict(t *testing.T) {
 func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
 	_, c, dir := maincliConflictedPull(t)
 	_, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", append(syncIn(t, dir, "proj-uuid"), "-n", "-j", "0"))
+		return cmdPull(context.Background(), c, append(syncIn(t, dir, "proj-uuid"), "-n", "-j", "0"))
 	})
 	if err != nil {
 		t.Fatalf("-j 0: %v", err)
@@ -581,7 +581,7 @@ func TestSyncClampsConcurrencyBelowOneToOneInsteadOfHanging(t *testing.T) {
 
 func TestSyncRejectsAnUnknownFlagAsUsage(t *testing.T) {
 	f, c := maincliFake(t, "unreachable")
-	err := cmdSync(context.Background(), c, "pull", []string{"proj", ".", "--bogus"})
+	err := cmdPull(context.Background(), c, []string{"proj", ".", "--bogus"})
 	if got := maincliKind(t, err); got != dsxerr.KindUsage {
 		t.Errorf("kind = %q, want %q", got, dsxerr.KindUsage)
 	}
@@ -618,7 +618,7 @@ func TestPushThatFailsMidBatchStillPrintsThePartialReportBeforeTheError(t *testi
 	c := fakeClient(f)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "push", syncIn(t, dir, project))
+		return cmdPush(context.Background(), c, syncIn(t, dir, project))
 	})
 	if err == nil {
 		t.Fatalf("push with a malformed write_files reply reported success; output was %q", out)
@@ -657,7 +657,7 @@ func TestPullThatFailsMidFetchStillPrintsThePartialReportBeforeTheError(t *testi
 	c := fakeClient(f)
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), c, "pull", syncIn(t, dir, project))
+		return cmdPull(context.Background(), c, syncIn(t, dir, project))
 	})
 	if err == nil {
 		t.Fatalf("pull with a size mismatch reported success; output was %q", out)
@@ -678,10 +678,14 @@ func TestNeitherPullNorPushCreatesTheTargetDirectory(t *testing.T) {
 	// half protected still holds, and now holds for pull too: an empty local
 	// scan never reaches a plan, so --prune can never read the whole server
 	// tree as user deletions.
-	for _, mode := range []string{"pull", "push"} {
+	for _, tc := range []struct {
+		mode string
+		run  func(context.Context, *mcp.Client, []string) error
+	}{{"pull", cmdPull}, {"push", cmdPush}} {
+		mode := tc.mode
 		t.Run(mode, func(t *testing.T) {
 			never := filepath.Join(base, "not-made-by-"+mode)
-			err := cmdSync(context.Background(), c, mode, []string{never})
+			err := tc.run(context.Background(), c, []string{never})
 			if err == nil {
 				t.Fatalf("%s accepted a directory that does not exist", mode)
 			}

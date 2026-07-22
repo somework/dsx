@@ -19,7 +19,7 @@ func TestAFailedPullRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", syncIn(t, dir, "proj-A"))
+		return cmdPull(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("pull succeeded against a dead endpoint")
@@ -38,7 +38,7 @@ func TestAFailedPushRendersAnIncompleteReport(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "push", syncIn(t, dir, "proj-A"))
+		return cmdPush(context.Background(), fakeClient(f), syncIn(t, dir, "proj-A"))
 	})
 	if err == nil {
 		t.Fatal("push succeeded against a dead endpoint")
@@ -56,7 +56,7 @@ func TestASuccessfulPullJSONHasNoIncompleteKey(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", append(syncIn(t, dir, "proj-A"), "--json"))
+		return cmdPull(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestAFailedPullJSONCarriesIncomplete(t *testing.T) {
 	})
 
 	out, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", append(syncIn(t, dir, "proj-A"), "--json"))
+		return cmdPull(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "--json"))
 	})
 	if err == nil {
 		t.Fatal("want an error")

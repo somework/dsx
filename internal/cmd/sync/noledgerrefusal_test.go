@@ -65,8 +65,17 @@ func TestNoSyncVerbWritesTheBindingItReads(t *testing.T) {
 
 			var err error
 			if mode == "status" {
+				// status answers from the snapshot, so one has to exist before
+				// it can answer at all. fetch is what writes it — and it must
+				// not write the binding either, which is the sibling claim
+				// TestFetchWritesUnderDsxButNotTheLedger holds.
+				if _, fErr := captureStdout(t, func() error {
+					return cmdFetch(context.Background(), fakeClient(f), nil)
+				}); fErr != nil {
+					t.Fatalf("fetch: %v", fErr)
+				}
 				_, err = captureStdout(t, func() error {
-					return cmdSync(context.Background(), fakeClient(f), "status", nil)
+					return cmdStatus(nil)
 				})
 			} else {
 				_, err = captureStdout(t, func() error {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/somework/dsx/internal/dsxerr"
 )
 
 // statusAfterFetch stands a bound, fetched tree up and leaves the process
@@ -76,5 +78,63 @@ func TestStatusQuietPrintsNothing(t *testing.T) {
 	}
 	if out != "" {
 		t.Errorf("-q printed %q", out)
+	}
+}
+
+// TestPushRefusesForceAndLeaseTogether: the two ask for different writes —
+// one sends no precondition, the other sends the etag the last fetch
+// recorded. Ranking them silently would keep one of the two things the
+// caller asked for and drop the other without saying which.
+func TestPushRefusesForceAndLeaseTogether(t *testing.T) {
+	_, c := maincliFake(t, "unreachable")
+	dir := t.TempDir()
+
+	err := cmdPush(context.Background(), c, append(syncIn(t, dir, "proj-A"), "--force", "--force-with-lease"))
+	if err == nil {
+		t.Fatal("push accepted --force and --force-with-lease together")
+	}
+	if got := dsxerr.Classify(err).Kind; got != dsxerr.KindUsage {
+		t.Errorf("kind = %v, want %v", got, dsxerr.KindUsage)
+	}
+	if !strings.Contains(err.Error(), "name one") {
+		t.Errorf("the refusal is not the mutual-exclusion one: %v", err)
+	}
+	// Positive control by wording, not by kind: --force-with-lease alone is
+	// also refused here (nothing has been fetched, so there is no snapshot to
+	// lease against) and that refusal is KindUsage too. Only the text tells
+	// the two apart, so only the text can prove this assertion is not passing
+	// on a push that rejects everything.
+	for _, flag := range []string{"--force", "--force-with-lease"} {
+		err := cmdPush(context.Background(), c, append(syncIn(t, dir, "proj-A"), flag))
+		if err != nil && strings.Contains(err.Error(), "name one") {
+			t.Errorf("%s alone was refused as a flag conflict: %v", flag, err)
+		}
+	}
+}
+
+// TestPushWiresLeaseThroughToTheEngine: syncer's own tests prove what a lease
+// decides; only this proves the flag reaches it. Without a snapshot the
+// engine refuses before the round trip, and that refusal is the observable
+// end of the wire — a flag that never arrived would let push run instead.
+func TestPushWiresLeaseThroughToTheEngine(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		return fakeReply{Text: listingFor()}
+	})
+	c := fakeClient(f)
+
+	err := cmdPush(context.Background(), c, append(syncIn(t, dir, "proj-A"), "--force-with-lease"))
+	if err == nil {
+		t.Fatal("push --force-with-lease ran with nothing to lease against")
+	}
+	if !strings.Contains(err.Error(), "lease against") {
+		t.Errorf("the refusal is not the engine's lease refusal: %v", err)
+	}
+	// Positive control: the same push without the flag must get through, or
+	// the assertion above would pass on any refusal at all.
+	if _, pErr := captureStdout(t, func() error {
+		return cmdPush(context.Background(), c, syncIn(t, dir, "proj-A"))
+	}); pErr != nil {
+		t.Errorf("a plain push failed, so the refusal above proves nothing: %v", pErr)
 	}
 }

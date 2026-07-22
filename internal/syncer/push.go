@@ -114,7 +114,13 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 		return rep, err
 	}
 	baseline := map[string]BaselineEntry{}
-	snapshot := map[string]SnapshotEntry{}
+	// snapshot stays nil until a bound baseline supplies one, so "no fetch
+	// recorded a listing here" and "the recorded one belongs to another
+	// binding" reach the lease guard below as the same nil. Initialised to an
+	// empty map instead, the guard could never fire on an unbound baseline,
+	// and a lease with nothing behind it would silently hold for every path
+	// the server does not have.
+	var snapshot map[string]SnapshotEntry
 	if bl.bound(o.ProjectID, c.Endpoint()) {
 		baseline = bl.Verified
 		snapshot = bl.Listing

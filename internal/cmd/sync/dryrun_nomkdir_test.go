@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/somework/dsx/internal/dsxerr"
+	"github.com/somework/dsx/internal/mcp"
 )
 
 // -n is a dry run, and it created the directory it was pointed at, so a
@@ -21,11 +22,11 @@ import (
 func TestADryRunCreatesNoDirectory(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		mode string
+		run  func(context.Context, *mcp.Client, []string) error
 		args func(dir string) []string
 	}{
-		{"pull -n", "pull", func(d string) []string { return []string{d, "-n"} }},
-		{"push -n", "push", func(d string) []string { return []string{d, "-n"} }},
+		{"pull -n", cmdPull, func(d string) []string { return []string{d, "-n"} }},
+		{"push -n", cmdPush, func(d string) []string { return []string{d, "-n"} }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			parent := t.TempDir()
@@ -35,7 +36,7 @@ func TestADryRunCreatesNoDirectory(t *testing.T) {
 				return fakeReply{Text: listingFor()}
 			})
 			_, err := captureStdout(t, func() error {
-				return cmdSync(context.Background(), fakeClient(f), tc.mode, tc.args(missing))
+				return tc.run(context.Background(), fakeClient(f), tc.args(missing))
 			})
 			if err == nil {
 				t.Fatalf("%s accepted a directory that does not exist", tc.name)
@@ -61,7 +62,7 @@ func TestARealPullStillCreatesItsDirectory(t *testing.T) {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "pull", syncIn(t, target, "proj-A"))
+		return cmdPull(context.Background(), fakeClient(f), syncIn(t, target, "proj-A"))
 	}); err != nil {
 		t.Fatalf("a real pull into a new directory failed: %v", err)
 	}
@@ -70,15 +71,17 @@ func TestARealPullStillCreatesItsDirectory(t *testing.T) {
 	}
 }
 
-// An existing directory is the normal case for both dry modes.
+// An existing directory is the normal case for a dry run. status was the
+// other half and is gone from it: it reaches no network and needs a snapshot,
+// so it exercises none of what this test is about.
 func TestADryRunOnAnExistingDirectoryStillWorks(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
 		return fakeReply{Text: listingFor()}
 	})
 	if _, err := captureStdout(t, func() error {
-		return cmdSync(context.Background(), fakeClient(f), "status", syncIn(t, dir, "proj-A"))
+		return cmdPull(context.Background(), fakeClient(f), append(syncIn(t, dir, "proj-A"), "-n"))
 	}); err != nil {
-		t.Fatalf("status on an existing directory failed: %v", err)
+		t.Fatalf("pull -n on an existing directory failed: %v", err)
 	}
 }

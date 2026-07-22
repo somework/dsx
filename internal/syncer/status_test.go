@@ -406,3 +406,34 @@ func TestStatusRefusesABaselineWrittenBeforeSnapshotsExisted(t *testing.T) {
 		t.Errorf("the refusal does not name the repair: %v", err)
 	}
 }
+
+// TestStatusStillReadsASnapshotWhenTheLedgerNamesNoEndpoint: invariant 13's
+// guards short-circuit on an empty endpoint, so a ledger written before it
+// existed carries none. Status holds no client, so the ledger is its only
+// source for this run's endpoint — comparing a recorded one against an empty
+// one fails every time, and every such tree would be told to fetch forever.
+func TestStatusStillReadsASnapshotWhenTheLedgerNamesNoEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	mkfile(t, dir, "a.css", "x\n")
+	if err := (State{ProjectID: "p", Files: map[string]FileState{}}).save(dir); err != nil {
+		t.Fatal(err)
+	}
+	bl := Baseline{ProjectID: "p", Endpoint: "https://e/mcp",
+		Verified: map[string]BaselineEntry{},
+		Listing:  map[string]SnapshotEntry{"theirs.css": {Etag: "e9"}}}
+	if err := bl.save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Status(StatusOpts{ProjectID: "p", Dir: dir})
+	if err != nil {
+		t.Fatalf("Status refused a snapshot whose ledger simply names no endpoint: %v", err)
+	}
+	if !slices.Equal(rep.RemoteOnly, []string{"theirs.css"}) {
+		t.Errorf("RemoteOnly = %v, want [theirs.css]", rep.RemoteOnly)
+	}
+	// The project half is still checked: only the endpoint axis is unasked.
+	if _, err := Status(StatusOpts{ProjectID: "OTHER", Dir: dir}); err == nil {
+		t.Error("Status accepted a snapshot recorded for another project")
+	}
+}

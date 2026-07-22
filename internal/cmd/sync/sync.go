@@ -4,7 +4,6 @@ package synccmd
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,9 +27,9 @@ var Group = cmd.Group{
 		{Name: "clone", Form: cloneForm,
 			Desc: "first pull into a new directory", Run: cmdClone},
 		{Name: "pull", Form: "pull  [--prune] [--force] [-n] [-j N]",
-			Run: syncMode("pull")},
-		{Name: "push", Form: "push  [--prune] [--force] [-n] [-j N]",
-			Run: syncMode("push")},
+			Run: cmdPull},
+		{Name: "push", Form: "push  [--prune] [--force | --force-with-lease] [-n] [-j N]",
+			Run: cmdPush},
 		{Name: "status", Form: statusForm,
 			Desc:  "what changed here, from disk alone; makes no network call",
 			Needs: cmd.NeedNothing, Run: cmd.NoClient(cmdStatus)},
@@ -44,16 +43,6 @@ var Group = cmd.Group{
 		{Name: "diff", Form: diffForm,
 			Desc: "classify each path: same, local-only, remote-only, differs", Run: cmdDiff},
 	},
-}
-
-// syncMode carries pull and push only. status was one of these while it was
-// a DryRun of both; now that it answers from disk it shares neither their
-// flags nor their round trip, and leaving it reachable here would keep a
-// second, unreachable status alive for tests to guard.
-func syncMode(mode string) func(context.Context, *mcp.Client, []string) error {
-	return func(ctx context.Context, c *mcp.Client, args []string) error {
-		return cmdSync(ctx, c, mode, args)
-	}
 }
 
 // boundProject answers which project a directory syncs to and which directory
@@ -175,16 +164,17 @@ func refuseMissingDir(dir string) error {
 	return nil
 }
 
-func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) error {
-	// Three literals, not cmd.NewFlagSet(mode): flagSetOwners can only read a
-	// literal, and an expression makes it fall back to attributing these flags
-	// to every command the package declares.
-	var fs *flag.FlagSet
-	if mode == "push" {
-		fs = cmd.NewFlagSet("push")
-	} else {
-		fs = cmd.NewFlagSet("pull")
-	}
+// cmdPull and cmdPush declare their flags separately, and the repetition is
+// load-bearing rather than sloppy: flagSetOwners reads a NewFlagSet name only
+// when it is a string literal, so a shared helper taking `fs *flag.FlagSet`
+// would leave every flag unattributed and fall back to attributing it to
+// every command the package declares. One cmdSync with one set had the
+// mirrored problem — a flag only push accepts belonged to pull too, so
+// documenting it made `dsx help` promise pull a flag the binary rejects.
+// Splitting is what buys --force-with-lease a home; the earlier note that
+// splitting made things worse predates the union that fixed the reader.
+func cmdPull(ctx context.Context, c *mcp.Client, args []string) error {
+	fs := cmd.NewFlagSet("pull")
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
 		force  = fs.Bool("force", false, "overwrite conflicts")
@@ -197,55 +187,79 @@ func cmdSync(ctx context.Context, c *mcp.Client, mode string, args []string) err
 	if err != nil {
 		return err
 	}
-	project, dir, err := resolveSyncTarget(mode, pos, boundProject)
+	project, dir, err := resolveSyncTarget("pull", pos, boundProject)
 	if err != nil {
 		return err
 	}
 
-	// No MkdirAll, and no dry-run-only missing-directory check: resolveSyncTarget
-	// now refuses a directory that is not there, for every mode. A real pull used
-	// to create its target, which was reachable only by naming the project as a
-	// second positional — with that gone, a directory pull could create is a
-	// directory pull cannot resolve a project for. Starting a new directory is
-	// clone's job and says so in the Note. What the old dry-run branch protected
-	// still holds, one layer up: "the directory is not there" never reaches a
-	// plan, so an empty local scan can never make `push --prune` read the whole
-	// server tree as user deletions.
-	dryRun := *dry
-
-	if mode == "push" {
-		emit := func(r syncer.PushReport) {
-			if !*quiet {
-				fmt.Println(r.Render(*asJSON))
-			}
-		}
-		rep, err := syncer.Push(ctx, c, syncer.PushOpts{
-			ProjectID: project, Dir: dir, Concurrency: *jobs,
-			Prune: *prune, Force: *force, DryRun: dryRun, Progress: cmd.Progress,
-		})
-		if err != nil {
-			rep.Incomplete = true
-			emit(rep)
-			return err
-		}
-		emit(rep)
-		return rep.Outcome(dryRun)
-	}
-
+	// No MkdirAll: resolveSyncTarget refuses a directory that is not there. A
+	// real pull used to create its target, reachable only by naming the
+	// project as a second positional — with that gone, a directory pull could
+	// create is one pull cannot resolve a project for. Starting a directory is
+	// clone's job. What the old branch protected still holds one layer up:
+	// "not there" never reaches a plan, so an empty local scan can never make
+	// `push --prune` read the whole server tree as user deletions.
 	emit := func(r syncer.PullReport) {
 		if !*quiet {
 			fmt.Println(r.Render(*asJSON))
 		}
 	}
-	pullRep, err := syncer.Pull(ctx, c, syncer.PullOpts{
+	rep, err := syncer.Pull(ctx, c, syncer.PullOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
-		Prune: *prune, Force: *force, DryRun: dryRun, Progress: cmd.Progress,
+		Prune: *prune, Force: *force, DryRun: *dry, Progress: cmd.Progress,
 	})
 	if err != nil {
-		pullRep.Incomplete = true
-		emit(pullRep)
+		rep.Incomplete = true
+		emit(rep)
 		return err
 	}
-	emit(pullRep)
-	return pullRep.Outcome(dryRun)
+	emit(rep)
+	return rep.Outcome(*dry)
+}
+
+func cmdPush(ctx context.Context, c *mcp.Client, args []string) error {
+	fs := cmd.NewFlagSet("push")
+	var (
+		prune  = fs.Bool("prune", false, "remove files absent on the other side")
+		force  = fs.Bool("force", false, "overwrite conflicts")
+		lease  = fs.Bool("force-with-lease", false, "overwrite only what the last fetch still accounts for")
+		dry    = fs.Bool("n", false, "dry run")
+		jobs   = fs.Int("j", 8, "concurrency")
+		asJSON = fs.Bool("json", false, "JSON output")
+		quiet  = fs.Bool("q", false, "suppress summary")
+	)
+	pos, err := cmd.ParseArgs(fs, args)
+	if err != nil {
+		return err
+	}
+	// Refused together rather than ranked: --force sends no precondition at
+	// all and --force-with-lease sends the etag the last fetch recorded, so a
+	// caller who wrote both asked for two different writes, and silently
+	// keeping either is a guess about which.
+	if *force && *lease {
+		return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: "--force and --force-with-lease ask for " +
+			"different writes — --force sends no precondition at all, --force-with-lease sends the " +
+			"etag the last `dsx fetch` recorded; name one"}
+	}
+	project, dir, err := resolveSyncTarget("push", pos, boundProject)
+	if err != nil {
+		return err
+	}
+
+	emit := func(r syncer.PushReport) {
+		if !*quiet {
+			fmt.Println(r.Render(*asJSON))
+		}
+	}
+	rep, err := syncer.Push(ctx, c, syncer.PushOpts{
+		ProjectID: project, Dir: dir, Concurrency: *jobs,
+		Prune: *prune, Force: *force, Lease: *lease, DryRun: *dry, Progress: cmd.Progress,
+	})
+	if err != nil {
+		rep.Incomplete = true
+		emit(rep)
+		return err
+	}
+	emit(rep)
+	return rep.Outcome(*dry)
 }
