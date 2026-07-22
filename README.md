@@ -170,10 +170,12 @@ anything with no distinct remedy — including a server-side tool refusal (`isEr
 reported verbatim behind the tool name so `dsx raw <tool>` reproduces it.
 
 `dsx help --json` answers with two keys: `commands`, the registry — one object per command
-carrying its group, name, invocation form, description and aliases — and `flags`, the block
-documenting the flags a Form does not spell (`--if-match`, `--plan`, `--json`, `-q`, `-n`,
-`-j N`) with the commands each reaches, plus the exit codes and env vars. Neither is the
-prose `dsx help` prints.
+carrying its group, its noun and section where it has them, name, invocation form,
+description and aliases — and `flags`, the block documenting the flags a Form does not spell
+(`--if-match`, `--plan`, `--json`, `-q`, `-n`, `-j N`) with the commands each reaches, plus
+the exit codes and env vars. Neither is the prose `dsx help` prints. `dsx <noun> --json` is
+the same registry narrowed to one noun: `{"noun":…,"desc":…,"verbs":[…]}`, the verbs in the
+order the noun's help prints them.
 
 ## Excluding files
 

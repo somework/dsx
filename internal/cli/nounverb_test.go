@@ -349,7 +349,7 @@ READ
 WRITE
   dsx files put <project> <path> [file]                             write a file (stdin when file is omitted)
   dsx files rm <project> <path...>                                  delete files
-  dsx files cp <project> <src> <dst> [--from <project>]
+  dsx files cp <project> <src> <dst> [--from <project>]             copy server-side, within a project or between two
 
   tree and cat fall back to the directory's project when none is named; a named
   one still wins. ls and every write always name theirs: a lone positional would

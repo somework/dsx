@@ -30,7 +30,7 @@ var Group = cmd.Group{
 		{Name: "files ls", Section: "READ", Form: "files ls <project> [path]", Desc: "list one directory", Run: cmdLs},
 		{Name: "files put", Section: "WRITE", Form: "files put <project> <path> [file]", Desc: "write a file (stdin when file is omitted)", Run: cmdPut},
 		{Name: "files rm", Section: "WRITE", Form: "files rm <project> <path...>", Desc: "delete files", Run: cmdRm},
-		{Name: "files cp", Section: "WRITE", Form: "files cp <project> <src> <dst> [--from <project>]", Run: cmdCp},
+		{Name: "files cp", Section: "WRITE", Form: "files cp <project> <src> <dst> [--from <project>]", Desc: "copy server-side, within a project or between two", Run: cmdCp},
 	},
 }
 
