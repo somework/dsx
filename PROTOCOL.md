@@ -163,7 +163,25 @@ is recoverable, quiet is not.
 
 ### list_files
 
-**Not recursive.** Returns project-relative paths (not basenames), with `path/type/size/etag`
+**Not recursive by default**, but it takes a `depth`: `1` (the default) lists immediate entries
+with deeper content rolled up into `type=directory` stubs, and **`-1` returns the whole tree,
+files only, no stubs, in one call**. Measured: 109 files in one request against a project the
+per-directory walk reaches with eleven. The listing is documented complete up to **20,000
+entries**, past which the call errors and asks for a subdirectory.
+
+dsx tries `-1` first and falls back to the recursive walk on anything unexpected — an error, a
+malformed body, a `null`, a directory stub, a path past its own depth cap, or a listing that
+merely *reaches* 20,000. The asymmetry is deliberate: a needless fallback costs one round trip,
+while a flat listing wrongly believed costs files, because `--prune` deletes whatever is absent
+from that map. The one claim no mock can make — that both routes describe the same tree — is
+checked live against the server on real projects, comparing path, size and etag
+(`TestLiveTheFlatListingAgreesWithTheRecursiveWalk`).
+
+An empty listing is `[]`, **not `null`** — measured, including for a path that does not exist,
+which is answered with `[]` rather than an error. `null` is therefore a shape the server never
+sends, and dsx refuses it rather than reading it as "this project has no files".
+
+Returns project-relative paths (not basenames), with `path/type/size/etag`
 per entry. Directories appear as `{"path":…,"type":"directory"}` with no etag. The per-file
 etag is the basis of cheap sync: one listing per directory prices the whole tree, so an
 unchanged file costs no request at all.

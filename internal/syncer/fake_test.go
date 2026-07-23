@@ -22,7 +22,14 @@ func fakeClient(f *fakeMCP) *mcp.Client {
 	return mcp.New("test-token", mcp.WithEndpoint(f.URL()))
 }
 
+// listingFor models the server, which answers an empty ARRAY for a directory
+// with no files — measured, including for a path that does not exist at all.
+// A nil variadic marshals to `null`, which the server never sends and which
+// WalkTree deliberately refuses as "not a listing".
 func listingFor(entries ...RemoteEntry) string {
+	if entries == nil {
+		entries = []RemoteEntry{}
+	}
 	b, err := json.Marshal(entries)
 	if err != nil {
 		panic(err)

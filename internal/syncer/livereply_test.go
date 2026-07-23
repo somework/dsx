@@ -402,6 +402,51 @@ func TestLiveDesignSkillsAreProseAndTheNamesAreClosed(t *testing.T) {
 	}
 }
 
+// The one claim that matters about `depth: -1`, and the only one a mock cannot
+// make: that the flat listing and the recursive walk describe the SAME tree.
+// Every sync verb reads that map and `--prune` deletes what is missing from it,
+// so a flat listing quietly one file short is not a performance regression, it
+// is deletion of the user's work. A fake can only repeat what dsx already
+// believes; this compares the server against itself.
+func TestLiveTheFlatListingAgreesWithTheRecursiveWalk(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	flat, ok := walkFlat(ctx, c, liveProjectID())
+	if !ok {
+		t.Skip("this project's flat listing was declined; nothing to compare")
+	}
+	walked, err := walkRecursive(ctx, c, liveProjectID(), 8)
+	if err != nil {
+		t.Fatalf("walkRecursive: %v", err)
+	}
+
+	if len(flat) != len(walked) {
+		t.Errorf("flat listing holds %d files, the walk %d", len(flat), len(walked))
+	}
+	for p, w := range walked {
+		f, ok := flat[p]
+		if !ok {
+			t.Errorf("%s is in the walk and missing from the flat listing — "+
+				"push --prune would read it as a user deletion", p)
+			continue
+		}
+		// Size and etag are what planPull/planPush decide on, so agreeing on
+		// the path alone would not be agreement.
+		if f.Size != w.Size || f.Etag != w.Etag {
+			t.Errorf("%s: flat %d/%s vs walk %d/%s", p, f.Size, f.Etag, w.Size, w.Etag)
+		}
+	}
+	for p := range flat {
+		if _, ok := walked[p]; !ok {
+			t.Errorf("%s is in the flat listing and not in the walk", p)
+		}
+	}
+	if len(walked) == 0 {
+		t.Fatal("the project listed empty; this would agree vacuously")
+	}
+	t.Logf("%d files agreed", len(walked))
+}
+
 // PROTOCOL.md claims create_support_js refuses any basename but support.js.
 // The claim arrived with the reply-shape work and was the only one in that
 // batch with no test, which is the shape of every protocol claim that later
