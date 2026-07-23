@@ -101,6 +101,18 @@ func TestEveryWiredCommandRendersItsOwnReply(t *testing.T) {
 			deny: []string{"ELIDED", "untrusted-project-content", "wrote", "deleted"},
 		},
 		{
+			argv:  []string{"comment", "ls", project},
+			reply: `{"comments":[],"server_time":"2026-07-23T06:49:31.190296Z"}`,
+			want:  "no comments",
+			deny:  []string{`"server_time"`, "no members", "0 files"},
+		},
+		{
+			argv:  []string{"comment", "ack", project, "00000000-0000-4000-8000-000000000000"},
+			reply: `{"acked":[],"not_queued":["00000000-0000-4000-8000-000000000000"]}`,
+			want:  "0 comments handled, 1 already clear",
+			deny:  []string{"wrote", "deleted", `"not_queued"`},
+		},
+		{
 			argv:  []string{"plan", "new", project, "--scope", "project"},
 			reply: `{"plan_token":"plan_abc","project_id":"` + project + `","scope":"project","expires_at":1784262307}`,
 			want:  "plan_abc\n  scope    project\n  expires  1784262307",
@@ -270,7 +282,7 @@ func TestEveryDeclaredHumanIsExercised(t *testing.T) {
 	// table above is what actually drives them.
 	for _, name := range []string{
 		"project ls", "files ls", "files put", "files rm", "files cp",
-		"project support-js", "plan new", "conv get",
+		"project support-js", "plan new", "conv get", "comment ls", "comment ack",
 	} {
 		wired[name] = true
 	}
@@ -279,8 +291,8 @@ func TestEveryDeclaredHumanIsExercised(t *testing.T) {
 			t.Errorf("%s lost its renderer", name)
 		}
 	}
-	if len(wired) != 11 {
-		t.Errorf("%d commands render for a person, expected 11 — add the new one to "+
+	if len(wired) != 13 {
+		t.Errorf("%d commands render for a person, expected 13 — add the new one to "+
 			"TestEveryWiredCommandRendersItsOwnReply before widening this: %v", len(wired), wired)
 	}
 }

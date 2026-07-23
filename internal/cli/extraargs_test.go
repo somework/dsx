@@ -29,6 +29,8 @@ import (
 // gap.
 var variadicCommands = map[string]string{
 	"files rm": "files rm <project> <path...> — each extra positional is another path to delete, not a usage error",
+	"comment ack": "comment ack <project> <id...> — each extra positional is another comment id to mark handled, " +
+		"not a usage error; acking none is the mistake, and its own refusal covers that",
 }
 
 // baseInvocations gives, for every non-variadic command, a VALID invocation
@@ -45,6 +47,9 @@ func baseInvocations(t *testing.T) map[string][]string {
 	return map[string][]string{
 		// SYNC — resolveSyncTarget rejects a 3rd positional before any network;
 		// clone's own NoExtra rejects it before its target checks.
+		"comment ls": {"proj"},
+		"skill":      {"hifi-design"},
+
 		"clone":  {"proj", "dir"},
 		"pull":   {"proj", "dir"},
 		"push":   {"proj", "dir"},

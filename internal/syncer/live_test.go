@@ -652,6 +652,22 @@ func TestLiveToolsListCoversEveryWrappedTool(t *testing.T) {
 			t.Errorf("readOnlyTools names %q, which the server no longer lists", name)
 		}
 	}
+
+	// The direction nothing checked. Both assertions above ask "is what dsx
+	// knows about still there"; neither asks "has the server grown something
+	// dsx does not know about", and that blind spot is not hypothetical — it
+	// hid three tools (list_comments, ack_comments, read_design_skill) plus a
+	// depth parameter on list_files and the removal of render_preview's
+	// `render`, all of which reached the server while every guard stayed green.
+	//
+	// reference/mcp-tools.json is what the offline suite judges against, so a
+	// stale reference silently disables TestReadOnlyToolsMatchesTheServersOwnReadOnlyHint
+	// for exactly the tools it has never heard of.
+	if missing := missingFromReference(have, recordedToolNames(t)); len(missing) > 0 {
+		t.Errorf("the server lists %v, which reference/mcp-tools.json does not record; "+
+			"refresh it with `dsx tools --schema --json` — until then every offline "+
+			"guard that reads it is blind to those tools", missing)
+	}
 }
 
 func TestLiveResourcesAreStillUnsupported(t *testing.T) {

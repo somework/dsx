@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/somework/dsx/internal/cmd"
+	"github.com/somework/dsx/internal/cmd/comments"
 	"github.com/somework/dsx/internal/cmd/conv"
 	"github.com/somework/dsx/internal/cmd/ds"
 	"github.com/somework/dsx/internal/cmd/escape"
@@ -18,7 +19,7 @@ import (
 
 var groups = []cmd.Group{
 	synccmd.Group, projects.Group, ds.Group, files.Group, plans.Group,
-	conv.Group, members.Group, escape.Group, diagGroup,
+	conv.Group, comments.Group, members.Group, escape.Group, diagGroup,
 }
 
 var (

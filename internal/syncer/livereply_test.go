@@ -321,6 +321,87 @@ func firstLine(s string) string {
 	return s
 }
 
+// list_comments and read_design_skill reached the server without dsx noticing,
+// because reference/mcp-tools.json had never heard of them and every offline
+// guard judges against it. These pin the shapes now that they are wrapped.
+func TestLiveCommentsCarryAWatermark(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	text, err := c.CallTool(ctx, "list_comments", map[string]any{"project_id": liveProjectID()})
+	if err != nil {
+		t.Fatalf("list_comments: %v", err)
+	}
+	r, ok := reply.DecodeComments(text)
+	if !ok {
+		t.Fatalf("PROTOCOL.md's list_comments shape no longer matches:\n%s", text)
+	}
+	if len(r.Comments) > 0 {
+		t.Logf("this project now has comments; dsx renders only the empty case:\n%s", text)
+		return
+	}
+	// The watermark is the claim only the network can answer: the server must
+	// accept its own server_time back verbatim, which is the whole incremental
+	// contract and the thing get_conversation has no equivalent of.
+	again, err := c.CallTool(ctx, "list_comments", map[string]any{
+		"project_id": liveProjectID(), "changed_since": r.ServerTime,
+	})
+	if err != nil {
+		t.Fatalf("the server refused its own server_time as changed_since: %v", err)
+	}
+	if _, ok := reply.DecodeComments(again); !ok {
+		t.Errorf("a watermarked listing is not the same shape:\n%s", again)
+	}
+}
+
+// ack_comments is probed with a well-formed but nonexistent id on purpose: a
+// real queued id belongs to a person waiting for an answer, and clearing that
+// flag is not something a test may do.
+func TestLiveAckOfANonexistentCommentIsNotAnError(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	const absent = "00000000-0000-4000-8000-000000000000"
+	text, err := c.CallTool(ctx, "ack_comments", map[string]any{
+		"project_id": liveProjectID(), "comment_ids": []string{absent},
+	})
+	if err != nil {
+		t.Fatalf("ack_comments: %v", err)
+	}
+	r, ok := reply.DecodeAcked(text)
+	if !ok {
+		t.Fatalf("PROTOCOL.md's ack_comments shape no longer matches:\n%s", text)
+	}
+	if len(r.Acked) != 0 {
+		t.Errorf("acked %v — an id that was never queued must not be reported as handled", r.Acked)
+	}
+	if len(r.NotQueued) != 1 || r.NotQueued[0] != absent {
+		t.Errorf("not_queued = %v, want the id back", r.NotQueued)
+	}
+}
+
+func TestLiveDesignSkillsAreProseAndTheNamesAreClosed(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	for _, name := range []string{"hifi-design", "frontend-design"} {
+		text, err := c.CallTool(ctx, "read_design_skill", map[string]any{"skill": name})
+		if err != nil {
+			t.Fatalf("read_design_skill %s: %v", name, err)
+		}
+		// Prose, not JSON — which is why `dsx skill` carries no renderer. If this
+		// ever becomes a JSON document the indented fallback would start
+		// reformatting guidance meant to be read.
+		if json.Valid([]byte(text)) {
+			t.Errorf("%s now answers in JSON; `dsx skill` assumes prose", name)
+		}
+		if len(text) == 0 {
+			t.Errorf("%s answered empty", name)
+		}
+	}
+	if _, err := c.CallTool(ctx, "read_design_skill", map[string]any{"skill": "dsx-selftest-nope"}); err == nil {
+		t.Error("an unknown skill was accepted; dsx relies on the server's refusal " +
+			"rather than a local enum that would go stale")
+	}
+}
+
 // PROTOCOL.md claims create_support_js refuses any basename but support.js.
 // The claim arrived with the reply-shape work and was the only one in that
 // batch with no test, which is the shape of every protocol claim that later

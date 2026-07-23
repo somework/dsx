@@ -83,8 +83,13 @@ empty directory so `diff -ru` does the work locally.
 
 Every MCP tool is reachable — `project ls`, `files tree`, `files cat`, `files put`,
 `files rm`, `files cp`, `plan new`, `files preview`, `conv get`, `member ls`,
-`project sharing`, `prompt`. `dsx raw <tool> '<json-args>'` covers anything the named
-commands do not wrap.
+`project sharing`, `comment ls`, `comment ack`, `skill`, `prompt`. `dsx raw <tool> '<json-args>'`
+covers anything the named commands do not wrap.
+
+`comment ls` reads the pin-anchored feedback people leave in Claude Design; its reply carries a
+`server_time` watermark to pass back as `--since`, so a second call returns only what changed.
+`comment ack` clears the queue flag on ids you have actually handled. `skill` fetches the
+server's own design-quality guidance (`hifi-design`, `frontend-design`).
 
 `--json` on every command, `-j N` for concurrency, `-n` for a dry run.
 

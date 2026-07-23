@@ -16,6 +16,7 @@ var Group = cmd.Group{
 	Cmds: []cmd.Command{
 		{Name: "prompt", Form: "prompt [--project id] [--ds id]", Desc: "the server's own Claude Design prompt", Run: cmdPrompt},
 		{Name: "tools", Form: "tools [--schema]", Desc: "tool names and schemas from the server", Run: cmdTools},
+		{Name: "skill", Form: "skill <hifi-design|frontend-design>", Desc: "one of the server's design-quality skills", Run: cmdSkill},
 		{Name: "raw", Form: "raw <tool> '<json-args>'", Desc: "call any tool verbatim", Run: cmdRaw},
 	},
 }
@@ -109,4 +110,25 @@ func cmdRaw(ctx context.Context, c *mcp.Client, args []string) error {
 		}
 	}
 	return cmd.Emit(ctx, c, tool, a, *asJSON, nil)
+}
+
+// cmdSkill relays read_design_skill, which answers in markdown prose rather
+// than JSON — so no renderer, exactly like `dsx prompt`. The server refuses an
+// unknown name and lists the real ones, which is a better error than a local
+// enum that would go stale the moment a third skill appears.
+func cmdSkill(ctx context.Context, c *mcp.Client, args []string) error {
+	flags := cmd.NewFlagSet("skill")
+	asJSON := cmd.JSONFlag(flags)
+	pos, err := cmd.ParseArgs(flags, args)
+	if err != nil {
+		return err
+	}
+	name, rest, err := cmd.Need1(pos, "skill <hifi-design|frontend-design>")
+	if err != nil {
+		return err
+	}
+	if err := cmd.NoExtra(rest, "skill <hifi-design|frontend-design>"); err != nil {
+		return err
+	}
+	return cmd.Emit(ctx, c, "read_design_skill", map[string]any{"skill": name}, *asJSON, nil)
 }

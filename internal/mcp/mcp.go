@@ -140,6 +140,8 @@ var readOnlyTools = map[string]bool{
 	"get_conversation":         true,
 	"get_claude_design_prompt": true,
 	"read_file":                true,
+	"list_comments":            true,
+	"read_design_skill":        true,
 }
 
 func (c *Client) rpc(ctx context.Context, method string, params any, idempotent bool) (json.RawMessage, error) {

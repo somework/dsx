@@ -260,6 +260,44 @@ into the command dsx prints for the caller to run. `DecodeConversation` reads th
 from the tail. `TestLiveConversationIsNotWrappedLikeReadFile`,
 `TestANoticeForgedInsideTheTranscriptIsNotRead`.
 
+### list_comments and ack_comments
+
+Pin-anchored feedback users leave on project pages. `list_comments` answers an envelope, not a
+bare array:
+
+```json
+{"comments":[],"server_time":"2026-07-23T06:49:31.190296Z"}
+```
+
+`server_time` is a **watermark**: pass it back verbatim as `changed_since` and the next call
+returns only threads changed after it, plus tombstones for deletions. The server validates it
+as RFC 3339 and refuses anything else by name. This is the one incremental-read mechanism the
+endpoint offers — worth knowing precisely because `get_conversation`, whose transcripts are the
+thing that actually outgrows the cap, has no equivalent. `queued_for_claude: true` narrows to
+what the app's "Send to Claude" button flagged.
+
+Every project reachable from this account answered with **zero** comments, and no tool creates
+one — they come from people clicking pins in the app — so **the element's shape is unmeasured**,
+exactly as `list_members`' is. dsx renders the empty case and passes anything else through.
+
+`ack_comments` clears the queued flag on up to 200 ids and replies:
+
+```json
+{"acked":[],"not_queued":["00000000-0000-4000-8000-000000000000"]}
+```
+
+Both keys are always present. `not_queued` is **not** an error list — it names ids whose flag
+was already clear, which is what lets a read → act → ack loop be re-run safely after a crash.
+Measured with a well-formed but nonexistent UUID; a malformed one is refused with
+`invalid UUID length`. A real queued id was deliberately not used, here or in the live suite:
+clearing that flag drops work a person is waiting on.
+
+### read_design_skill
+
+Answers **markdown prose, not JSON** — so `dsx skill` carries no renderer, like `dsx prompt`.
+`skill` is a closed enum (`hifi-design`, `frontend-design`) and the server refuses anything else
+while naming the real ones, which is why dsx does not keep a local copy of the list.
+
 ## Writing
 
 `write_files` reply — a **map**, not a list:
@@ -414,7 +452,9 @@ unsupported, `tools/list` still naming every tool dsx wraps, and an end-to-end p
 trip through the real sync engine. Since the reply-rendering work, also: the reply shapes of
 `list_design_systems`, `get_project`, `list_members`, `copy_files`, `delete_files` and
 `create_support_js`, plus `create_support_js`' refusal of any basename but `support.js` and
-`get_project`'s `PROJECT_TYPE_PROJECT` spelling. Also `get_conversation`'s framing and the
+`get_project`'s `PROJECT_TYPE_PROJECT` spelling. Also the `list_comments` envelope and its
+watermark round trip, `ack_comments`' reply on a never-queued id, and `read_design_skill`
+answering prose with a closed enum. And `get_conversation`'s framing and the
 negative that matters about it — that `ParseEnvelope` refuses it. Its two truncation-notice
 wordings are pinned too, but **only when `DSX_LIVE_PROJECT` names a project over the cap**:
 the default sandbox's transcript is far under it, and pushing it over would mean writing a
@@ -427,6 +467,14 @@ Those six are pinned in an unusual way worth
 knowing about: the judge is `internal/reply`'s decoder, the same one that renders the reply for
 a person, so the shape dsx draws and the shape this document claims cannot drift apart — and
 most of each claim is therefore pinned by a bare `go test`, not only by the live run.
+
+One direction went unchecked for a long time and now is not: the live tools/list test asserts
+that **every tool the server lists is recorded in `reference/mcp-tools.json`**, not only that
+dsx's own are still there. That reference is what the offline suite judges argument shapes and
+`readOnlyHint` against, so a stale one silently disables those guards for exactly the tools it
+has never heard of — which is how three tools, a new `list_files` `depth` parameter and the
+removal of `render_preview`'s `render` all arrived unnoticed. `missingFromReference` holds the
+judgment outside the build tag; the live half only supplies the two sets.
 
 **Not pinned live, resting on a one-off probe or on the schema:** the whole **Auth** section
 (unit-tested only — its file lane has never met a real file), `copy_files`' *cross-project*

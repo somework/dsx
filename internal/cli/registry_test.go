@@ -69,12 +69,16 @@ PLANS
 CONVERSATION
   dsx conv <verb>                       the project's Claude Design chat
 
+COMMENTS
+  dsx comment <verb>                    pin-anchored feedback left on the project in Claude Design
+
 MEMBERS
   dsx member <verb>                     who may open the project, and with what role
 
 ESCAPE HATCH
   dsx prompt [--project id] [--ds id]   the server's own Claude Design prompt
   dsx tools [--schema]                  tool names and schemas from the server
+  dsx skill <hifi-design|frontend-design>  one of the server's design-quality skills
   dsx raw <tool> '<json-args>'          call any tool verbatim
 
 DIAGNOSTICS
