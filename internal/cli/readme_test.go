@@ -54,6 +54,14 @@ func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
 	}
 
 	checkSnippet := func(snippet string) {
+		// A shell pipeline is several programs, and only the first is dsx.
+		// Reading past the pipe made `… --json | jq -r …` fail on jq's own -r,
+		// which meant README could never demonstrate a pipeline at all — and
+		// the whole point of conv's --json shape is that `| jq` works on it.
+		// Flags belonging to another program are that program's business.
+		if i := strings.IndexByte(snippet, '|'); i >= 0 {
+			snippet = snippet[:i]
+		}
 		if m := readmeDsxWord.FindStringSubmatch(snippet); m != nil {
 			name := m[1]
 			if g, isNoun := nounIndex[name]; isNoun {

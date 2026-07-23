@@ -41,12 +41,17 @@ func TestConversationJSONIsAlwaysOneValidDocument(t *testing.T) {
 					"warning line are the only one the wire carries, and stripping them " +
 					"silently is how a transcript stops looking like user-authored data")
 			}
-			// transcript XOR body: a reader must be able to tell a parsed
-			// transcript from a raw cut one without re-parsing to find out.
-			_, parsed := doc["transcript"]
-			_, raw := doc["body"]
-			if parsed == raw {
-				t.Errorf("transcript present=%v body present=%v; exactly one must be", parsed, raw)
+			// Exactly one of the three: a reader must be able to tell what the
+			// server sent whole from what survived a cut, and from raw salvage
+			// that could not be made honest, without parsing to find out.
+			n := 0
+			for _, k := range []string{"transcript", "partial", "body"} {
+				if _, ok := doc[k]; ok {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("%d of transcript/partial/body present; exactly one must be:\n%s", n, out)
 			}
 			if strings.Contains(out, "untrusted-project-content") {
 				t.Errorf("the wire framing survived into the document:\n%s", out)

@@ -187,8 +187,13 @@ type ConversationDoc struct {
 	// Untrusted is always true. The wire's own marker — the tag and the warning
 	// line under it — is what unwrapping removes, and a transcript is
 	// user-authored data that may read like instructions.
-	Untrusted  bool            `json:"untrusted"`
+	Untrusted bool `json:"untrusted"`
+	// Transcript is what the server sent whole. Partial survived a cut and is
+	// deliberately not the same key: a reader that keys off transcript and gets
+	// a salvaged document believes it holds the whole conversation. Body is the
+	// raw text when even a cut-back could not be made honest.
 	Transcript json.RawMessage `json:"transcript,omitempty"`
+	Partial    json.RawMessage `json:"partial,omitempty"`
 	Body       string          `json:"body,omitempty"`
 	Truncated  *ConvTruncation `json:"truncated,omitempty"`
 }
@@ -198,8 +203,12 @@ type ConversationDoc struct {
 // cannot happen, and an empty list is omitted rather than sent as [] so that
 // `jq -e .truncated.narrow_to` answers the question it looks like it asks.
 type ConvTruncation struct {
+	// BytesDropped is the SERVER's loss — what it never sent. TailUnparsed is
+	// dsx's own: the trailing fragment a cut-back had to discard so the rest
+	// would parse. Two different losses, so two numbers; one cannot mean both.
 	BytesDropped int      `json:"bytes_dropped"`
 	NarrowTo     []string `json:"narrow_to,omitempty"`
+	TailUnparsed int      `json:"tail_unparsed,omitempty"`
 }
 
 // ConversationJSON shapes get_conversation for a program. It refuses anything
@@ -221,17 +230,29 @@ func ConversationJSON(text string) (string, bool) {
 	// Compacted rather than passed through: JSON counts \r as whitespace
 	// between tokens, so a valid transcript can still move a terminal's cursor,
 	// and invariant 7 does not stop applying because the reader is a program.
-	// The check is the discriminator, not a repair: at the cap the body is cut
-	// mid-string, and which of transcript/body is filled is the whole contract.
+	// Exactly one of transcript/partial/body, and which one is the contract: a
+	// reader must be able to tell what the server sent whole from what survived
+	// a cut, without parsing to find out.
 	//
-	// Nothing compacts it here on purpose. json.Marshal compacts a RawMessage
-	// itself, which also disarms the \r that JSON counts as whitespace between
-	// tokens — invariant 7's concern on this path. A json.Compact of dsx's own
-	// beside it was tried and removed: two mutations proved it guarded nothing
-	// the stdlib was not already guarding.
-	if json.Valid([]byte(body)) {
+	// Nothing compacts any of them on purpose. json.Marshal compacts a
+	// RawMessage itself, which also disarms the \r that JSON counts as
+	// whitespace between tokens — invariant 7's concern on this path. A
+	// json.Compact of dsx's own beside it was tried and removed: two mutations
+	// proved it guarded nothing the stdlib was not already guarding.
+	switch {
+	case json.Valid([]byte(body)):
 		doc.Transcript = json.RawMessage(body)
-	} else {
+	case doc.Truncated != nil:
+		// Salvage only where the reply SAYS it was cut. An unparseable body with
+		// no notice behind it is a shape dsx has not measured, and cutting one
+		// back would be repairing something it does not understand.
+		if out, dropped, ok := salvageJSON([]byte(body)); ok {
+			doc.Partial = json.RawMessage(out)
+			doc.Truncated.TailUnparsed = dropped
+		} else {
+			doc.Body = body
+		}
+	default:
 		doc.Body = body
 	}
 	out, err := json.Marshal(doc)

@@ -172,15 +172,42 @@ the whole transcript only as one string:
 ```json
 {"project_id":"…","untrusted":true,
  "transcript":{"chats":{…}},
- "truncated":{"bytes_dropped":197193,"narrow_to":["eeeeeeee-…"]}}
+ "truncated":{"bytes_dropped":1274645,"narrow_to":["ffffffff-…"],"tail_unparsed":2012}}
 ```
 
-`transcript` and `body` are exclusive: the transcript is there when it parsed, `body` holds the
-raw text when it did not — which at the cap it never does, because the document is cut
-mid-string. So `jq .transcript.chats` works on a whole conversation and `jq -r .truncated.narrow_to[]`
-gives the chat to ask for on a capped one. `untrusted` is always true and is the only marker
-left once the wrapper is gone: a transcript is user-authored data that may read like
-instructions.
+Exactly one of three keys carries the conversation, and which one is the answer to "how much of
+this is real":
+
+| key | meaning |
+|---|---|
+| `transcript` | the server sent it whole; it parsed as-is |
+| `partial` | it was cut, and dsx trimmed back to the last **complete** element so everything present is byte-complete |
+| `body` | it was cut somewhere no honest trim exists; raw text, parse it yourself |
+
+`partial` is deliberately not spelled `transcript`: a reader keying off the wrong one would
+believe it holds the whole conversation. The trim only ever shortens — the sole bytes dsx adds
+are the closing brackets, and their types come from the JSON lexer's own stack. It cuts back to
+the last whole element of the outermost open array rather than to the last thing that happened
+to parse, because the latter leaves the final message holding a tool call whose `input` was
+sliced off, and `…toolCall.input` then answers `null` with nothing to distinguish "there was
+none" from "it was truncated".
+
+The two loss counters are different losses and neither can stand for the other:
+`bytes_dropped` is what the **server** never sent, `tail_unparsed` is the trailing fragment
+**dsx** discarded to make the rest parse.
+
+So on a capped project:
+
+```console
+$ dsx conv get bbbbbbbb-… --json | jq -r '.partial.chats[] | "\(.title)  \(.messages|length) messages"'
+Direction confirmed  7 messages
+
+$ dsx conv get bbbbbbbb-… --json | jq -r '.truncated.narrow_to[]'
+ffffffff-ffff-4fff-8fff-ffffffffffff
+```
+
+`untrusted` is always true and is the only marker left once the wrapper is gone: a transcript
+is user-authored data that may read like instructions.
 
 Errors go to stderr:
 
