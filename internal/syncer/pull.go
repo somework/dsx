@@ -251,11 +251,22 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	// instead, and the asymmetry is the point: the baseline is fetch's only
 	// product, so a fetch that could not write one did nothing at all.
 	//
-	// Nor is this silent. Failing to record leaves exactly the state that
-	// existed before pull recorded anything, and that state answers loudly
-	// downstream: `status` refuses outright when no snapshot is there at all,
-	// and a lease reads one older than this run — which can only break a lease
-	// that should have held, never hold one that should have broken.
+	// What the drop leaves behind is loud in two cases out of three, and an
+	// earlier wording here claimed all three. An absent or unbound baseline
+	// makes `status` refuse outright, and a lease reads a snapshot older than
+	// this run, which can only break one that should have held, never hold one
+	// that should have broken. The third is quiet: a BOUND snapshot left stale
+	// while the ledger moves makes `status` compare one map that updated
+	// against one that did not, and call a just-pulled path "server ahead" —
+	// a wrong label, not an old one. That is also precisely what dsx did
+	// unconditionally until this write existed, so the failure is not new;
+	// this line makes it rare instead of certain, and
+	// TestAPullRefreshesABoundSnapshotSoStatusDoesNotCryServerAhead is the
+	// positive control. Reporting it would cost a PullReport field for a state
+	// that needs the baseline write to fail while the ledger write succeeds,
+	// and the two ways .dsx actually breaks — a directory where baseline.json
+	// belongs, a disk with no room — are loud on the read side or through the
+	// ledger's own returned error.
 	// Verified was read at the top of this function, so a `dsx fetch` finishing
 	// in the same directory in between loses its entries to this write. dsx has
 	// no cross-process lock anywhere, and the loss is of a cache: the paths fall

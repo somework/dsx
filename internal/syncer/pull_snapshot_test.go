@@ -132,6 +132,62 @@ func TestPullDoesNotTouchTheProof(t *testing.T) {
 	}
 }
 
+// TestAPullRefreshesABoundSnapshotSoStatusDoesNotCryServerAhead is the case
+// every other test here misses: they all start from no baseline at all, so
+// they can only show that `status` stops REFUSING. The interesting half is a
+// snapshot that already exists and is stale — the ledger moves to the new
+// etag when the pull lands, and if the snapshot does not move with it,
+// `classifyStatus` compares one map that updated against one that did not and
+// reports `server ahead` for a file that was just pulled to the server's
+// current revision. That was dsx's unconditional behaviour before this
+// feature; a review found it reachable again through a failed snapshot write,
+// which is what makes the positive control worth pinning.
+func TestAPullRefreshesABoundSnapshotSoStatusDoesNotCryServerAhead(t *testing.T) {
+	dir := t.TempDir()
+	oldBody, newBody := "old{}\n", "new{}\n"
+	mkfile(t, dir, "a.css", oldBody)
+
+	bodies := map[string]string{"a.css": newBody}
+	etags := map[string]string{"a.css": "e-NEW"}
+	c := fakeClient(snapshotFake(t, bodies, etags))
+
+	st := State{ProjectID: "proj-A", Endpoint: c.Endpoint(), Files: map[string]FileState{
+		"a.css": {Etag: "e-OLD", Size: int64(len(oldBody)), SHA: SHA256Hex([]byte(oldBody))},
+	}}
+	if err := st.save(dir); err != nil {
+		t.Fatal(err)
+	}
+	prior := Baseline{
+		ProjectID: "proj-A",
+		Endpoint:  c.Endpoint(),
+		Verified:  map[string]BaselineEntry{},
+		Listing:   map[string]SnapshotEntry{"a.css": {Size: int64(len(oldBody)), Etag: "e-OLD"}},
+	}
+	if err := prior.save(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := Pull(context.Background(), c, PullOpts{ProjectID: "proj-A", Dir: dir, Concurrency: 2})
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if !slices.Contains(rep.Fetched, "a.css") {
+		t.Fatalf("the fixture no longer fetches: %+v", rep)
+	}
+
+	got, err := Status(StatusOpts{ProjectID: "proj-A", Dir: dir})
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if len(got.ServerAhead) != 0 {
+		t.Errorf("status says the server is ahead of %v, which this pull just fetched to the "+
+			"revision the listing showed", got.ServerAhead)
+	}
+	if len(got.Modified) != 0 || len(got.GoneFromServer) != 0 || len(got.Untracked) != 0 {
+		t.Errorf("status = %+v, want clean after a pull that reconciled everything", got)
+	}
+}
+
 // TestPushRecordsNoSnapshot is the control that makes the lease mean
 // anything. --force-with-lease reads bl.Listing as "the last time I went and
 // LOOKED"; a push refreshing it would make every subsequent lease hold, which

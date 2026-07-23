@@ -35,6 +35,16 @@ func fetchBaselineVerdict(fetched []string, verified map[string]BaselineEntry, t
 	if len(verified) == 0 {
 		return fmt.Errorf("baseline holds no entries at all")
 	}
+	// Both presence checks, not just the binary one. The binary arm was added
+	// when fetch gained the preview lane and the text arm was left implicit —
+	// `len(verified) != 0` plus a loop over whatever is in the map, which
+	// passes with the text entry missing. Production cannot drift that way
+	// (`rep.Fetched` is built from `verified`'s own keys), so what the
+	// asymmetry actually endangered is this judge: a mutation deleting the
+	// text arm would have had no case to fail.
+	if _, ok := verified[textPath]; !ok {
+		return fmt.Errorf("baseline holds no entry for the text path %s", textPath)
+	}
 	if _, ok := verified[binPath]; !ok {
 		return fmt.Errorf("baseline holds no entry for the binary path %s, so the preview lane proved nothing", binPath)
 	}
@@ -106,6 +116,9 @@ func TestFetchBaselineVerdict(t *testing.T) {
 		{"the binary path got no baseline entry", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
 			delete(v, bin)
 		}, "holds no entry for the binary path"},
+		{"the text path got no baseline entry", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
+			delete(v, text)
+		}, "holds no entry for the text path"},
 		{"the baseline is empty", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
 			delete(v, text)
 			delete(v, bin)
