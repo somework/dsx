@@ -84,9 +84,10 @@ verified are exempted from the collision — they stay untracked (`fetch` record
 the ledger), but they no longer block the first pull. Whatever it could not verify still
 collides — resolve it by hand, or pass `--force` to take the server's copy.
 
-`dsx diff` never prints a hunk — bytes still do not pass through a model's context. A fresh
-`fetch` baseline proves a path `same` with no download; every other present-both path is
-downloaded to classify. `--out <dir>` materialises the remote side of `differs` paths into an
+`dsx diff` never prints a hunk — bytes still do not pass through a model's context. A path is
+proved `same` with no download by either record that can prove it: a fresh `fetch` baseline,
+or the ledger, when the server still shows the etag a tracked file was written at. Every other
+present-both path is downloaded to classify. `--out <dir>` materialises the remote side of `differs` paths into an
 empty directory so `diff -ru` does the work locally.
 
 Every MCP tool is reachable — `project ls`, `files tree`, `files cat`, `files put`,

@@ -133,6 +133,56 @@ Untested — do not present as fact.
 - **A command's `Form` carries its positionals and its command-unique flags; a flag several commands share is documented once in `usageFooter`, under a scope naming them.** `--json` set that precedent. Widening a Form is not free — `put`, `cp` and `support-js` repeat their Form text in `Need1`/`Need2` literals printed on every malformed invocation, the agent hot path. `TestEveryDeclaredFlagIsDocumented` walks the real `flags.String/Bool/Int` declarations and accepts either home, so a flag can be discoverable without being spelled three times. Accepting *either* home is what lets both homes fill up, and `-j` did: five Forms spelled it while the footer scoped it, and the scope named `tree` — which spells it nowhere — alongside two commands it omitted entirely. `-j` now lives in the footer alone, `tree`'s shape generalised rather than excepted. Two mechanical rules fell out and both are load-bearing. The default is `cmd.DefaultConcurrency`, one constant instead of six literals that merely agreed, and `TestTheFooterQuotesTheRealConcurrencyDefault` ties the footer's `(default 8)` prose to it — that line is a copy no compiler checks, and it fails silently in the direction that matters, still promising the old number after the constant moves. But the flag is **not** wrapped in a `cmd.ConcurrencyFlag` helper the way `--json` is wrapped in `cmd.JSONFlag`, and the asymmetry is deliberate: the guard finds a declaration by matching a selector literally named `String`/`Bool`/`Int`, so a wrapper hides every call from it, and unlike `--json` — whose scope is the unchecked `every command` bypass — `-j`'s scope names its commands, so the backward half would then report all six as documented-but-undeclared. Swapping only the default argument keeps the declaration visible, because the guard reads `call.Args[0]` and nothing else. `--json` earns its helper for the opposite reason: it is on every command, so the only thing a per-command declaration can add is a *different* third argument, and it did — four commands said `JSON output` where the rest said `machine-readable output`, and that argument is what `dsx <cmd> -h` prints. `TestJSONIsDeclaredOnlyThroughTheHelper` forbids the hand-rolled form; it asserts an absence, so it opens by proving the walk still finds `--prune`, which no helper wraps and which two commands will keep declaring by hand.
 - Russian in commit messages, English in code and docs.
 
+## Considered and declined
+
+**`.dsx/` as a store of server bytes — declined on 2026-07-23.** The proposal was to keep a
+copy of every server file under `.dsx/`, filled incrementally by per-path etag, so that the
+server side of a conflict, `pull`, `status` and `diff` could all be answered with no network.
+Four things were claimed for it. Three are already delivered and the fourth is worth less than
+the guard it would dismantle.
+
+- *The server side of a conflict, offline.* What a conflict answer needs is a **hash**, not
+  bytes, and dsx already holds one for every tracked path (the ledger's sha-at-etag) and every
+  proven untracked path (the baseline's). The genuinely uncovered case — untracked and never
+  proven — is exactly what `dsx fetch` fills, once, by downloading the same bytes the store
+  would have downloaded to fill itself. What a store would add on top is the *content*, and
+  dsx never prints content: `diff` deliberately shows no hunk. The one real consumer is
+  `diff --out`.
+- *`pull` as the application of bytes already held: atomic, resumable.* Already true, and by
+  two invariants that predate the idea. An interrupted pull saves the ledger (invariant 5), so
+  a re-run refetches only what it never received; every file lands temp-then-rename (invariant
+  15), so no file is ever half-written. A store changes neither property.
+- *Offline `status`.* Delivered by the listing snapshot `pull` now records — see invariant 19.
+  Measured the same day: a fresh `clone` of the sandbox left `status` and
+  `push --force-with-lease` refusing with exit 2 before the change and answering `clean` after
+  it, for zero extra requests.
+- *Offline `diff`.* The measured cost here is not the absence of bytes. `diff` consults
+  `bl.Verified` alone and never the ledger, so a path **dsx itself pulled** is downloaded
+  again on every run to be called `same` — four of four files, immediately after the clone
+  that wrote them, measured with `DSX_PROGRESS=always` against both binaries. That was a few
+  lines of reading a map dsx already had, not a new on-disk object, and it is now done: `diff`
+  proves a tracked path from the ledger when the listing still shows the etag it was written
+  at, downloading 0 of 4 where it used to download 4, and exactly 1 when one file is edited.
+  `Binary: true` entries are excluded (invariant 23), and the two "still downloads" controls —
+  server etag moved, local file edited — are what keep the proof from widening.
+
+Against that, the costs are structural, and one of them is the reason to stop rather than a
+price to pay. Invariant 7 was written for two small JSON files — anchored builtin ignores, a
+frozen `tempPrefix`, the rule about the ledger's siblings — and a warehouse rewrites all
+three. Every stored object owes invariant 15's discipline, plus a gc nothing else here needs,
+plus roughly double the disk. But the deciding one is invariant 17: `BaselineEntry` is not
+`FileState` and `SnapshotEntry` is not `RemoteEntry` precisely so that a **stale view of the
+server cannot compile into a place a live listing belongs** — the compiler, not a reviewer, is
+what keeps a stale map out of `--prune`. A byte store is a stale view of the server of
+unbounded size and unbounded age, and the replacement guard would have to be a freshness check
+at every read, by hand, forever. The repo's own history says how that ends: every previous
+attempt to move server truth closer to the ledger taught a prune loop to delete something it
+should not have — twice, both measured, both recorded in invariant 17.
+
+What survives from the proposal is the incremental etag idea, and it is already how `fetch`
+works. If the store is ever revisited, the question to answer first is which consumer needs
+*bytes* rather than a *hash*; today the honest answer is `diff --out` alone.
+
 ## Roadmap
 
 `go install` works, auth is no longer macOS-only *in code*, CI and release machinery exist.

@@ -50,9 +50,10 @@ type DiffReport struct {
 // set, materialises the remote side of a "differs" path so the caller's own
 // diff -ru does the work.
 //
-// A fresh baseline entry proves a path "same" with no download; every other
-// present-both path must be downloaded to classify. Diff reads the baseline —
-// it never refreshes it: fetch writes, diff reads.
+// A path is proved "same" with no download by either map that can carry the
+// proof — a fresh baseline entry, or a ledger entry recorded at the etag the
+// listing still shows. Every other present-both path must be downloaded to
+// classify. Diff reads both and refreshes neither: fetch writes, diff reads.
 func Diff(ctx context.Context, c *mcp.Client, o DiffOpts) (DiffReport, error) {
 	var rep DiffReport
 
@@ -127,7 +128,25 @@ func Diff(ctx context.Context, c *mcp.Client, o DiffOpts) (DiffReport, error) {
 		b := baseline[path]
 		proven := b.Etag != "" && r.Etag != "" && b.Etag == r.Etag &&
 			b.SHA != "" && b.SHA == lf.SHA
-		if proven {
+
+		// The ledger answers the same question for a path dsx itself wrote,
+		// and reading only the baseline is why `diff` re-downloaded every
+		// tracked path on every run — four of four immediately after the
+		// clone that had just written them. A ledger entry says "at etag E
+		// these bytes hashed to S": the server still showing E and the disk
+		// still hashing to S is the same proof `proven` carries, from the map
+		// that has it for the paths the baseline never covers (invariant 17
+		// keeps the two apart in the other direction — a real ledger entry
+		// always wins over a baseline one).
+		//
+		// Binary entries are excluded: the marker means dsx did not put those
+		// bytes on disk (invariant 23), and the sha beside it is either absent
+		// or a record of bytes SENT, so neither states what the file holds now.
+		prev := st.Files[path]
+		trackedProven := !prev.Binary && prev.Etag != "" && r.Etag != "" && prev.Etag == r.Etag &&
+			prev.SHA != "" && prev.SHA == lf.SHA
+
+		if proven || trackedProven {
 			rep.Same = append(rep.Same, path)
 			continue
 		}
