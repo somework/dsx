@@ -397,7 +397,15 @@ trip through the real sync engine. Since the reply-rendering work, also: the rep
 `list_design_systems`, `get_project`, `list_members`, `copy_files`, `delete_files` and
 `create_support_js`, plus `create_support_js`' refusal of any basename but `support.js` and
 `get_project`'s `PROJECT_TYPE_PROJECT` spelling. Also `get_conversation`'s framing and the
-negative that matters about it — that `ParseEnvelope` refuses it. Those six are pinned in an unusual way worth
+negative that matters about it — that `ParseEnvelope` refuses it. Its two truncation-notice
+wordings are pinned too, but **only when `DSX_LIVE_PROJECT` names a project over the cap**:
+the default sandbox's transcript is far under it, and pushing it over would mean writing a
+quarter of a megabyte of chat with no tool to remove a chat again. Against the sandbox the
+test asserts the framing and logs that the wordings went untested — read a green default run
+as covering the framing only. Both wordings were run against three real projects on
+2026-07-23 and each was confirmed by a mutation that goes red there and stays green on the
+sandbox, which is what distinguishes "the branch passed" from "the branch never executed".
+Those six are pinned in an unusual way worth
 knowing about: the judge is `internal/reply`'s decoder, the same one that renders the reply for
 a person, so the shape dsx draws and the shape this document claims cannot drift apart — and
 most of each claim is therefore pinned by a bare `go test`, not only by the live run.
@@ -405,11 +413,7 @@ most of each claim is therefore pinned by a bare `go test`, not only by the live
 **Not pinned live, resting on a one-off probe or on the schema:** the whole **Auth** section
 (unit-tested only — its file lane has never met a real file), `copy_files`' *cross-project*
 half — `src_project_id` and the 256 KiB-cap exemption, neither of which the reply-shape test
-exercises (it copies one small file inside one project) — `get_conversation`'s two
-**truncation-notice wordings**, which the default sandbox cannot reach: its transcript is far
-under the cap, and pushing it over would mean writing a quarter of a megabyte of chat with no
-tool to remove a chat again, so the live test asserts the framing and logs that the notices
-went untested unless `DSX_LIVE_PROJECT` names a busier project — the **Limits**
+exercises (it copies one small file inside one project) — the **Limits**
 table, the accepted half of the write allowlist (only `.bin`'s refusal is probed, and softly),
 the `read file: file not found` wording, and the `prompts`/`listChanged` capabilities.
 

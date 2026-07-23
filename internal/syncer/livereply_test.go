@@ -277,10 +277,39 @@ func TestLiveConversationIsNotWrappedLikeReadFile(t *testing.T) {
 		t.Errorf("the wire framing reached a person:\n%s", out)
 	}
 	for _, id := range conv.Chats {
-		if _, err := c.CallTool(ctx, "get_conversation", map[string]any{
+		text, err := c.CallTool(ctx, "get_conversation", map[string]any{
 			"project_id": liveProjectID(), "chat_id": id,
-		}); err != nil {
+		})
+		if err != nil {
 			t.Errorf("the notice offered chat %q and it does not resolve: %v", id, err)
+			continue
+		}
+		// The SECOND notice wording is reachable only from here. Narrowing to a
+		// chat that is itself over the cap leaves no chat_id left to suggest,
+		// and the server swaps `pass chat_id to narrow` for `this single chat
+		// exceeds the cap`. Asserting only that the call succeeded — which is
+		// all this loop used to do — leaves that wording measured by hand and
+		// pinned by nothing.
+		narrowed, ok := reply.DecodeConversation(text)
+		if !ok {
+			t.Errorf("a narrowed reply for %q no longer decodes:\n%s", id, firstLine(text))
+			continue
+		}
+		if !narrowed.Truncated {
+			t.Logf("chat %s fits under the cap; the single-chat wording went untested here", id)
+			continue
+		}
+		if len(narrowed.Chats) != 0 {
+			t.Errorf("a chat already narrowed to still offers %v to narrow to", narrowed.Chats)
+		}
+		out, ok := reply.Conversation(text)
+		if !ok {
+			t.Errorf("a truncated narrowed reply decoded but did not render")
+			continue
+		}
+		if strings.Contains(out, "--chat") {
+			t.Errorf("dsx offered --chat for a chat that is itself over the cap — "+
+				"a loop with no exit:\n%s", out)
 		}
 	}
 }
