@@ -230,6 +230,24 @@ and they say opposite things:
 - `this single chat exceeds the cap; tail dropped` — one chat alone is over the cap. There is
   no recourse; the tail cannot be fetched by any argument this tool accepts.
 
+**The cap keeps the oldest messages and drops the newest, which is backwards for a chat.**
+Measured on a real project: messages ascend chronologically from the chat's `created`, and the
+cut lands ~45 minutes in, so the 1.27 MB the server withheld is the recent end — the part
+anyone reading a transcript actually wants. There is no argument that reverses it.
+
+There is also no hidden window. `read_file`'s `offset`/`limit` are the obvious analogy and the
+schema declares neither, but a declared schema is weak evidence here — no tool on this server
+declares an `outputSchema`, and this one sets no `additionalProperties: false`. So it was
+probed rather than read: **29 candidate parameters** — `offset`, `limit`, `reverse`, `order`,
+`desc`, `newest_first`, `tail`, `head`, `latest`, `count`, `page`, `cursor`, `after`, `before`,
+`since`, `max_bytes`, `truncate`, `full`, `metadata_only`, `titles_only`, `include`, `fields`,
+`format`, and `put_conversation`'s own index vocabulary (`synced_through_idx`, `from_idx`,
+`start_idx`, `message_offset`, `max_messages`) — every one silently ignored, byte-identical
+reply. The control matters: a nonsense key is ignored too rather than refused, so "no error"
+proves nothing and only a changed reply would have; and the baseline was confirmed stable
+across repeat calls, so an unchanged hash is signal rather than noise. Do not re-derive this by
+reading the schema — the schema was never the question.
+
 Only the `open:` list is measured, always with one id. Whether a project with several chats,
 or with closed ones, spells the list differently is **unmeasured** — `internal/reply` refuses
 a list it cannot read rather than guess, so an unmeasured spelling costs a raw passthrough,
