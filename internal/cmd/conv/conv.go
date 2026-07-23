@@ -8,6 +8,7 @@ import (
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
 	"github.com/somework/dsx/internal/mcp"
+	"github.com/somework/dsx/internal/reply"
 )
 
 var Group = cmd.Group{
@@ -39,7 +40,7 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 	if *chat != "" {
 		a["chat_id"] = *chat
 	}
-	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON, nil)
+	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON, reply.Conversation)
 }
 
 func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {

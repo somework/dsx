@@ -158,6 +158,12 @@ and stable. Where it relays a tool result — anything printed through `JSONSafe
 `tools/list` reply behind `dsx tools` — the shape is the server's: dsx neither validates nor
 pins it, and it can change without a dsx release. Only the one-document guarantee spans both.
 
+Without `--json`, a reply dsx has measured is drawn for a person; anything else is printed as
+it arrived. `conv get` is the one place that draws *less*: `get_conversation` caps at 256 KiB
+with no `offset`, so a busy project answers with a quarter of a megabyte of transcript cut
+mid-JSON whose one actionable line — the `chat_id` to narrow to — the server appends at the
+end. dsx prints that line and withholds the cut body, which `--json` still returns in full.
+
 Errors go to stderr:
 
 ```json
