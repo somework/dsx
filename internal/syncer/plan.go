@@ -42,6 +42,15 @@ type pullDecision struct {
 	// Gone from the server, tracked binary:true, still on disk.
 	PruneBinary []string
 
+	// Paths routed to Fetch by the binary-lane arm, which jumps over every
+	// conflict arm below it. Named separately because the compensating check
+	// downstream must key off THIS — the route — and not off whether the
+	// download turned out to be a binary refusal: a path whose server copy has
+	// since become valid UTF-8 takes the same arm and reads back through
+	// read_file, and gating on the refusal let it overwrite a modified local
+	// file with no --force and no conflict.
+	BinaryFetch []string
+
 	// A proven byte match (invariant 17): a determination, not an act.
 	Verified int
 
@@ -71,7 +80,7 @@ type pullDecision struct {
 	StaleProof []string
 }
 
-func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune bool) pullDecision {
+func planPull(remote map[string]RemoteEntry, local map[string]localFile, st State, baseline map[string]BaselineEntry, force, prune, binaryLane bool) pullDecision {
 	var d pullDecision
 
 	for _, path := range SortedPaths(remote) {
@@ -109,6 +118,25 @@ func planPull(remote map[string]RemoteEntry, local map[string]localFile, st Stat
 		switch {
 		case present && onDisk.Irregular:
 			d.Irregular = append(d.Irregular, path)
+		// Above the skip arm, and above every conflict arm. A tracked binary
+		// may carry no sha at all (read_file refused, so pull recorded the
+		// etag and nothing else) or a sha that proves nothing about the
+		// server's copy (a forced push records the bytes it SENT beside the
+		// marker), so localDirty is meaningless for these either way and the
+		// generic arms below would call every one of them a conflict. What
+		// the local copy really is gets decided after the download, on the
+		// bytes — and the marker is cleared there, which is why this arm does
+		// not fire again on the next run.
+		// Already answered: an earlier --binary run recorded these exact bytes
+		// against this exact revision and the file has not moved since, so
+		// there is nothing to fetch. Without it every run re-downloads every
+		// adopted asset, because an adopted path keeps its marker (below).
+		case binaryLane && tracked && prev.Binary && prev.SHA != "" &&
+			prev.Etag == r.Etag && present && !localDirty:
+			d.Unchanged++
+		case binaryLane && tracked && prev.Binary:
+			d.Fetch = append(d.Fetch, path)
+			d.BinaryFetch = append(d.BinaryFetch, path)
 		case tracked && prev.Etag == r.Etag && prev.Binary:
 			d.Binary = append(d.Binary, path)
 		case tracked && prev.Etag == r.Etag && present && !localDirty:

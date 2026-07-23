@@ -1400,7 +1400,7 @@ func TestPullReportRender(t *testing.T) {
 	t.Run("prose names every path a human has to act on", func(t *testing.T) {
 		want := "pulled 2, unchanged 3, deleted 1, conflicts 1, binary 1 (2.0 KB)" +
 			"\n  ! c.css — local differs; --force to overwrite" +
-			"\n  ~ 1 binary file(s) skipped — read_file serves text only: logo.png" +
+			"\n  ~ 1 binary file(s) skipped — read_file serves text only; --binary fetches them over the preview lane: logo.png" +
 			"\n" + conflictHint
 		if got := full.Render(false); got != want {
 			t.Errorf("render:\n%s\nwant:\n%s", got, want)
@@ -1506,7 +1506,7 @@ func TestVerifiedAppearsInTheHumanSummary(t *testing.T) {
 		}
 		want := "pulled 2, unchanged 3, deleted 1, verified 4, conflicts 1, binary 1 (2.0 KB)" +
 			"\n  ! c.css — local differs; --force to overwrite" +
-			"\n  ~ 1 binary file(s) skipped — read_file serves text only: logo.png" +
+			"\n  ~ 1 binary file(s) skipped — read_file serves text only; --binary fetches them over the preview lane: logo.png" +
 			"\n" + conflictHint
 		if got := full.Render(false); got != want {
 			t.Errorf("render:\n%s\nwant:\n%s", got, want)

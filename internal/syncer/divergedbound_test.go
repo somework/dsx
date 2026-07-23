@@ -109,8 +109,8 @@ func TestDivergedOnlyMovesAPathFromUnverifiedToDiverged(t *testing.T) {
 				}
 
 				t.Run(name+"/pull", func(t *testing.T) {
-					without := planPull(remote, local, st, baselineWithout, force, prune)
-					with := planPull(remote, local, st, baselineWith, force, prune)
+					without := planPull(remote, local, st, baselineWithout, force, prune, false)
+					with := planPull(remote, local, st, baselineWith, force, prune, false)
 
 					if len(without.Diverged) != 0 {
 						t.Fatalf("Diverged without the injected entries is non-empty: %v", without.Diverged)

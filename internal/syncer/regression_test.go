@@ -12,7 +12,7 @@ func TestPlanPullBothSidesChangedIsAConflict(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 		localOf(localFile{Path: "a.css", SHA: "edited"}),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-		nil, false, false)
+		nil, false, false, false)
 
 	if len(d.Fetch) != 0 {
 		t.Errorf("fetch=%v, want none — fetching here overwrites the local edit", d.Fetch)
@@ -27,7 +27,7 @@ func TestPlanPullBothSidesChangedFetchesUnderForce(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 		localOf(localFile{Path: "a.css", SHA: "edited"}),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-		nil, true, false)
+		nil, true, false, false)
 
 	if !slices.Equal(d.Fetch, []string{"a.css"}) {
 		t.Errorf("fetch=%v, want [a.css] under --force", d.Fetch)
@@ -39,7 +39,7 @@ func TestPlanPullRemoteOnlyChangeStillFetches(t *testing.T) {
 		remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 		localOf(localFile{Path: "a.css", SHA: "sha1"}),
 		stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-		nil, false, false)
+		nil, false, false, false)
 
 	if !slices.Equal(d.Fetch, []string{"a.css"}) {
 		t.Errorf("fetch=%v, want [a.css] — untouched locally, safe to update", d.Fetch)
@@ -54,7 +54,7 @@ func TestPlanPullPruneKeepsLocallyEditedFile(t *testing.T) {
 		remoteOf(),
 		localOf(localFile{Path: "gone.css", SHA: "edited"}),
 		stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "sha1"}}),
-		nil, false, true)
+		nil, false, true, false)
 
 	if len(d.Delete) != 0 {
 		t.Errorf("delete=%v, want none — the local edit is the only copy left", d.Delete)

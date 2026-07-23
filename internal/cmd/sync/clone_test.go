@@ -272,16 +272,35 @@ func TestCloneRefusesASymlinkTarget(t *testing.T) {
 }
 
 // A refusal leaves nothing behind — checked before the directory is made, or
-// clone would be testing a directory it had just created itself.
+// clone would be testing a directory it had just created itself (invariant 16).
+//
+// The fixture is a target under a path component that is a regular file, so
+// MkdirAll cannot make it. It used to pass a deep path as the PROJECT and
+// "proj-A" as the directory, expecting the reversed-argument guard to fire —
+// but that guard is on the directory slot and only for a UUID-shaped token
+// (TestCloneCatchesReversedArguments covers it properly), so nothing refused,
+// clone ran for real into a relative ./proj-A inside the package directory,
+// and the test t.Skip'd having asserted nothing. That directory was committed
+// once already. Hence t.Chdir: a relative path this test creates by mistake
+// lands in a temp directory and not in the repository.
 func TestARefusedCloneCreatesNothing(t *testing.T) {
 	parent := t.TempDir()
-	target := filepath.Join(parent, strings.Repeat("x", 3), "deep")
+	t.Chdir(parent)
 
-	if _, err := runClone(t, target, "proj-A"); err == nil {
-		t.Skip("the reversed-argument guard did not fire; nothing to assert")
+	// The reversed pair: the project id is in the DIRECTORY slot, which is the
+	// one refusal whose target clone would otherwise have created — and would
+	// have created under a project id's name, the defect uuidasdir_test.go has
+	// already caught twice in advice text. checkCloneTarget runs above
+	// MkdirAll; swap those two lines in clone.go and this goes red.
+	if _, err := runClone(t, filepath.Join(parent, "fresh"), sampleProjectID); err == nil {
+		t.Fatal("clone accepted the reversed pair; the rest of this test " +
+			"would then be asserting about a refusal that never happened")
 	}
-	if _, err := os.Stat(target); err == nil {
-		t.Errorf("a refused clone created %s", target)
+	if _, err := os.Stat(sampleProjectID); err == nil {
+		t.Errorf("a refused clone created a directory named after the project id (%s)", sampleProjectID)
+	}
+	if _, err := os.Stat(filepath.Join(parent, "fresh")); err == nil {
+		t.Errorf("a refused clone created the other slot's path too")
 	}
 }
 
@@ -318,5 +337,98 @@ func TestCloneDeclaresNoForceOrPrune(t *testing.T) {
 		if _, err := runClone(t, "proj-A", dir, flag); err == nil {
 			t.Errorf("clone accepted %s", flag)
 		}
+	}
+}
+
+// clone fetches binaries and pull does not, and the asymmetry is deliberate:
+// a clone that omits files is not a clone, and an empty directory has neither
+// an established tree to surprise nor a ledger to rewrite.
+func TestCloneFetchesBinariesWithoutBeingAsked(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe}
+	target := filepath.Join(t.TempDir(), "fresh")
+
+	var f *fakeMCP
+	f = newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(
+				fileEntry("a.css", "e1", 3),
+				fileEntry("og.png", "e2", int64(len(png))),
+			)}
+		case "read_file":
+			if args["path"] == "og.png" {
+				return fakeReply{Text: `read_file: "og.png" is a binary file (stored base64)`, IsError: true}
+			}
+			return fakeReply{Text: envelopeFor("a.css", "e1", "a{}")}
+		case "render_preview":
+			return fakeReply{Text: f.PreviewReply(args["path"].(string))}
+		}
+		return fakeReply{Text: "[]"}
+	})
+	f.PutServe("og.png", png)
+
+	if _, err := captureStdout(t, func() error {
+		return cmdClone(context.Background(), fakeClient(f), []string{"proj-A", target})
+	}); err != nil {
+		t.Fatalf("clone: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(target, "og.png"))
+	if err != nil {
+		t.Fatalf("clone left the binary behind: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Fatalf("wrote % x, want % x", got, png)
+	}
+	// dsx wrote these bytes, so the marker goes — unlike an adopted path,
+	// which keeps it (invariant 23).
+	st, err := syncer.LoadState(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := st.Files["og.png"]; e.SHA == "" || e.Binary {
+		t.Fatalf("a cloned binary is not an ordinary ledger entry: %+v", e)
+	}
+}
+
+// The escape hatch clone deliberately has no flag for: pin the directory, then
+// a plain pull, which leaves binaries alone. If this stops working, clone's
+// unconditional fetch has no way out and needs one.
+func TestPinThenPlainPullIsTheTextOnlyPath(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', 0xff, 0xfe}
+	dir := t.TempDir()
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(
+				fileEntry("a.css", "e1", 3),
+				fileEntry("og.png", "e2", int64(len(png))),
+			)}
+		case "read_file":
+			if args["path"] == "og.png" {
+				return fakeReply{Text: `read_file: "og.png" is a binary file (stored base64)`, IsError: true}
+			}
+			return fakeReply{Text: envelopeFor("a.css", "e1", "a{}")}
+		}
+		return fakeReply{Text: "[]"}
+	})
+
+	if _, err := captureStdout(t, func() error {
+		return cmdPin(context.Background(), fakeClient(f), []string{"proj-A", dir})
+	}); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	t.Chdir(dir)
+	if _, err := captureStdout(t, func() error {
+		return cmdPull(context.Background(), fakeClient(f), nil)
+	}); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.css")); err != nil {
+		t.Fatalf("the text file was not pulled: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "og.png")); err == nil {
+		t.Fatal("a plain pull after pin fetched the binary; the text-only path is gone")
 	}
 }

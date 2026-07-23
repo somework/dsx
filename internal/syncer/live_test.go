@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
@@ -869,4 +871,139 @@ func TestLiveEtagIsRevisionDerivedNotContentDerived(t *testing.T) {
 	if after := len(liveTree(t, c, ctx)); after != before {
 		t.Errorf("file count %d -> %d; the project did not return to its original state", before, after)
 	}
+}
+
+// The preview lane, end to end against the real endpoint: upload bytes
+// read_file refuses, fetch them back through render_preview's serve_url, and
+// require them byte-exact. The judgment is previewVerdict's, which lives
+// outside this build tag and is exercised by a plain `go test`; what is here
+// is the plumbing only.
+//
+// Two sizes, and the second is not decoration: 400 KiB is past read_file's
+// 256 KiB cap, so it is content this lane can reach and the text lane cannot
+// reach at all.
+func TestLiveThePreviewLaneServesTheStoredBytes(t *testing.T) {
+	c, ctx := liveClient(t)
+
+	for _, tc := range []struct {
+		name string
+		size int
+	}{
+		{"small", 4 << 10},
+		{"past read_file's 256 KiB cap", 400 << 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := liveScratch(t, c, ctx, fmt.Sprintf("-preview-%d.png", tc.size))
+			sent := livePNG(tc.size)
+			liveWrite(t, c, ctx, path, sent)
+
+			entry, ok := liveTree(t, c, ctx)[path]
+			if !ok {
+				t.Fatalf("%s is not in the listing after the write", path)
+			}
+			served, err := c.ReadBinary(ctx, liveProjectID(), path, entry.Size)
+			if err != nil {
+				t.Fatalf("ReadBinary: %v", err)
+			}
+			if err := previewVerdict(path, sent, served, entry.Size, entry.Etag); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// read_file must still refuse what the preview lane serves, or the fixture is
+// not a binary at all and the test above proves nothing about this lane.
+func TestLiveThePreviewLaneOnlyMattersBecauseReadFileStillRefuses(t *testing.T) {
+	c, ctx := liveClient(t)
+	path := liveScratch(t, c, ctx, "-preview-refusal.png")
+	liveWrite(t, c, ctx, path, livePNG(2048))
+
+	_, _, err := c.ReadFull(ctx, liveProjectID(), path)
+	if err == nil {
+		t.Fatal("read_file returned a body for content that is not valid UTF-8; " +
+			"PROTOCOL.md's binary-by-content claim needs re-probing")
+	}
+	if !mcp.IsBinaryRefusal(err) {
+		t.Fatalf("read_file refused, but not the way dsx recognises: %v", err)
+	}
+}
+
+// The token in a serve_url is scoped to the project, not to the path: one
+// issued for path A serves path B. That is dsx's threat model for the lane, so
+// it is measured rather than assumed. The judgment is previewScopeVerdict's.
+func TestLiveThePreviewTokenIsScopedToTheProjectNotThePath(t *testing.T) {
+	c, ctx := liveClient(t)
+	a := liveScratch(t, c, ctx, "-preview-scope-a.png")
+	b := liveScratch(t, c, ctx, "-preview-scope-b.png")
+	wantB := livePNG(1024)
+	liveWrite(t, c, ctx, a, livePNG(1024))
+	liveWrite(t, c, ctx, b, wantB)
+
+	// ReadBinary mints the URL for `a` and never lets it out, so the swap is
+	// done the only way a test can: ask the same tool for `b` and confirm the
+	// two URLs differ only in the path they name.
+	urlA, err := livePreviewURL(c, ctx, a)
+	if err != nil {
+		t.Fatalf("render_preview %s: %v", a, err)
+	}
+	swapped := strings.Replace(urlA, "/serve/"+a, "/serve/"+b, 1)
+	if swapped == urlA {
+		t.Fatalf("could not build the cross-path URL: %q does not carry /serve/%s", "the serve_url", a)
+	}
+
+	status, body, err := liveGET(swapped)
+	if err != nil {
+		t.Fatalf("GET the swapped path: %v", err)
+	}
+	if err := previewScopeVerdict(body, status); err != nil {
+		t.Fatal(err)
+	}
+	if status == 200 && string(body) != string(wantB) {
+		t.Fatalf("the swapped URL served %d bytes that are not %s's content", len(body), b)
+	}
+}
+
+func livePreviewURL(c *mcp.Client, ctx context.Context, path string) (string, error) {
+	text, err := c.CallTool(ctx, "render_preview", map[string]any{
+		"project_id": liveProjectID(), "path": path,
+	})
+	if err != nil {
+		return "", err
+	}
+	var reply struct {
+		ServeURL string `json:"serve_url"`
+	}
+	if err := json.Unmarshal([]byte(text), &reply); err != nil || reply.ServeURL == "" {
+		return "", fmt.Errorf("render_preview returned no serve_url")
+	}
+	return reply.ServeURL, nil
+}
+
+func liveGET(rawURL string) (int, []byte, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	// No Authorization: the preview host neither needs nor should see it.
+	req.Header.Set("User-Agent", "dsx")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("preview fetch failed")
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return resp.StatusCode, body, err
+}
+
+// livePNG builds bytes that are not valid UTF-8 under a name the write
+// allowlist accepts. The payload is deterministic — live_test.go must stay
+// reproducible — and incompressible enough that a truncation shows up.
+func livePNG(n int) []byte {
+	out := make([]byte, 0, n+16)
+	out = append(out, 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a)
+	for i := range n {
+		out = append(out, byte(i*31+((i/251)*7)))
+	}
+	return out
 }

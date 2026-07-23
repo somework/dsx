@@ -49,8 +49,15 @@ func cmdClone(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 
+	// Binary is ON here and opt-in everywhere else, and the asymmetry is the
+	// point. A clone that omits files is not a clone: the directory is empty,
+	// so there is no established tree whose semantics an upgrade could change
+	// under the caller and no ledger to rewrite — the two costs that keep
+	// `pull --binary` a flag. The escape hatch for a project whose assets are
+	// not wanted already exists and needs no flag of its own: `dsx pin` the
+	// directory, then a plain `dsx pull`.
 	rep, err := syncer.Pull(ctx, c, syncer.PullOpts{
-		ProjectID: project, Dir: dir, Concurrency: *jobs, Progress: cmd.Progress,
+		ProjectID: project, Dir: dir, Concurrency: *jobs, Binary: true, Progress: cmd.Progress,
 	})
 	if err != nil {
 		rep.Incomplete = true

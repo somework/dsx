@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/somework/dsx/internal/cmd"
 	"github.com/somework/dsx/internal/dsxerr"
@@ -160,7 +161,34 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	body, etag, err := c.ReadFull(ctx, project, path)
 	if err != nil {
-		return err
+		if !mcp.IsBinaryRefusal(err) {
+			return err
+		}
+		// The preview lane can serve it, but only to a file. Bytes that are
+		// not valid UTF-8 — which is exactly what "binary" means here — have
+		// no business on a terminal, and cat's whole default is a terminal.
+		if *out == "" {
+			return &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
+				"%s is a binary file — name a destination with --out and dsx "+
+					"fetches it over the preview lane", path)}
+		}
+		size, betag, sErr := remoteEntry(ctx, c, project, path)
+		if sErr != nil {
+			return sErr
+		}
+		raw, bErr := c.ReadBinary(ctx, project, path, size)
+		if bErr != nil {
+			return bErr
+		}
+		// Invariant 1, the same assertion pull makes: a length disagreeing
+		// with list_files means a wrong decode, and this lane has one specific
+		// way to produce one — the server prepends a preview harness to an
+		// .html, so a text path reached this way comes back longer.
+		if int64(len(raw)) != size {
+			return fmt.Errorf("%s: preview served %d bytes, list_files reports %d — refusing to write",
+				path, len(raw), size)
+		}
+		body, etag = string(raw), betag
 	}
 	if *out != "" {
 		if err := syncer.WriteAtomic(*out, []byte(body)); err != nil {
@@ -185,6 +213,31 @@ func cmdCat(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	_, err = io.WriteString(os.Stdout, body)
 	return err
+}
+
+// remoteEntry answers what list_files says about one path — its size, which
+// invariant 1 needs, and its etag, which the preview lane cannot supply
+// (the ETag the preview host returns is in another namespace entirely). One
+// listing of the containing directory, not the whole tree.
+func remoteEntry(ctx context.Context, c *mcp.Client, project, path string) (size int64, etag string, err error) {
+	a := map[string]any{"project_id": project}
+	if i := strings.LastIndex(path, "/"); i > 0 {
+		a["path"] = path[:i]
+	}
+	text, err := c.CallTool(ctx, "list_files", a)
+	if err != nil {
+		return 0, "", err
+	}
+	var entries []syncer.RemoteEntry
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		return 0, "", fmt.Errorf("%s: list_files did not answer with a listing", path)
+	}
+	for _, e := range entries {
+		if e.Path == path && e.Type == "file" {
+			return e.Size, e.Etag, nil
+		}
+	}
+	return 0, "", fmt.Errorf("%s: list_files does not name it", path)
 }
 
 // putWarn is where put's ledger note goes; nil means os.Stderr. Tests swap it

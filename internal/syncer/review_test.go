@@ -170,7 +170,7 @@ func TestPullDoesNotClobberAPathThatStoppedBeingARegularFile(t *testing.T) {
 	remote := map[string]RemoteEntry{"logo.svg": {Path: "logo.svg", Etag: "e2", Size: 6}}
 	st := State{Files: map[string]FileState{"logo.svg": {Etag: "e1", Size: 6, SHA: "x"}}}
 
-	d := planPull(remote, local, st, nil, false, false)
+	d := planPull(remote, local, st, nil, false, false, false)
 	for _, p := range d.Fetch {
 		if p == "logo.svg" {
 			t.Fatal("pull would write through a symlink the user put there deliberately")

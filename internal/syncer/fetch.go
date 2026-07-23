@@ -28,8 +28,9 @@ type FetchReport struct {
 	Fetched []string `json:"fetched"`
 
 	// Present, untracked, listed paths that were downloaded but NOT recorded:
-	// a binary refusal, or a decoded length disagreeing with the listing's
-	// size (invariant 1). Never a wrong entry, never silently dropped.
+	// a decoded length disagreeing with the listing's size (invariant 1), or a
+	// preview-lane path the server rewrote while this run was reading it.
+	// Never a wrong entry, never silently dropped.
 	Skipped []string `json:"skipped,omitempty"`
 
 	Bytes int64 `json:"bytes"`
@@ -102,6 +103,12 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 		verified = map[string]BaselineEntry{}
 		errs     []error
 
+		// Paths the preview lane supplied. read_file hands back an etag for
+		// the very bytes it served; the preview host does not, so these need
+		// the same post-download listing pull takes before their etag/sha pair
+		// may be believed.
+		previewed []string
+
 		prog = newProgress(o.Progress, "fetching", len(target))
 	)
 
@@ -130,15 +137,37 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 			defer func() { <-sem }()
 
 			body, etag, err := c.ReadFull(fetchCtx, o.ProjectID, path)
+			viaPreview := false
 			if err != nil {
-				if isBinaryRefusal(err) {
+				if !isBinaryRefusal(err) {
+					fail(err)
+					return
+				}
+				// The preview lane runs here with no flag, unlike pull's. The
+				// two costs that keep it opt-in there do not exist here: fetch
+				// writes nothing into the tree, and its target set is the
+				// untracked paths alone — the exact set no ledger entry can
+				// ever speak for, which is what left an untracked asset stuck
+				// in `status`' untracked-differs and `pull`'s Unverified with
+				// no command able to clear it. It does cost bytes, which is
+				// what fetch's own report has always counted.
+				raw, berr := c.ReadBinary(fetchCtx, o.ProjectID, path, remote[path].Size)
+				if berr != nil {
+					// Skipped and reported, not fatal — the opposite of pull's
+					// choice, and for a reason. Under `pull --binary` the
+					// caller named these bytes and not getting them is the
+					// event. Nobody named anything here: fetch records what it
+					// can about a whole tree, so one asset the preview host
+					// will not serve must not throw away the proof gathered
+					// for every other path. Skipped is fetch's existing word
+					// for "downloaded, not recorded", and the rendered line
+					// names them.
 					mu.Lock()
 					rep.Skipped = append(rep.Skipped, path)
 					mu.Unlock()
 					return
 				}
-				fail(err)
-				return
+				body, etag, viaPreview = string(raw), remote[path].Etag, true
 			}
 
 			// A path failing invariant 1's check gets no entry rather than a
@@ -154,6 +183,9 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 
 			mu.Lock()
 			verified[path] = BaselineEntry{Etag: etag, Size: int64(len(body)), SHA: SHA256Hex([]byte(body))}
+			if viaPreview {
+				previewed = append(previewed, path)
+			}
 			mu.Unlock()
 
 			prog.step(path)
@@ -161,6 +193,28 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 	}
 	wg.Wait()
 	prog.clear()
+
+	// The preview lane serves whatever a path holds now and hands back no etag
+	// list_files' can be compared with, so the pair this run is about to
+	// record — the pre-download listing's etag beside the downloaded sha —
+	// is only true if nothing moved under it. One more listing says. A path
+	// that moved gets no entry rather than a wrong one, which is invariant 1's
+	// rule about this same file applied to a different way of being wrong.
+	// Nothing was written to the tree, so dropping the entry is the whole
+	// remedy; pull has to say more because pull left bytes on disk.
+	if len(previewed) > 0 && len(errs) == 0 && parent.Err() == nil {
+		after, walkErr := WalkTree(ctx, c, o.ProjectID, o.Concurrency)
+		if walkErr != nil {
+			errs = append(errs, walkErr)
+		} else {
+			for _, path := range previewed {
+				if e, still := after[path]; !still || e.Etag != verified[path].Etag {
+					delete(verified, path)
+					rep.Skipped = append(rep.Skipped, path)
+				}
+			}
+		}
+	}
 
 	slices.Sort(rep.Skipped)
 
@@ -219,7 +273,10 @@ func (r FetchReport) Render(asJSON bool) string {
 	}
 	fmt.Fprintf(&sb, "fetched %d (%s)", len(r.Fetched), fmtutil.Bytes(r.Bytes))
 	if len(r.Skipped) > 0 {
-		fmt.Fprintf(&sb, ", skipped %d", len(r.Skipped))
+		// Named, not counted. A skipped path is one `status` will keep calling
+		// untracked-differs until something else proves it, and a bare count
+		// leaves the reader no way to know which.
+		fmt.Fprintf(&sb, ", skipped %d (%s)", len(r.Skipped), strings.Join(r.Skipped, ", "))
 	}
 	return sb.String()
 }

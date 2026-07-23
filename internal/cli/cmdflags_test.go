@@ -23,7 +23,7 @@ func TestCommandFlagsAreThePerCommandTruth(t *testing.T) {
 		want    []string
 		mustNot []string
 	}{
-		{"pull", []string{"--force", "--json", "--prune", "-j", "-n", "-q"}, nil},
+		{"pull", []string{"--binary", "--force", "--json", "--prune", "-j", "-n", "-q"}, nil},
 		{"files cat", []string{"--json", "--out"}, []string{"--prune", "--force", "-n"}},
 		{"files tree", []string{"--json", "-j"}, []string{"--prune", "--force"}},
 		{"files put", []string{"--if-match", "--json", "--plan"}, []string{"--prune", "--force"}},

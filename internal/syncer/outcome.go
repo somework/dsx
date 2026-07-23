@@ -81,8 +81,8 @@ func (r PushReport) Outcome() error {
 	}
 	if len(r.BinaryConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(
-			"binary conflicts (%s) cannot be pulled — dsx cannot read the server's copy to merge; "+
-				"--force overwrites it and the only copy is gone",
+			"binary conflicts (%s) — dsx has never held these bytes, so it cannot tell your copy from the server's; "+
+				"`dsx pull --binary` fetches the server's copy, or --force overwrites it and the only copy is gone",
 			strings.Join(r.BinaryConflicts, ", ")))
 	}
 	if len(r.BinaryGone) > 0 {
@@ -104,7 +104,7 @@ func (r PullReport) Outcome() error {
 		return nil
 	}
 
-	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary, r.Unverified, r.Diverged, r.StaleProof)
+	plain := except(r.Conflicts, r.PruneConflicts, r.PruneBinary, r.Unverified, r.Diverged, r.StaleProof, r.BinaryDiverged, r.Raced)
 
 	var parts []string
 	if len(plain) > 0 {
@@ -124,6 +124,22 @@ func (r PullReport) Outcome() error {
 		parts = append(parts, fmt.Sprintf(
 			"verified, but against an earlier revision of the server (%s) — `dsx fetch` re-checks the current one, or --force overwrites",
 			strings.Join(r.StaleProof, ", ")))
+	}
+	if len(r.BinaryDiverged) > 0 {
+		// Names no `dsx fetch`: fetch cannot help a tracked path, and this
+		// divergence is already proven on the content itself — the strongest
+		// evidence any conflict class here carries.
+		parts = append(parts, fmt.Sprintf(
+			"differs from the server's copy, compared byte for byte (%s) — --force overwrites",
+			strings.Join(r.BinaryDiverged, ", ")))
+	}
+	if len(r.Raced) > 0 {
+		// Names the retry and never --force: the server moved under the
+		// download, which is nobody's disagreement to overrule.
+		parts = append(parts, fmt.Sprintf(
+			"the server moved these while dsx was reading them, so nothing was recorded (%s) — "+
+				"run `dsx pull --binary` again",
+			strings.Join(r.Raced, ", ")))
 	}
 	if len(r.PruneConflicts) > 0 {
 		parts = append(parts, fmt.Sprintf(

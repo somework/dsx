@@ -259,20 +259,61 @@ baseline), `.dsxignore`, `.dsx-case-probe`, and `.dsx-state.json` (a pre-`.dsx/`
 kept ignored so a leftover from that older location, or its write-in-progress temp file, is
 never mistaken for one of your own). `builtinIgnores` in `ignore.go` is the source of truth.
 
-## Files the server will not return
+## Binary files
 
 `read_file` serves text only. Content that is not valid UTF-8 is stored base64 and there is
-no API to read it back — no `resources` capability, no `encoding` parameter. dsx reports
-these and moves on:
+no API to read it back through that tool. So a plain `pull` reports these and moves on,
+spending nothing on them:
 
 ```
-~ 6 binary file(s) skipped — read_file serves text only: assets/og.png, …
+~ 6 binary file(s) skipped — read_file serves text only; --binary fetches them over the preview lane: assets/og.png, …
 ```
 
-They upload fine, and `copy_files` moves them between projects server-side. Only the
-server→disk direction is closed; the browser is the way out. Note the criterion is UTF-8
-validity, not the extension — a `.png` holding ASCII is served, a `.txt` holding `\xff\xfe`
-is not. [PROTOCOL.md](PROTOCOL.md) has the measurements.
+The criterion is UTF-8 validity, not the extension — a `.png` holding ASCII is served, a
+`.txt` holding `\xff\xfe` is not.
+
+**Uploading them has always worked.** dsx sends every file base64-encoded, so a binary you
+add locally pushes like anything else, and `copy_files` moves them between projects
+server-side. The direction that was closed is server→disk.
+
+**`--binary` opens it**, over a second transport: `render_preview` returns a short-lived
+`serve_url` on `*.claudeusercontent.com` that serves a file's stored bytes.
+
+```bash
+dsx clone <project> <dir>                      # fetches them, no flag needed
+dsx pull --binary                              # opt-in for an established tree
+dsx fetch                                      # proves them without writing the tree
+dsx files cat <project> <path> --out logo.png  # one file, no ledger involved
+```
+
+`clone` does it unasked and `pull` does not, and the asymmetry is deliberate. A clone that
+omits files is not a clone, and the directory is empty, so there is no established tree whose
+behaviour changes under you on an upgrade and no ledger to rewrite — the two costs that keep
+`pull --binary` a flag. Want a clone without the assets? `dsx pin <project> <dir>`, then a
+plain `dsx pull`. What `--binary` does to a file already on disk:
+
+- **byte-identical to the server's copy** → nothing is written, and the path is simply
+  recorded (`adopted 6`). This is the usual first run.
+- **different** → a conflict, refused; `--force` overwrites.
+- **absent** → written, like any other pull.
+
+Either way dsx records what it verified, and that is what clears the `dsx push` refusal
+naming these paths as binary conflicts. A file dsx **wrote** becomes an ordinary tracked file
+in both directions. A file it merely **adopted** stays marked as one dsx did not put there,
+so `--prune` will not delete it on either side — your own copy matching the server's by
+content is not a licence to delete either of them.
+
+Two things worth knowing. The preview URL is a **credential**: it carries a token scoped to
+the whole project, needs no `Authorization` header, and is good for about an hour. The sync
+lane never lets one out — it is minted and consumed inside one function, and reaches no
+report, no error and no file. `dsx files preview` is the deliberate exception, because there
+the URL *is* what you asked for: it prints `serve_url` alongside `open_url`, so treat that
+command's stdout as short-lived credential output and give people `open_url` — the durable
+`claude.ai/design` link — instead. And the lane serves whatever a path holds *now*, with no
+etag comparable to `list_files`', so `pull --binary` re-lists once afterwards and records only
+the paths that did not move under it; anything that did is reported and re-fetched next run.
+
+[PROTOCOL.md](PROTOCOL.md) has the measurements.
 
 ## Auth
 

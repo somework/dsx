@@ -443,8 +443,8 @@ func (r PushReport) Render(asJSON bool) string {
 	fmt.Fprintf(&sb, " (%s)", fmtutil.Bytes(r.Bytes))
 	for _, p := range r.Conflicts {
 		if slices.Contains(r.BinaryConflicts, p) {
-			fmt.Fprintf(&sb, "\n  ! %s — dsx cannot read the server's copy, so it cannot merge; "+
-				"--force overwrites it and the only copy is gone", p)
+			fmt.Fprintf(&sb, "\n  ! %s — dsx has never held these bytes, so it cannot tell your copy from the server's; "+
+				"`dsx pull --binary` fetches the server's copy, or --force overwrites it and the only copy is gone", p)
 			continue
 		}
 		if slices.Contains(r.BinaryGone, p) {

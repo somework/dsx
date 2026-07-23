@@ -37,7 +37,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1", Size: 3}),
 			localOf(localFile{Path: "a.css", SHA: "sha1"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-			nil, false, false)
+			nil, false, false, false)
 
 		if d.Unchanged != 1 || len(d.Fetch) != 0 {
 			t.Errorf("unchanged=%d fetch=%v, want 1 and none", d.Unchanged, d.Fetch)
@@ -49,7 +49,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "2"}),
 			localOf(localFile{Path: "a.css", SHA: "sha1"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-			nil, false, false)
+			nil, false, false, false)
 
 		if !slices.Equal(d.Fetch, []string{"a.css"}) {
 			t.Errorf("fetch=%v, want [a.css]", d.Fetch)
@@ -59,7 +59,7 @@ func TestPlanPull(t *testing.T) {
 	t.Run("untracked remote file is fetched", func(t *testing.T) {
 		d := planPull(
 			remoteOf(RemoteEntry{Path: "new.css", Etag: "1"}),
-			localOf(), stateOf(nil), nil, false, false)
+			localOf(), stateOf(nil), nil, false, false, false)
 
 		if !slices.Equal(d.Fetch, []string{"new.css"}) {
 			t.Errorf("fetch=%v, want [new.css]", d.Fetch)
@@ -71,7 +71,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-			nil, false, false)
+			nil, false, false, false)
 
 		if !slices.Equal(d.Conflicts, []string{"a.css"}) {
 			t.Errorf("conflicts=%v, want [a.css]", d.Conflicts)
@@ -86,7 +86,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "edited"}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
-			nil, true, false)
+			nil, true, false, false)
 
 		if !slices.Equal(d.Fetch, []string{"a.css"}) {
 			t.Errorf("fetch=%v, want [a.css] under --force", d.Fetch)
@@ -97,7 +97,7 @@ func TestPlanPull(t *testing.T) {
 		d := planPull(
 			remoteOf(RemoteEntry{Path: "a.css", Etag: "1"}),
 			localOf(localFile{Path: "a.css", SHA: "mine"}),
-			stateOf(nil), nil, false, false)
+			stateOf(nil), nil, false, false, false)
 
 		if len(d.Conflicts) != 0 || !slices.Equal(d.Unverified, []string{"a.css"}) {
 			t.Errorf("conflicts=%v unverified=%v, want none and [a.css] — no ledger entry ever confirmed these bytes, so it must not claim they differ", d.Conflicts, d.Unverified)
@@ -109,7 +109,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "og.png", Etag: "1"}),
 			localOf(),
 			stateOf(map[string]FileState{"og.png": {Etag: "1", Binary: true}}),
-			nil, false, false)
+			nil, false, false, false)
 
 		if !slices.Equal(d.Binary, []string{"og.png"}) {
 			t.Errorf("binary=%v, want [og.png]", d.Binary)
@@ -124,7 +124,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(RemoteEntry{Path: "og.png", Etag: "2"}),
 			localOf(),
 			stateOf(map[string]FileState{"og.png": {Etag: "1", Binary: true}}),
-			nil, false, false)
+			nil, false, false, false)
 
 		if !slices.Equal(d.Fetch, []string{"og.png"}) {
 			t.Errorf("fetch=%v, want [og.png] — a changed etag may no longer be binary", d.Fetch)
@@ -136,7 +136,7 @@ func TestPlanPull(t *testing.T) {
 			remoteOf(),
 			localOf(localFile{Path: "gone.css", SHA: "s"}),
 			stateOf(map[string]FileState{"gone.css": {Etag: "1", SHA: "s"}}),
-			nil, false, true)
+			nil, false, true, false)
 
 		if !slices.Equal(d.Delete, []string{"gone.css"}) {
 			t.Errorf("delete=%v, want [gone.css]", d.Delete)
@@ -147,7 +147,7 @@ func TestPlanPull(t *testing.T) {
 		d := planPull(
 			remoteOf(),
 			localOf(localFile{Path: "mine.txt", SHA: "s"}),
-			stateOf(nil), nil, false, true)
+			stateOf(nil), nil, false, true, false)
 
 		if len(d.Delete) != 0 {
 			t.Errorf("delete=%v, want none — an untracked file was never ours", d.Delete)
@@ -319,7 +319,7 @@ func TestAProvenByteMatchIsVerifiedNotAConflict(t *testing.T) {
 			localOf(localFile{Path: "a.css", SHA: "sha1", Size: 3}),
 			stateOf(nil),
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if len(d.Conflicts) != 0 || d.Verified != 1 {
 			t.Errorf("conflicts=%v verified=%d, want none and 1", d.Conflicts, d.Verified)
@@ -355,7 +355,7 @@ func TestStaleBaselineWithMatchingBytesIsStaleProofNotUnverified(t *testing.T) {
 			localOf(localFile{Path: "a.css", SHA: "sha1", Size: 3}),
 			stateOf(nil),
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.Unverified) != 0 || len(d.Diverged) != 0 ||
 			!slices.Equal(d.StaleProof, []string{"a.css"}) {
@@ -394,7 +394,7 @@ func TestStaleBaselineWithDifferentBytesStaysUnverified(t *testing.T) {
 			localOf(localFile{Path: "a.css", SHA: "sha-edited", Size: 3}),
 			stateOf(nil),
 			map[string]BaselineEntry{"a.css": {Etag: "e1", SHA: "sha1", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if d.Verified != 0 || len(d.Conflicts) != 0 || len(d.StaleProof) != 0 || len(d.Diverged) != 0 ||
 			!slices.Equal(d.Unverified, []string{"a.css"}) {
@@ -463,7 +463,7 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 			localOf(localFile{Path: "x.css", SHA: "", Size: 3}),
 			stateOf(nil),
 			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if d.Verified != 0 {
 			t.Errorf("verified=%d, want 0 — an empty baseline sha must never prove a byte match", d.Verified)
@@ -479,7 +479,7 @@ func TestEmptyEtagNeverProves(t *testing.T) {
 			localOf(localFile{Path: "x.css", SHA: "sha-x", Size: 3}),
 			stateOf(nil),
 			map[string]BaselineEntry{"x.css": {Etag: "e1", SHA: "sha-x", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if d.Verified != 1 || len(d.Conflicts) != 0 {
 			t.Errorf("verified=%d conflicts=%v, want 1 and none", d.Verified, d.Conflicts)
@@ -498,7 +498,7 @@ func TestBaselineNeverOverridesARealLedgerEntry(t *testing.T) {
 			localOf(localFile{Path: "a.css", SHA: "edited", Size: 3}),
 			stateOf(map[string]FileState{"a.css": {Etag: "1", SHA: "sha1"}}),
 			map[string]BaselineEntry{"a.css": {Etag: "2", SHA: "edited", Size: 3}},
-			false, false)
+			false, false, false)
 
 		if d.Verified != 0 || !slices.Equal(d.Conflicts, []string{"a.css"}) {
 			t.Errorf("verified=%d conflicts=%v, want 0 and [a.css] — a tracked path must ignore the baseline", d.Verified, d.Conflicts)
@@ -587,8 +587,8 @@ func TestBaselineOnlyEverMovesAPathFromConflictsToVerified(t *testing.T) {
 				name := fmt.Sprintf("trial=%d/force=%v/prune=%v", trial, force, prune)
 
 				t.Run(name+"/pull", func(t *testing.T) {
-					without := planPull(remote, local, st, map[string]BaselineEntry{}, force, prune)
-					with := planPull(remote, local, st, baseline, force, prune)
+					without := planPull(remote, local, st, map[string]BaselineEntry{}, force, prune, false)
+					with := planPull(remote, local, st, baseline, force, prune, false)
 
 					if !isSubsetOf(with.Fetch, without.Fetch) {
 						t.Errorf("Fetch grew: without=%v with=%v", without.Fetch, with.Fetch)
@@ -772,8 +772,8 @@ func TestStaleProofOnlyMovesAPathFromUnverifiedToStaleProof(t *testing.T) {
 				}
 
 				t.Run(name+"/pull", func(t *testing.T) {
-					without := planPull(remote, local, st, baselineWithout, force, prune)
-					with := planPull(remote, local, st, baselineWith, force, prune)
+					without := planPull(remote, local, st, baselineWithout, force, prune, false)
+					with := planPull(remote, local, st, baselineWith, force, prune, false)
 
 					if len(without.StaleProof) != 0 {
 						t.Fatalf("StaleProof without the injected entries is non-empty: %v", without.StaleProof)

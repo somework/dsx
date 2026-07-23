@@ -22,11 +22,12 @@ var Group = cmd.Group{
   status answers from disk alone and makes no network call: it reads the ledger
   against your files, and the last dsx fetch against both. Use pull -n or push -n
   to ask the server what a sync would do right now.
-  clone is the first pull: both arguments, and <dir> must be empty.`,
+  clone is the first pull: both arguments, <dir> must be empty, and it fetches
+  binaries too — pull needs --binary for those. For a text-only tree: pin, then pull.`,
 	Cmds: []cmd.Command{
 		{Name: "clone", Form: cloneForm,
 			Desc: "first pull into a new directory", Run: cmdClone},
-		{Name: "pull", Form: "pull  [--prune] [--force] [-n]",
+		{Name: "pull", Form: "pull  [--prune] [--force] [--binary] [-n]",
 			Run: cmdPull},
 		{Name: "push", Form: "push  [--prune] [--force | --force-with-lease] [-n]",
 			Run: cmdPush},
@@ -178,6 +179,7 @@ func cmdPull(ctx context.Context, c *mcp.Client, args []string) error {
 	var (
 		prune  = fs.Bool("prune", false, "remove files absent on the other side")
 		force  = fs.Bool("force", false, "overwrite conflicts")
+		binary = fs.Bool("binary", false, "also fetch the files read_file refuses, over the preview lane")
 		dry    = fs.Bool("n", false, "dry run")
 		jobs   = fs.Int("j", cmd.DefaultConcurrency, "concurrency")
 		asJSON = cmd.JSONFlag(fs)
@@ -206,7 +208,7 @@ func cmdPull(ctx context.Context, c *mcp.Client, args []string) error {
 	}
 	rep, err := syncer.Pull(ctx, c, syncer.PullOpts{
 		ProjectID: project, Dir: dir, Concurrency: *jobs,
-		Prune: *prune, Force: *force, DryRun: *dry, Progress: cmd.Progress,
+		Prune: *prune, Force: *force, Binary: *binary, DryRun: *dry, Progress: cmd.Progress,
 	})
 	if err != nil {
 		rep.Incomplete = true

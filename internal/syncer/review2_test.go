@@ -54,7 +54,7 @@ func TestPullDoesNotPruneASubtreeHiddenBehindASymlinkedDirectory(t *testing.T) {
 	st := State{Files: map[string]FileState{
 		"components/Button.tsx": {Etag: "e1", SHA: "abc"},
 	}}
-	d := planPull(map[string]RemoteEntry{}, local, st, nil, false, true)
+	d := planPull(map[string]RemoteEntry{}, local, st, nil, false, true, false)
 	if len(d.Delete) != 0 || len(d.PruneConflicts) != 0 {
 		t.Fatalf("pull --prune acted on %v/%v under a symlinked directory it never looked inside",
 			d.Delete, d.PruneConflicts)

@@ -9,6 +9,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -30,6 +31,17 @@ type Client struct {
 	http        *http.Client
 	retryNotice io.Writer
 	seq         atomic.Int64
+
+	// The parsed endpoint, for allowServeHost. Nil if the endpoint does not
+	// parse, which allowServeHost reads as "trust nothing but the real
+	// preview host" rather than as permission.
+	endpointURL *url.URL
+
+	// A second client for the preview lane, deliberately not c.http: it must
+	// carry no Authorization (the preview host neither needs nor should see
+	// the OAuth token) and must follow no redirect, so a moved preview host
+	// cannot walk dsx off the two hosts allowServeHost admits.
+	serveHTTP *http.Client
 
 	lastServerDate atomic.Int64
 }
@@ -72,8 +84,21 @@ func New(token string, opts ...Option) *Client {
 	for _, o := range opts {
 		o(c)
 	}
+	// After the options, so WithEndpoint is accounted for.
+	c.endpointURL, _ = url.Parse(c.endpoint)
+	c.serveHTTP = &http.Client{
+		Timeout: 120 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errServeRedirect
+		},
+	}
 	return c
 }
+
+// errServeRedirect stops the preview client at the first redirect. It carries
+// no URL: http wraps a CheckRedirect error in a *url.Error, whose Error()
+// prints the URL it was following — and that URL is the credential.
+var errServeRedirect = errors.New("the preview host redirected; dsx does not follow it")
 
 type rpcError struct {
 	Code    int    `json:"code"`

@@ -74,7 +74,7 @@ func taintedLocals(body ast.Node) map[string]bool {
 					// baseline argument is consumed (C7): their returned
 					// decision must not itself count as tainted merely
 					// because a tainted argument was passed in, or every
-					// caller assigning `d := planPull(..., baseline, ...)`
+					// caller assigning `d := planPull(..., baseline, ..., false)`
 					// would taint d, then d.Fetch, then the range variable
 					// ranging over it, all the way into withFile and
 					// st.Files — a false positive, not a real leak. That
@@ -280,10 +280,14 @@ func TestBaselineNeverBecomesTracked(t *testing.T) {
 				"'nothing forbidden' from 'I looked in the wrong place', so it refuses to pass")
 		}
 
-		// A fourth withFile call site (or a missing known one) is a build-time
+		// A new withFile call site (or a missing known one) is a build-time
 		// signal that a new ledger writer appeared and must be checked by hand
 		// for baseline taint — this test only checks the ones it knows about.
-		wantWithFileCallSites := map[string]int{"pull.go": 2, "push.go": 1}
+		// Two of pull.go's four are the preview lane's — the text-lane adopt
+		// and the binaryResult commit — and both build their FileState from
+		// the download, not from a baseline. The other two predate it: the
+		// binary-skip marker and the ordinary write-and-record.
+		wantWithFileCallSites := map[string]int{"pull.go": 4, "push.go": 1}
 		if !maps.Equal(withFileCallSites, wantWithFileCallSites) {
 			t.Fatalf("withFile is called from %v, want exactly %v", withFileCallSites, wantWithFileCallSites)
 		}

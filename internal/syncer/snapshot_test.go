@@ -154,7 +154,7 @@ func TestAnEmptyListingSurvivesTheRoundTrip(t *testing.T) {
 // TestSnapshotEntryIsADistinctType is invariant 17's guard one layer out, and
 // the stakes are higher than BaselineEntry's. A snapshot is shaped like the
 // live listing planPull/planPush consume, so if Listing were a
-// map[string]RemoteEntry then `planPull(bl.Listing, ...)` would compile — and
+// map[string]RemoteEntry then `planPull(bl.Listing, ..., false)` would compile — and
 // a stale snapshot driving --prune reads every path the server has since
 // gained as a user deletion. The field's element type is what the mistake
 // would land on, so that is what this reads.

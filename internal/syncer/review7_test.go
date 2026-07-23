@@ -338,7 +338,7 @@ func TestPlannerParitySharedSafetyProperties(t *testing.T) {
 			name := fmt.Sprintf("force=%v/prune=%v", force, prune)
 			t.Run(name, func(t *testing.T) {
 				push := planPush(remote, local, st, nil, nil, pushMode(force), prune)
-				pull := planPull(remote, local, st, nil, force, prune)
+				pull := planPull(remote, local, st, nil, force, prune, false)
 				pb := pushBuckets(push)
 				lb := pullBuckets(pull)
 

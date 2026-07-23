@@ -35,7 +35,7 @@ const wantUsage = `dsx — Claude Design sync. Reads Claude Code's own OAuth tok
 
 SYNC (etag-aware; unchanged files cost no request at all)
   dsx clone <project> <dir>             first pull into a new directory
-  dsx pull  [--prune] [--force] [-n]
+  dsx pull  [--prune] [--force] [--binary] [-n]
   dsx push  [--prune] [--force | --force-with-lease] [-n]
   dsx status                            what changed here, from disk alone; makes no network call
   dsx fetch                             record what the server holds; writes .dsx/, not the tree
@@ -48,7 +48,8 @@ SYNC (etag-aware; unchanged files cost no request at all)
   status answers from disk alone and makes no network call: it reads the ledger
   against your files, and the last dsx fetch against both. Use pull -n or push -n
   to ask the server what a sync would do right now.
-  clone is the first pull: both arguments, and <dir> must be empty.
+  clone is the first pull: both arguments, <dir> must be empty, and it fetches
+  binaries too — pull needs --binary for those. For a text-only tree: pin, then pull.
 
 PROJECTS
   dsx project <verb>                    design projects on the server

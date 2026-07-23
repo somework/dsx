@@ -447,9 +447,87 @@ Each row kills a plausible theory:
 | `\xff\xfe` | `.txt` | **refused** |
 
 So "binary file" is a misnomer: the criterion is UTF-8 validity. There is no way to read the
-base64 lane — no `resources`, no `encoding` parameter on `read_file`. The asymmetry is the
-service's: such files upload fine and can be copied server-side, but the server→disk
-direction is closed. The browser is the only way out.
+base64 lane through `read_file` — no `resources`, no `encoding` parameter on it. **The write
+direction was never the asymmetric one**: `write_files` takes `data` + `encoding: "base64"`
+and dsx sends every file that way, so uploading a binary has always worked and needs no
+`local_path`. What was closed is server→disk, and `render_preview` opens it.
+
+## The preview lane
+
+`render_preview` returns a second transport, and it is the only server→disk route for a file
+`read_file` refuses. Everything below was measured on 2026-07-23, against the real endpoint,
+by minting a `serve_url` and fetching it with a plain HTTP client.
+
+```json
+{"serve_url":"https://<project-uuid>.claudeusercontent.com/v1/design/projects/<id>/serve/<path>?t=<149 chars>&direct=1",
+ "open_url":"https://claude.ai/design/p/<id>?file=<path>",
+ "expires_at":1784806176,
+ "note":"Open serve_url in your browser tooling only — NEVER include it in user-facing text; …"}
+```
+
+- **The bytes are the stored bytes, exactly.** All six binaries in a real design project came
+  back byte-for-byte the size `list_files` reports. A 4 KiB and a 400 KiB PNG written to the
+  sandbox and read back compared equal on SHA-256 — which also settles the other direction and
+  retires "byte-exactness of a binary push is unverified" from the known unknowns. 400 KiB is
+  past `read_file`'s 256 KiB cap, so this lane reaches content the text lane cannot reach at all.
+- **Except for `.html`, which is not served as stored.** A 54-byte page came back as 16,296
+  bytes: the server prepends `<style data-omelette-injected>` and a ~16 KiB `<script>` before
+  the original, which survives intact as the tail. `.txt`, `.css`, `.js`, `.md` and `.json`
+  were byte-exact; `.svg` matched the *stored* (sanitised) bytes. The size assertion against
+  `list_files` (invariant 1) is what refuses the harness, and it is why dsx may use this lane
+  for any path without first deciding what kind of file it is.
+- **The token is scoped to the PROJECT, not the path.** Replacing the path segment in a
+  `serve_url` served a different file of the same project. It carries no `Authorization`
+  header — a bogus one is ignored — so **one issued URL is an hour of read access to the whole
+  project, to anyone holding the string**. That is the threat model, and the server's own
+  `note` asks for the same care. Tampering with the token gives `403 invalid preview token`.
+- **`expires_at` is unix seconds**, now + 3600, matching the `Max-Age=3596` on the
+  `__Host-omelette-preview` cookie the response sets. It is honoured: measured at
+  `expires_at − 60` the URL still served all 39,781 bytes; at `expires_at + 60`, and again at
+  `expires_at + 600` byte-for-byte identically, the same URL answered **`302` to the
+  `claude.ai/design` editor link** — 121 bytes of `<a href=…>Found</a>`, so the redirect is the
+  steady state and not a moment of transition.
+  Not a `403`, not a `404` — **a redirect to an HTML page**. That is what makes dsx's refusal
+  to follow redirects load-bearing for a reason nothing to do with SSRF: a client that
+  followed it would fetch the editor (or a login page) and hand those bytes to whatever
+  expected a PNG. dsx stops at the redirect and says so.
+- **It is a live pointer, not a snapshot.** A `serve_url` minted before two writes returned the
+  *second* write's bytes. Nothing about the URL pins a revision.
+- **`ETag` is present and `If-None-Match` answers `304`** — but the value (`"0a72b2292dd5561b"`)
+  is in a different namespace from `list_files`' etag (`1784203376148838`) and cannot be
+  compared with it. It is **revision-derived, not content-derived**: an identical re-put
+  rotated it, exactly as the `list_files` etag rotates. So it buys nothing `list_files` does
+  not already give for the whole tree in one call, and dsx does not read it.
+- **No `Range`, no `Content-Length`.** `Range: bytes=0-1023` answered `200` with the whole
+  body and no `Accept-Ranges`; there is no resumable download. The connection is HTTP/2 —
+  forcing HTTP/1.1 still negotiated h2 — so the length is known only after the body is read.
+- **The `direct` query parameter does nothing measurable**: `1`, `0`, empty and removed all
+  returned the same bytes, harness included.
+- **Missing paths**: `render_preview` succeeds and returns a URL for a path that does not
+  exist; the GET is what answers `404 file not found`, as plain text. A directory answers the
+  same. An empty `path` and one containing `..` are refused by the tool itself.
+- **User-Agent is a Cloudflare matter, not the application's.** `Python-urllib/3.9` and
+  `Python-urllib/3.13` get `403 error code: 1010`. An **absent** header, an empty one, `x`,
+  `curl/8.7.1`, `python-requests/2.31.0`, Go's default and `dsx` all get `200`. The earlier
+  belief that the request fails without a User-Agent was wrong in the direction that matters:
+  it fails with one *particular* User-Agent.
+- **Repeating `render_preview` for one path returns the same URL** (eight concurrent calls,
+  one distinct URL), and sixteen concurrent GETs on one URL all returned exact copies.
+- **Paths with URL metacharacters survive**: `.dsx-selftest serve+odd&x.png` round-tripped
+  byte-exact.
+
+`render_preview` is declared `readOnlyHint: false`, so dsx does not retry it on a transport
+fault (invariant 6) — but it needs no write grant: every measurement above ran against a
+project with no standing grant.
+
+**What dsx does with it.** `pull --binary` and `files cat --out` fetch through this lane; a
+plain `pull` still skips. The URL is minted and consumed inside `mcp.ReadBinary` and reaches
+no report, no error text and no file. Only two hosts may be fetched: one ending in
+`.claudeusercontent.com` over https, or the endpoint's own host — which is already the host
+dsx sends its bearer token to, so it grants nothing new and is what lets a fake endpoint
+serve its own preview lane. Redirects are not followed. Because the lane is a live pointer
+with no comparable etag, `pull --binary` takes one extra `list_files` after the downloads and
+records a ledger entry only for paths whose etag did not move under it.
 
 ## Limits
 
@@ -494,7 +572,12 @@ unsupported, `tools/list` still naming every tool dsx wraps, and an end-to-end p
 trip through the real sync engine. Since the reply-rendering work, also: the reply shapes of
 `list_design_systems`, `get_project`, `list_members`, `copy_files`, `delete_files` and
 `create_support_js`, plus `create_support_js`' refusal of any basename but `support.js` and
-`get_project`'s `PROJECT_TYPE_PROJECT` spelling. Also the `list_comments` envelope and its
+`get_project`'s `PROJECT_TYPE_PROJECT` spelling. Also the preview lane's core: that it serves
+the stored bytes byte-exactly at two sizes, one of them past `read_file`'s cap; that
+`read_file` still refuses the same fixture, without which the first claim is about nothing;
+and that the token is project-scoped rather than path-scoped. Those three are pinned the way
+the reply shapes are — the judgment is `previewVerdict`/`previewScopeVerdict`, which live
+outside the build tag and are exercised by a bare `go test`. Also the `list_comments` envelope and its
 watermark round trip, `ack_comments`' reply on a never-queued id, and `read_design_skill`
 answering prose with a closed enum. And `get_conversation`'s framing and the
 negative that matters about it — that `ParseEnvelope` refuses it. Its two truncation-notice
@@ -528,7 +611,13 @@ is still declared, as "Reserved … Ignored today", so `--validators` stays.
 half — `src_project_id` and the 256 KiB-cap exemption, neither of which the reply-shape test
 exercises (it copies one small file inside one project) — the **Limits**
 table, the accepted half of the write allowlist (only `.bin`'s refusal is probed, and softly),
-the `read file: file not found` wording, and the `prompts`/`listChanged` capabilities.
+the `read file: file not found` wording, and the `prompts`/`listChanged` capabilities. From
+the preview lane: the `.html` harness, the absent `Range` support, the `ETag` namespace and
+its revision-derivation, the User-Agent behaviour, the stable-URL and concurrency
+observations, and `expires_at` — each measured once by hand, none asserted by a test. The live
+suite deliberately does not probe them: they would cost round trips per run to re-confirm
+facts dsx does not depend on, and the two it does depend on — the bytes and the size
+agreement — are the two it pins.
 
 The live suite writes only to `.dsx-selftest*` paths in the test project, removes them, and
 confirms the project's file count is back where it started. There is no `delete_project` tool,

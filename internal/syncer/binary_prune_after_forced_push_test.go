@@ -51,7 +51,7 @@ func TestForcedPushOfABinaryEntryDoesNotArmAPlainPullPrune(t *testing.T) {
 	// Next run: the server has dropped the path, disk still holds exactly what we
 	// pushed. No --force anywhere.
 	local := map[string]localFile{"og.png": {Path: "og.png", SHA: SHA256Hex(body), Size: int64(len(body))}}
-	d := planPull(map[string]RemoteEntry{}, local, st, nil, false, true)
+	d := planPull(map[string]RemoteEntry{}, local, st, nil, false, true, false)
 
 	if slices.Contains(d.Delete, "og.png") {
 		t.Errorf("a PLAIN `pull --prune` schedules Delete for %q after a forced push: local sha %q equals ledger sha %q", "og.png", local["og.png"].SHA, after.SHA)
