@@ -237,8 +237,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	// and first-contact gates (invariant 16). Below this line an error means
 	// the act failed partway, which does not make the observation less true.
 	//
-	// The error is dropped, and this is the one place in dsx where dropping one
-	// is right. baseline.json is a cache: loadBaseline already refuses to let
+	// The error is dropped on the way to a SUCCESS, which the other `_ = save`
+	// sites are not — those drop a ledger error while already returning a
+	// different one, which is invariant 5's rule, not this one.
+	//
+	// baseline.json is a cache: loadBaseline already refuses to let
 	// an unreadable, undecodable or directory-shaped one block a sync
 	// (TestACorruptBaselineDoesNotBlockASync), because blocking sends the user
 	// toward `rm -rf .dsx`, which takes state.json with it. The write side has
