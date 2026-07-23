@@ -216,10 +216,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	}
 
 	// Record the listing this run walked. `status` answers from the snapshot
-	// alone (invariant 19), and a pull that discarded its walk left `status`,
-	// `diff` and `push --force-with-lease` refusing with "no dsx fetch has run
-	// here" immediately after a clone that had just downloaded every byte. The
-	// listing is already in hand, so this costs no request.
+	// alone (invariant 19), and a pull that discarded its walk left `status`
+	// and `push --force-with-lease` refusing — measured, exit 2 both — in a
+	// directory `clone` had just written every byte of. `diff` does not
+	// refuse there; it pays instead, re-downloading what it cannot prove. The
+	// listing is already in hand, so recording it costs no request.
 	//
 	// Only the listing: Verified is written back exactly as loaded — as the
 	// discarded empty map when the baseline was another binding's. Pull tracks
