@@ -38,9 +38,9 @@ dsx help
 remembers. Every verb that walks the tree records that listing — `clone`, `pull` and `fetch`
 — because the walk is already paid for, so `status` answers straight after a clone. `push`
 deliberately does not: `--force-with-lease` means *the server has not moved since I last
-looked*, and a push refreshing its own idea of that would hold every lease. `fetch` remains
-the only verb that downloads and hashes, which is what turns a local file that merely matches
-into `verified`.
+looked*, and a push refreshing its own idea of that would hold every lease. Recording the
+listing is not the same as proving a file: `fetch` remains the only verb that turns a local
+file which merely *matches* the server into `verified`.
 
 Only `clone` and `pin` name a project; `unpin` may name a directory. Every other sync verb
 takes no argument at all: it acts on the tree you are standing in, finding the ledger by
