@@ -9,8 +9,12 @@ import (
 
 func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 	flags := cmd.NewFlagSet("files preview")
+	// No --render. The server dropped `render` from render_preview's schema and
+	// a probe confirmed it changes not one key of the reply, so the flag was
+	// accepted, documented in `dsx help`, and did nothing. --validators stays
+	// because it is a different case: the server still declares it, as
+	// "Reserved … Ignored today" — a slot it means to honour, not one it removed.
 	var (
-		render     = flags.Bool("render", false, "render the preview")
 		validators = flags.String("validators", "", "comma-separated validators")
 		asJSON     = cmd.JSONFlag(flags)
 	)
@@ -26,9 +30,6 @@ func cmdPreview(ctx context.Context, c *mcp.Client, args []string) error {
 		return err
 	}
 	a := map[string]any{"project_id": project, "path": path}
-	if *render {
-		a["render"] = true
-	}
 	if v := cmd.SplitList(*validators); len(v) > 0 {
 		a["validators"] = v
 	}

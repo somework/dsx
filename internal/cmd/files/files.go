@@ -27,7 +27,7 @@ var Group = cmd.Group{
 	Cmds: []cmd.Command{
 		{Name: "files tree", Section: "READ", Form: "files tree [<project>]", Desc: "every file, recursive, with etags", Run: cmdTree},
 		{Name: "files cat", Section: "READ", Form: "files cat [<project>] <path> [--out f]", Desc: "read a file (stdout by default)", Run: cmdCat},
-		{Name: "files preview", Section: "READ", Form: "files preview <project> <path> [--render] [--validators a,b]", Desc: "preview links for one file", Run: cmdPreview},
+		{Name: "files preview", Section: "READ", Form: "files preview <project> <path> [--validators a,b]", Desc: "preview links for one file", Run: cmdPreview},
 		{Name: "files ls", Section: "READ", Form: "files ls <project> [path]", Desc: "list one directory", Run: cmdLs},
 		{Name: "files put", Section: "WRITE", Form: "files put <project> <path> [file]", Desc: "write a file (stdin when file is omitted)", Run: cmdPut},
 		{Name: "files rm", Section: "WRITE", Form: "files rm <project> <path...>", Desc: "delete files", Run: cmdRm},

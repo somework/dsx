@@ -341,15 +341,15 @@ const wantFilesHelp = `usage: dsx files <verb>
 one project's files, read and written
 
 READ
-  dsx files tree [<project>]                                        every file, recursive, with etags
-  dsx files cat [<project>] <path> [--out f]                        read a file (stdout by default)
-  dsx files preview <project> <path> [--render] [--validators a,b]  preview links for one file
-  dsx files ls <project> [path]                                     list one directory
+  dsx files tree [<project>]                             every file, recursive, with etags
+  dsx files cat [<project>] <path> [--out f]             read a file (stdout by default)
+  dsx files preview <project> <path> [--validators a,b]  preview links for one file
+  dsx files ls <project> [path]                          list one directory
 
 WRITE
-  dsx files put <project> <path> [file]                             write a file (stdin when file is omitted)
-  dsx files rm <project> <path...>                                  delete files
-  dsx files cp <project> <src> <dst> [--from <project>]             copy server-side, within a project or between two
+  dsx files put <project> <path> [file]                  write a file (stdin when file is omitted)
+  dsx files rm <project> <path...>                       delete files
+  dsx files cp <project> <src> <dst> [--from <project>]  copy server-side, within a project or between two
 
   tree and cat fall back to the directory's project when none is named; a named
   one still wins. ls and every write always name theirs: a lone positional would

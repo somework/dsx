@@ -168,18 +168,23 @@ func TestCmdsCallTheRightToolWithExactlyTheRightArguments(t *testing.T) {
 			wantArgs: map[string]any{"project_id": "p1", "scope": "project"},
 		},
 		{
-			name: "preview without --render omits render",
+			// `render` is never sent: the server dropped it from the schema and
+			// a probe showed render:true changing not one key of the reply, so
+			// dsx no longer offers the flag at all.
+			name: "preview sends no render",
 			cmd:  "files preview", argv: []string{"p1", "index.html"},
 			wantTool: "render_preview",
 			wantArgs: map[string]any{"project_id": "p1", "path": "index.html"},
 		},
 		{
-			name: "preview with --render and validators",
-			cmd:  "files preview", argv: []string{"p1", "index.html", "--render", "--validators", "a11y,css"},
+			// --validators stays: unlike render it is still declared, as
+			// "Reserved … Ignored today" — a slot the server means to honour.
+			name: "preview with validators",
+			cmd:  "files preview", argv: []string{"p1", "index.html", "--validators", "a11y,css"},
 			wantTool: "render_preview",
 			wantArgs: map[string]any{
 				"project_id": "p1", "path": "index.html",
-				"render": true, "validators": []any{"a11y", "css"},
+				"validators": []any{"a11y", "css"},
 			},
 		},
 		{

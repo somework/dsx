@@ -668,6 +668,22 @@ func TestLiveToolsListCoversEveryWrappedTool(t *testing.T) {
 			"refresh it with `dsx tools --schema --json` — until then every offline "+
 			"guard that reads it is blind to those tools", missing)
 	}
+
+	// One level below the name check, and the level where both of this
+	// session's defects actually lived: `list_files` gained `depth` and
+	// `render_preview` lost `render` without either tool's NAME changing, so a
+	// whole tree in one call went unused and a dsx flag went on being accepted,
+	// documented and inert. Comparing name sets could not see either.
+	liveShapes, err := decodeToolShapes(raw)
+	if err != nil {
+		t.Fatalf("parsing the live tools/list: %v", err)
+	}
+	if drift := schemaDrift(recordedToolShapes(t), liveShapes); len(drift) > 0 {
+		t.Errorf("the recorded schemas no longer match the server:\n  %s\n"+
+			"refresh reference/mcp-tools.json, then decide what the change means for dsx — "+
+			"a gained argument may be a capability going unused, a dropped one a flag that "+
+			"now does nothing", strings.Join(drift, "\n  "))
+	}
 }
 
 func TestLiveResourcesAreStillUnsupported(t *testing.T) {

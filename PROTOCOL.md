@@ -516,7 +516,12 @@ dsx's own are still there. That reference is what the offline suite judges argum
 `readOnlyHint` against, so a stale one silently disables those guards for exactly the tools it
 has never heard of — which is how three tools, a new `list_files` `depth` parameter and the
 removal of `render_preview`'s `render` all arrived unnoticed. `missingFromReference` holds the
-judgment outside the build tag; the live half only supplies the two sets.
+judgment outside the build tag; the live half only supplies the two sets. `schemaDrift` goes
+one level below the name, where both of those defects actually lived — `list_files` gaining
+`depth` and `render_preview` losing `render` changed no tool NAME — comparing argument names,
+the required set and `readOnlyHint`, but not descriptions, which churn. `render_preview` no
+longer declares `render` at all, and dsx's `--render` flag was removed to match; `validators`
+is still declared, as "Reserved … Ignored today", so `--validators` stays.
 
 **Not pinned live, resting on a one-off probe or on the schema:** the whole **Auth** section
 (unit-tested only — its file lane has never met a real file), `copy_files`' *cross-project*
