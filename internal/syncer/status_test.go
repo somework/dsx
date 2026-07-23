@@ -321,7 +321,7 @@ func TestStatusRenderKeepsTheTwoHalvesApart(t *testing.T) {
 	out := r.Render(false)
 
 	localAt := strings.Index(out, "modified locally:")
-	remoteAt := strings.Index(out, "as of the last dsx fetch:")
+	remoteAt := strings.Index(out, "as of the last fetch or pull:")
 	if localAt < 0 || remoteAt < 0 {
 		t.Fatalf("both headings must appear:\n%s", out)
 	}
@@ -347,7 +347,7 @@ func TestStatusRenderSaysCleanRatherThanNothing(t *testing.T) {
 	if strings.TrimSpace(out) == "" {
 		t.Fatal("an unchanged tree rendered to nothing at all")
 	}
-	if !strings.Contains(out, "as of the last dsx fetch") {
+	if !strings.Contains(out, "as of the last fetch or pull") {
 		t.Errorf("the clean line drops the staleness caveat, which still applies:\n%s", out)
 	}
 }

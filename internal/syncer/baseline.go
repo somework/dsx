@@ -57,6 +57,18 @@ type SnapshotEntry struct {
 	Etag string `json:"etag"`
 }
 
+// snapshotOf narrows a post-survey listing to what a baseline records. Taking
+// the surveyed listing rather than the raw one is what keeps the snapshot
+// already filtered: no reader can filter it later, since filterRemote takes
+// RemoteEntry and a snapshot is deliberately not that (invariant 9).
+func snapshotOf(remote map[string]RemoteEntry) map[string]SnapshotEntry {
+	listing := make(map[string]SnapshotEntry, len(remote))
+	for path, e := range remote {
+		listing[path] = SnapshotEntry{Size: e.Size, Etag: e.Etag}
+	}
+	return listing
+}
+
 // loadBaseline reads the baseline, fixing up a nil map the way LoadState
 // does for State.Files. A missing file is an empty baseline, not an error —
 // and so is any other unusable one. baseline.json is a cache of what fetch

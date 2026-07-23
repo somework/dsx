@@ -136,7 +136,7 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	// world moved" when the truth is "you never looked".
 	if o.Lease && !o.Force && snapshot == nil {
 		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"no dsx fetch has run in %s, so there is no recorded server state to lease "+
+			"nothing here has recorded what the server holds in %s, so there is no state to lease "+
 				"against — run `dsx fetch` first", o.Dir)}
 	}
 

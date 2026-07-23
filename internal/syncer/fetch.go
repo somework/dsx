@@ -230,21 +230,16 @@ func Fetch(ctx context.Context, c *mcp.Client, o FetchOpts) (FetchReport, error)
 
 	// The snapshot is the whole ignore-filtered listing, not the narrow set
 	// downloaded above: an offline reader has to be able to name a remote-only
-	// or a tracked path, and neither can ever appear in Verified. Taken from
-	// the post-survey listing so it holds what a sync would consider —
-	// recording the raw one would let an offline report name paths .dsxignore
-	// excludes from both sides (invariant 9).
+	// or a tracked path, and neither can ever appear in Verified.
 	//
-	// Written in the same save as Verified, deliberately: two files, or two
-	// saves, could disagree about which fetch they came from, and a snapshot
-	// dated differently from the proof beside it is the state nothing can
-	// reason about.
-	listing := make(map[string]SnapshotEntry, len(remote))
-	for path, e := range remote {
-		listing[path] = SnapshotEntry{Size: e.Size, Etag: e.Etag}
-	}
-
-	bl := Baseline{ProjectID: o.ProjectID, Endpoint: c.Endpoint(), Verified: verified, Listing: listing}
+	// Fetch is the only writer that fills both halves at once. Pull records
+	// the listing beside a Verified map it leaves exactly as it found it, so
+	// the two halves may date from different runs; nothing reads them as a
+	// pair. Verified answers "are these bytes the server's", checked entry by
+	// entry against the etag in THIS run's listing, and a snapshot older or
+	// newer than the proof beside it cannot make that comparison come out
+	// differently.
+	bl := Baseline{ProjectID: o.ProjectID, Endpoint: c.Endpoint(), Verified: verified, Listing: snapshotOf(remote)}
 	if err := bl.save(o.Dir); err != nil {
 		return rep, err
 	}

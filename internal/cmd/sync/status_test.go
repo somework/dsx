@@ -58,7 +58,7 @@ func TestStatusPrintsBothHalvesUnderTheirOwnHeadings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	for _, want := range []string{"untracked locally:", "scratch.md", "as of the last dsx fetch:", "theirs.css"} {
+	for _, want := range []string{"untracked locally:", "scratch.md", "as of the last fetch or pull:", "theirs.css"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output is missing %q:\n%s", want, out)
 		}

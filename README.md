@@ -28,11 +28,19 @@ stored, the same way Claude Code reads it: the macOS Keychain first, then
 dsx project ls                                 # find your project id
 dsx clone <project> design                     # first pull into a new directory
 cd design && dsx push                          # disk → server
-dsx fetch                                      # record what the server holds — status answers from this
+dsx fetch                                      # prove which local files already match the server
 dsx status                                     # what changed here, from disk alone; no network call
 dsx push --force-with-lease                    # overwrite, but only what the last fetch still accounts for
 dsx help
 ```
+
+`status` makes no network call: it answers from the server listing `.dsx/baseline.json`
+remembers. Every verb that walks the tree records that listing — `clone`, `pull` and `fetch`
+— because the walk is already paid for, so `status` answers straight after a clone. `push`
+deliberately does not: `--force-with-lease` means *the server has not moved since I last
+looked*, and a push refreshing its own idea of that would hold every lease. `fetch` remains
+the only verb that downloads and hashes, which is what turns a local file that merely matches
+into `verified`.
 
 Only `clone` and `pin` name a project; `unpin` may name a directory. Every other sync verb
 takes no argument at all: it acts on the tree you are standing in, finding the ledger by

@@ -125,7 +125,8 @@ type StatusOpts struct {
 
 // StatusReport is the offline answer. The first four fields are exact — the
 // ledger read against the disk just now. The rest are as fresh as the last
-// `dsx fetch` and Render labels them so.
+// verb that walked the tree — `fetch`, `pull` or the `pull` inside `clone` —
+// and Render labels them so.
 type StatusReport struct {
 	Modified  []string `json:"modified"`
 	Deleted   []string `json:"deleted"`
@@ -140,8 +141,8 @@ type StatusReport struct {
 	UntrackedDiffers []string `json:"untracked_differs,omitempty"`
 }
 
-// Status answers from disk alone: the ledger, the last fetch's snapshot, and
-// a local scan. A stale snapshot is the price, and the report says which half
+// Status answers from disk alone: the ledger, the snapshot the last tree walk
+// recorded, and a local scan. A stale snapshot is the price, and the report says which half
 // is remembered rather than observed — the same bargain `git status` strikes
 // against refs/remotes, and the reason neither needs a network call.
 //
@@ -182,7 +183,7 @@ func Status(o StatusOpts) (StatusReport, error) {
 		(st.Endpoint == "" || sameEndpoint(bl.Endpoint, st.Endpoint))
 	if bl.Listing == nil || !snapshotBound {
 		return rep, &dsxerr.Error{Kind: dsxerr.KindUsage, Msg: fmt.Sprintf(
-			"no dsx fetch has run in %s, so nothing here knows what the server holds — "+
+			"nothing here has recorded what the server holds in %s — "+
 				"run `dsx fetch` to record it, or `dsx pull -n` to ask the server now",
 			o.Dir)}
 	}
@@ -257,7 +258,7 @@ func (r StatusReport) Render(asJSON bool) string {
 
 	remote := r.remembered()
 	if len(remote) > 0 {
-		sb.WriteString("as of the last dsx fetch:\n")
+		sb.WriteString("as of the last fetch or pull:\n")
 		width := 0
 		for _, l := range remote {
 			width = max(width, len(fmtutil.Printable(l.path)))
@@ -269,7 +270,7 @@ func (r StatusReport) Render(asJSON bool) string {
 	}
 
 	if sb.Len() == 0 {
-		return "clean — nothing changed locally, nothing new on the server as of the last dsx fetch"
+		return "clean — nothing changed locally, nothing new on the server as of the last fetch or pull"
 	}
 	sb.WriteString("  (dsx fetch to refresh, dsx pull -n to ask the server now)")
 	return sb.String()

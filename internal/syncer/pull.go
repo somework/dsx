@@ -215,6 +215,51 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 		}
 	}
 
+	// Record the listing this run walked. `status` answers from the snapshot
+	// alone (invariant 19), and a pull that discarded its walk left `status`,
+	// `diff` and `push --force-with-lease` refusing with "no dsx fetch has run
+	// here" immediately after a clone that had just downloaded every byte. The
+	// listing is already in hand, so this costs no request.
+	//
+	// Only the listing: Verified is written back exactly as loaded — as the
+	// discarded empty map when the baseline was another binding's. Pull tracks
+	// everything it writes and `proven` requires !tracked, so an entry pull
+	// added would be dead by construction; one it invented would be a proof
+	// about bytes nothing compared.
+	//
+	// Push must never do this. A lease means "I went and looked, and the
+	// server has not moved since"; refreshed by the pushing side it would hold
+	// always, which is a blind --force under the safe flag's name (invariant
+	// 20). Pull earns it by being the side that reconciles.
+	//
+	// Placed here, below every refusal and above the first act: a dry run
+	// returned above and leaves no trace, and so do the collision, remote-path
+	// and first-contact gates (invariant 16). Below this line an error means
+	// the act failed partway, which does not make the observation less true.
+	//
+	// The error is dropped, and this is the one place in dsx where dropping one
+	// is right. baseline.json is a cache: loadBaseline already refuses to let
+	// an unreadable, undecodable or directory-shaped one block a sync
+	// (TestACorruptBaselineDoesNotBlockASync), because blocking sends the user
+	// toward `rm -rf .dsx`, which takes state.json with it. The write side has
+	// to answer the same way for the same on-disk damage, and pull's product is
+	// BYTES — the snapshot is a by-product. Fetch propagates its save error
+	// instead, and the asymmetry is the point: the baseline is fetch's only
+	// product, so a fetch that could not write one did nothing at all.
+	//
+	// Nor is this silent. Failing to record leaves exactly the state that
+	// existed before pull recorded anything, and that state has its own loud
+	// refusal downstream: `status` says "no dsx fetch has run here", a lease
+	// reads a snapshot older than this run and breaks — both conservative,
+	// neither quiet.
+	snapshot := Baseline{
+		ProjectID: o.ProjectID,
+		Endpoint:  c.Endpoint(),
+		Verified:  baseline,
+		Listing:   snapshotOf(remote),
+	}
+	_ = snapshot.save(o.Dir)
+
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
