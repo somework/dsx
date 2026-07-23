@@ -302,7 +302,8 @@ go vet ./... && gofmt -l .
 - [CLAUDE.md](CLAUDE.md) — orientation, invariants, testing discipline. Read before changing
   sync logic.
 - [PROTOCOL.md](PROTOCOL.md) — the undocumented MCP contract, as measured.
-- `reference/mcp-tools.json` — the server's own `tools/list` output, verbatim.
+- `reference/mcp-tools.json` — the server's own `tools/list` output, content unchanged, indented
+  and key-sorted so a schema change reads as a small diff.
 
 ## Licence
 

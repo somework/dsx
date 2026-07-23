@@ -4,8 +4,13 @@ Everything here was established by probing the live endpoint. None of it is publ
 documented or promised to stay true; any server deploy can change it. Several facts below
 contradict the obvious guess, so when something breaks, re-probe before re-reasoning.
 
-`reference/mcp-tools.json` is the server's own `tools/list` reply, verbatim. It is the
-authority on argument shapes; this file covers what the schema does not say.
+`reference/mcp-tools.json` is the server's own `tools/list` reply — its content unchanged, but
+indented with sorted keys rather than the compact single line the wire carries. That is
+deliberate: a 30 KB one-liner turns every schema change into an unreadable diff. It does mean
+the file cannot be checked by comparing bytes against the wire, so the *form* is pinned instead
+(`TestTheRecordedToolsListIsInCanonicalForm` — the file must equal its own canonical
+re-encoding) and the *content* is checked live, in both directions. It is the authority on
+argument shapes; this file covers what the schema does not say.
 
 ## Transport
 
