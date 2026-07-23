@@ -252,10 +252,10 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	// product, so a fetch that could not write one did nothing at all.
 	//
 	// Nor is this silent. Failing to record leaves exactly the state that
-	// existed before pull recorded anything, and that state has its own loud
-	// refusal downstream: `status` says "no dsx fetch has run here", a lease
-	// reads a snapshot older than this run and breaks — both conservative,
-	// neither quiet.
+	// existed before pull recorded anything, and that state answers loudly
+	// downstream: `status` refuses outright when no snapshot is there at all,
+	// and a lease reads one older than this run — which can only break a lease
+	// that should have held, never hold one that should have broken.
 	snapshot := Baseline{
 		ProjectID: o.ProjectID,
 		Endpoint:  c.Endpoint(),
