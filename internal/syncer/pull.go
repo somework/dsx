@@ -256,6 +256,11 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	// downstream: `status` refuses outright when no snapshot is there at all,
 	// and a lease reads one older than this run — which can only break a lease
 	// that should have held, never hold one that should have broken.
+	// Verified was read at the top of this function, so a `dsx fetch` finishing
+	// in the same directory in between loses its entries to this write. dsx has
+	// no cross-process lock anywhere, and the loss is of a cache: the paths fall
+	// back to unproven, which reports them as conflicts to re-verify, never as
+	// matches. Locking to protect that would be the first lock in the program.
 	snapshot := Baseline{
 		ProjectID: o.ProjectID,
 		Endpoint:  c.Endpoint(),

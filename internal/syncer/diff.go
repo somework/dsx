@@ -142,6 +142,17 @@ func Diff(ctx context.Context, c *mcp.Client, o DiffOpts) (DiffReport, error) {
 		// Binary entries are excluded: the marker means dsx did not put those
 		// bytes on disk (invariant 23), and the sha beside it is either absent
 		// or a record of bytes SENT, so neither states what the file holds now.
+		//
+		// This trusts an etag to identify a revision, and a review read that as
+		// widening an unverified assumption from a narrow surface to the whole
+		// tree. It is not a widening: `planPull`'s `tracked && prev.Etag ==
+		// r.Etag && present && !localDirty` arm skips the DOWNLOAD on exactly
+		// these three facts, so every `dsx pull` has always rested the entire
+		// tracked tree on them — in a verb that writes files, where being wrong
+		// costs bytes rather than a line of a report. Whether two writes inside
+		// one timestamp tick can share an etag is genuinely unmeasured (CLAUDE.md
+		// says so); if it can, `pull` is the one to fix, and this line follows it
+		// rather than leading.
 		prev := st.Files[path]
 		trackedProven := !prev.Binary && prev.Etag != "" && r.Etag != "" && prev.Etag == r.Etag &&
 			prev.SHA != "" && prev.SHA == lf.SHA
