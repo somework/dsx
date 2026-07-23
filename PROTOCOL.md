@@ -124,7 +124,8 @@ exists.
 - A **complete** read carries no `lines` attribute. A **windowed** read carries
   `lines="A-B" total_lines="N"`; continue from `B+1`.
 - **256 KiB cap.** A single line alone over the cap comes back partial with
-  `truncated_line` — that file cannot be reassembled through this API.
+  `truncated_line` — that file cannot be reassembled through *this* tool. The preview lane
+  can serve it whole; see "A long line is unreadable here and readable there" below.
 - `if_none_match` returns `{"unchanged":true,"etag":…,"path":…}`. A file over the cap never
   takes this short-circuit.
 
@@ -470,6 +471,17 @@ by minting a `serve_url` and fetching it with a plain HTTP client.
   sandbox and read back compared equal on SHA-256 — which also settles the other direction and
   retires "byte-exactness of a binary push is unverified" from the known unknowns. 400 KiB is
   past `read_file`'s 256 KiB cap, so this lane reaches content the text lane cannot reach at all.
+- **A long line is unreadable here and readable there.** Measured 2026-07-23: a 307,201-byte
+  `.txt` holding one 300 KiB line was written to the sandbox, and `read_file` refused it with
+  `truncated_line` — the refusal above, the one shape the windowing cannot walk around. The
+  same path's `serve_url` answered `200 text/plain`, 307,201 bytes, SHA-256 equal to the bytes
+  put. So the lane is not only past the *cap*; it is past the one case the text lane cannot
+  reach at any offset. **dsx does not use it there yet**: the preview route is entered on the
+  binary refusal alone (invariant 23), so `dsx files cat --out` on that path refuses with the
+  same `truncated_line` message the text lane produced, measured. Routing `truncated_line`
+  through the preview lane would close dsx's last "cannot fetch this at all" — it is left
+  undone deliberately, not overlooked; the compensating check invariant 23 describes keys off
+  the ROUTE, so a second entry condition is a change to that invariant, not to a branch.
 - **Except for `.html`, which is not served as stored.** A 54-byte page came back as 16,296
   bytes: the server prepends `<style data-omelette-injected>` and a ~16 KiB `<script>` before
   the original, which survives intact as the tail. `.txt`, `.css`, `.js`, `.md` and `.json`
