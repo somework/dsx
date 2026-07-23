@@ -20,6 +20,14 @@ import (
 // protocol facts were guessed wrong before this rule existed.
 type Human func(text string) (string, bool)
 
+// Machine is Human's counterpart on the --json path, and it exists because
+// "--json relays the server's shape" is only true where the server sent a JSON
+// document. get_conversation does not: its reply is a tag, a body and a notice,
+// so --json already emitted dsx's own {"text":…} wrapper — an unusable shape,
+// but dsx's. Where that is the case a command may shape the reply properly
+// instead, and it must emit valid JSON or refuse.
+type Machine func(text string) (string, bool)
+
 func Emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool, h Human) error {
 	text, err := c.CallTool(ctx, tool, args)
 	if err != nil {
@@ -29,18 +37,39 @@ func Emit(ctx context.Context, c *mcp.Client, tool string, args map[string]any, 
 	return nil
 }
 
+// EmitShaped is Emit for a command that shapes its own --json.
+func EmitShaped(ctx context.Context, c *mcp.Client, tool string, args map[string]any, asJSON bool, h Human, m Machine) error {
+	text, err := c.CallTool(ctx, tool, args)
+	if err != nil {
+		return err
+	}
+	PrintReplyShaped(text, asJSON, h, m)
+	return nil
+}
+
 // PrintReply is the one place a tool reply reaches a person or a program.
 //
 // --json is untouched, renderer or not: README pins that where dsx relays a
 // tool result the shape is the server's, and a machine reading it has already
 // been told so.
 func PrintReply(text string, asJSON bool, h Human) {
-	fmt.Println(renderReply(text, asJSON, h))
+	PrintReplyShaped(text, asJSON, h, nil)
+}
+
+// PrintReplyShaped is PrintReply for the one command that owns its --json
+// shape as well as its human one.
+func PrintReplyShaped(text string, asJSON bool, h Human, m Machine) {
+	fmt.Println(renderReply(text, asJSON, h, m))
 }
 
 // renderReply is PrintReply without the writing, so the decision is testable.
-func renderReply(text string, asJSON bool, h Human) string {
+func renderReply(text string, asJSON bool, h Human, m Machine) string {
 	if asJSON {
+		if m != nil {
+			if out, ok := m(text); ok {
+				return out
+			}
+		}
 		return JSONSafe(text, true)
 	}
 	if h != nil {

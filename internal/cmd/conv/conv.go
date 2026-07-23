@@ -40,7 +40,7 @@ func cmdConv(ctx context.Context, c *mcp.Client, args []string) error {
 	if *chat != "" {
 		a["chat_id"] = *chat
 	}
-	return cmd.Emit(ctx, c, "get_conversation", a, *asJSON, reply.Conversation)
+	return cmd.EmitShaped(ctx, c, "get_conversation", a, *asJSON, reply.Conversation, reply.ConversationJSON)
 }
 
 func cmdConvPut(ctx context.Context, c *mcp.Client, args []string) error {

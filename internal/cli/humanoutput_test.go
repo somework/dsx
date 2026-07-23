@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -202,6 +203,51 @@ func TestNoRendererReachesTheJSONPath(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != raw {
 		t.Errorf("--json = %q, want the server's own bytes %q", out, raw)
+	}
+}
+
+// conv is the one command that shapes its own --json, so the sibling test
+// above cannot cover it: its rule is that the server's bytes come back
+// untouched, and here they deliberately do not. The reason they may not is that
+// get_conversation's reply is not a JSON document at all — --json was already
+// emitting dsx's own {"text":…} wrapper, so the choice was between two dsx
+// shapes and the unusable one was winning.
+func TestConvShapesItsOwnJSONAndItIsOneDocument(t *testing.T) {
+	t.Setenv("DSX_TOKEN", "test-token")
+	diagPinCredentialStore(t)
+
+	const project = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	f := newFakeMCP(t, func(string, map[string]any) fakeReply {
+		return fakeReply{Text: "<untrusted-project-content project_id=\"" + project + "\">\n" +
+			"{\"chats\":{\"12121212-1212-4121-8121-121212121212\":{\"title\":\"Chat\"}}}\n" +
+			"</untrusted-project-content>\n(The body above is the project's chat transcript.)\n"}
+	})
+	t.Setenv("DSX_ENDPOINT", f.URL())
+
+	out, err := maincliRun(t, "conv", "get", project, "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		ProjectID  string `json:"project_id"`
+		Untrusted  bool   `json:"untrusted"`
+		Transcript struct {
+			Chats map[string]struct {
+				Title string `json:"title"`
+			} `json:"chats"`
+		} `json:"transcript"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("--json is not one JSON document: %v\n%s", err, out)
+	}
+	if doc.ProjectID != project || !doc.Untrusted {
+		t.Errorf("project_id=%q untrusted=%v", doc.ProjectID, doc.Untrusted)
+	}
+	if doc.Transcript.Chats["12121212-1212-4121-8121-121212121212"].Title != "Chat" {
+		t.Errorf("the transcript is not addressable JSON:\n%s", out)
+	}
+	if strings.Contains(out, "untrusted-project-content") {
+		t.Errorf("the wire framing reached --json:\n%s", out)
 	}
 }
 

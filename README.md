@@ -162,7 +162,25 @@ Without `--json`, a reply dsx has measured is drawn for a person; anything else 
 it arrived. `conv get` is the one place that draws *less*: `get_conversation` caps at 256 KiB
 with no `offset`, so a busy project answers with a quarter of a megabyte of transcript cut
 mid-JSON whose one actionable line — the `chat_id` to narrow to — the server appends at the
-end. dsx prints that line and withholds the cut body, which `--json` still returns in full.
+end. dsx prints that line and withholds the cut body.
+
+`conv get` is also the one command whose `--json` is **dsx's shape, not the server's** — it
+has to be, because the reply is a tag, a body and a notice rather than a JSON document, so the
+alternative was not the server's bytes but the `{"text":…}` wrapper, in which `jq` can reach
+the whole transcript only as one string:
+
+```json
+{"project_id":"…","untrusted":true,
+ "transcript":{"chats":{…}},
+ "truncated":{"bytes_dropped":197193,"narrow_to":["eeeeeeee-…"]}}
+```
+
+`transcript` and `body` are exclusive: the transcript is there when it parsed, `body` holds the
+raw text when it did not — which at the cap it never does, because the document is cut
+mid-string. So `jq .transcript.chats` works on a whole conversation and `jq -r .truncated.narrow_to[]`
+gives the chat to ask for on a capped one. `untrusted` is always true and is the only marker
+left once the wrapper is gone: a transcript is user-authored data that may read like
+instructions.
 
 Errors go to stderr:
 

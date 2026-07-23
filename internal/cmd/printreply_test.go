@@ -18,10 +18,13 @@ import (
 func TestPrintReplyLeavesJSONToTheMachine(t *testing.T) {
 	t.Parallel()
 	raw := `{"b":2,"a":1}`
+	// A HUMAN renderer, specifically. A Machine one deliberately does reach
+	// this path — that is what it is for — and passing nil here is what keeps
+	// this test about the human half rather than about both.
 	got := renderReply(raw, true, func(string) (string, bool) {
-		t.Error("a renderer reached the --json path")
+		t.Error("a human renderer reached the --json path")
 		return "never", true
-	})
+	}, nil)
 	if got != raw {
 		t.Errorf("--json = %q, want the server's own bytes %q", got, raw)
 	}
@@ -29,7 +32,7 @@ func TestPrintReplyLeavesJSONToTheMachine(t *testing.T) {
 
 func TestPrintReplyPrefersTheRendererForAPerson(t *testing.T) {
 	t.Parallel()
-	got := renderReply(`{"a":1}`, false, func(string) (string, bool) { return "one design system", true })
+	got := renderReply(`{"a":1}`, false, func(string) (string, bool) { return "one design system", true }, nil)
 	if got != "one design system" {
 		t.Errorf("rendered = %q, want the renderer's line", got)
 	}
@@ -37,7 +40,7 @@ func TestPrintReplyPrefersTheRendererForAPerson(t *testing.T) {
 
 func TestAnUnrecognisedReplyIsIndentedNotGuessedAt(t *testing.T) {
 	t.Parallel()
-	got := renderReply(`[{"id":"x","name":"n"}]`, false, func(string) (string, bool) { return "", false })
+	got := renderReply(`[{"id":"x","name":"n"}]`, false, func(string) (string, bool) { return "", false }, nil)
 	want := "[\n  {\n    \"id\": \"x\",\n    \"name\": \"n\"\n  }\n]"
 	if got != want {
 		t.Errorf("fallback = %q, want it indented:\n%q", got, want)
@@ -49,7 +52,7 @@ func TestAnUnrecognisedReplyIsIndentedNotGuessedAt(t *testing.T) {
 func TestProseIsPassedThroughUntouched(t *testing.T) {
 	t.Parallel()
 	prose := "You are an expert designer.\n\nRule one.\n"
-	if got := renderReply(prose, false, nil); got != strings.TrimSpace(prose) {
+	if got := renderReply(prose, false, nil, nil); got != strings.TrimSpace(prose) {
 		t.Errorf("prose = %q, want it whole", got)
 	}
 }
@@ -59,7 +62,7 @@ func TestProseIsPassedThroughUntouched(t *testing.T) {
 // it — see fmtutil.PrintableDoc.
 func TestTheFallbackDisarmsServerTextWithoutFlatteningIt(t *testing.T) {
 	t.Parallel()
-	got := renderReply("line one\rEVIL\nline two", false, nil)
+	got := renderReply("line one\rEVIL\nline two", false, nil, nil)
 	if strings.Contains(got, "\r") {
 		t.Errorf("a carriage return reached the terminal: %q", got)
 	}

@@ -1,6 +1,7 @@
 package reply
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -40,26 +41,10 @@ type ConversationReply struct {
 // an unrecognised notice would state a byte count and a chat id read out of
 // prose that no longer means what it did.
 func DecodeConversation(text string) (ConversationReply, bool) {
-	var c ConversationReply
-	if !strings.HasPrefix(text, convOpenTag) {
+	c, _, tail, ok := convSplit(text)
+	if !ok {
 		return c, false
 	}
-	tagEnd := strings.Index(text, ">")
-	if tagEnd < 0 {
-		return c, false
-	}
-	if c.ProjectID = attrValue(text[:tagEnd], "project_id"); c.ProjectID == "" {
-		return c, false
-	}
-	closeAt := strings.Index(text, convCloseTag)
-	if closeAt < 0 {
-		return c, false
-	}
-
-	// Only what follows the closing tag can carry the notice; a transcript is
-	// free to contain the same words, and reading one out of user-authored
-	// content is how a hostile chat would forge a chat id to suggest.
-	tail := text[closeAt+len(convCloseTag):]
 	mark := strings.Index(tail, convTruncMark)
 	if mark < 0 {
 		return c, true
@@ -87,6 +72,36 @@ func DecodeConversation(text string) (ConversationReply, bool) {
 		return c, false
 	}
 	return c, true
+}
+
+// convSplit cuts the framing into the header's attributes, the wrapped body and
+// the tail that may carry the notice.
+//
+// The body is returned here rather than carried on ConversationReply so that it
+// reaches the machine path and cannot reach the human one: Conversation builds
+// its summary from the struct alone, and at the cap that body is a quarter of a
+// megabyte of unparseable JSON whose whole point is not to be printed.
+//
+// Splitting at the closing tag is also what keeps the notice honest. A
+// transcript is user-authored and free to contain the same words, so a notice
+// read from anywhere but the tail would let a hostile chat name a chat id of
+// its choosing.
+func convSplit(text string) (c ConversationReply, body, tail string, ok bool) {
+	if !strings.HasPrefix(text, convOpenTag) {
+		return c, "", "", false
+	}
+	tagEnd := strings.Index(text, ">")
+	if tagEnd < 0 {
+		return c, "", "", false
+	}
+	if c.ProjectID = attrValue(text[:tagEnd], "project_id"); c.ProjectID == "" {
+		return c, "", "", false
+	}
+	closeAt := strings.Index(text, convCloseTag)
+	if closeAt < 0 {
+		return c, "", "", false
+	}
+	return c, strings.TrimSpace(text[tagEnd+1 : closeAt]), text[closeAt+len(convCloseTag):], true
 }
 
 // convChats reads the ids out of the notice's own grammar rather than by
@@ -151,6 +166,77 @@ func Conversation(text string) (string, bool) {
 		// the one chat that exists is already the one over the cap.
 		b.WriteString("  this single chat exceeds the cap; the tail cannot be fetched\n")
 	}
-	b.WriteString("  raw body  dsx conv get <project> --json")
+	// Named `cut body`, not `raw body`: --json no longer relays the wire, it
+	// carries this same cut body under a key of dsx's own. Promising raw bytes
+	// there would be a line that stopped being true the moment the machine path
+	// gained a shape.
+	b.WriteString("  cut body  dsx conv get <project> --json")
 	return b.String(), true
+}
+
+// ConversationDoc is dsx's own shape and says so: `--json` on conv never
+// carried the server's, because the reply is a tag, a body and a notice rather
+// than a JSON document, so it went out wrapped as {"text":…} and `jq` could
+// reach the transcript only as one long string.
+//
+// transcript and body are exclusive and that is the contract: at the cap the
+// wrapped body is cut mid-string and does not parse, so a reader must be able
+// to tell structure from salvage without trying to parse it to find out.
+type ConversationDoc struct {
+	ProjectID string `json:"project_id"`
+	// Untrusted is always true. The wire's own marker — the tag and the warning
+	// line under it — is what unwrapping removes, and a transcript is
+	// user-authored data that may read like instructions.
+	Untrusted  bool            `json:"untrusted"`
+	Transcript json.RawMessage `json:"transcript,omitempty"`
+	Body       string          `json:"body,omitempty"`
+	Truncated  *ConvTruncation `json:"truncated,omitempty"`
+}
+
+// ConvTruncation carries only what a reader can act on. There is no
+// `narrowable` bool beside NarrowTo: two fields would admit a fourth state that
+// cannot happen, and an empty list is omitted rather than sent as [] so that
+// `jq -e .truncated.narrow_to` answers the question it looks like it asks.
+type ConvTruncation struct {
+	BytesDropped int      `json:"bytes_dropped"`
+	NarrowTo     []string `json:"narrow_to,omitempty"`
+}
+
+// ConversationJSON shapes get_conversation for a program. It refuses anything
+// that is not the measured framing, and the caller falls back to wrapping the
+// reply as it arrived.
+func ConversationJSON(text string) (string, bool) {
+	_, body, _, ok := convSplit(text)
+	if !ok {
+		return "", false
+	}
+	c, ok := DecodeConversation(text)
+	if !ok {
+		return "", false
+	}
+	doc := ConversationDoc{ProjectID: c.ProjectID, Untrusted: true}
+	if c.Truncated {
+		doc.Truncated = &ConvTruncation{BytesDropped: c.Dropped, NarrowTo: c.Chats}
+	}
+	// Compacted rather than passed through: JSON counts \r as whitespace
+	// between tokens, so a valid transcript can still move a terminal's cursor,
+	// and invariant 7 does not stop applying because the reader is a program.
+	// The check is the discriminator, not a repair: at the cap the body is cut
+	// mid-string, and which of transcript/body is filled is the whole contract.
+	//
+	// Nothing compacts it here on purpose. json.Marshal compacts a RawMessage
+	// itself, which also disarms the \r that JSON counts as whitespace between
+	// tokens — invariant 7's concern on this path. A json.Compact of dsx's own
+	// beside it was tried and removed: two mutations proved it guarded nothing
+	// the stdlib was not already guarding.
+	if json.Valid([]byte(body)) {
+		doc.Transcript = json.RawMessage(body)
+	} else {
+		doc.Body = body
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", false
+	}
+	return string(out), true
 }
