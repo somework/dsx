@@ -206,6 +206,51 @@ func TestAFirstContactRefusalRecordsNoSnapshot(t *testing.T) {
 	}
 }
 
+// TestAPullThatFailedPartwayStillRecordedTheListing: the listing is an
+// observation, and a download failing later does not make it less true — so a
+// run that got halfway still leaves `status` able to answer instead of
+// refusing. What this holds is that the write is above the error RETURNS, not
+// that it is on the exact line it is on: moving it down to just after the
+// download fan-out was tried as a mutation and passed everything here, which
+// is honest — the two placements differ only in cases nothing here reaches.
+// Moving it below `return rep, errs[0]` is what this catches.
+func TestAPullThatFailedPartwayStillRecordedTheListing(t *testing.T) {
+	dir := t.TempDir()
+	good, bad := "good.css", "bad.css"
+
+	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
+		switch name {
+		case "list_files":
+			return fakeReply{Text: listingFor(
+				fileEntry(good, "e1", 4), fileEntry(bad, "e2", 4))}
+		case "read_file":
+			p, _ := args["path"].(string)
+			if p == bad {
+				return fakeReply{Text: "the server refused this one", IsError: true}
+			}
+			return fakeReply{Text: envelopeFor(p, "e1", "a{}\n")}
+		}
+		return fakeReply{Text: "unexpected " + name, IsError: true}
+	})
+
+	if _, err := Pull(context.Background(), fakeClient(f), PullOpts{
+		ProjectID: "proj-A", Dir: dir, Concurrency: 1,
+	}); err == nil {
+		t.Fatal("the fixture no longer fails the pull")
+	}
+
+	bl, err := loadBaseline(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, named := bl.Listing[bad]; !named {
+		t.Errorf("Listing = %+v, want both paths — the walk succeeded, only a download failed", bl.Listing)
+	}
+	if _, err := Status(StatusOpts{ProjectID: "proj-A", Dir: dir}); err != nil {
+		t.Fatalf("status refused after a pull that walked the whole tree and failed halfway: %v", err)
+	}
+}
+
 // TestPullDiscardsAForeignProofWhenItRecordsTheListing: an unbound baseline's
 // Verified is already discarded for planning. Re-saving it under this run's
 // project id would turn a discarded cache into a proof about a server it was
