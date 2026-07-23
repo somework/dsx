@@ -8,26 +8,35 @@ import (
 )
 
 // fetchBaselineVerdict judges what TestLiveFetchBaselineMatchesReadFull
-// observes: a text path must be fetched and recorded, a binary one must be
-// neither, and every recorded sha must survive an independent re-read. It
-// carries no build tag for the reason etagVerdict does not — behind `live` an
-// inverted comparison here would fail nothing.
+// observes: BOTH paths must be fetched and recorded, and every recorded sha
+// must survive an independent re-read. It carries no build tag for the reason
+// etagVerdict does not — behind `live` an inverted comparison here would fail
+// nothing.
 //
-// reread maps every baseline path to the body an independent ReadFull
-// returned; a path recorded but not re-read is an error rather than a pass, or
-// a caller that re-read nothing would satisfy this vacuously.
+// The binary half used to be the opposite claim — "fetched neither, recorded
+// neither" — and it was true until `fetch` gained the preview lane, which it
+// runs unconditionally (invariant 23). The live test then failed on its own
+// plumbing before ever reaching this judgment, so the stale belief sat here
+// unexercised: a verdict is only as current as the last time something ran it.
+//
+// reread maps every baseline path to the body an independent read returned —
+// ReadFull for text, the preview lane for what ReadFull refuses. A path
+// recorded but not re-read is an error rather than a pass, or a caller that
+// re-read nothing would satisfy this vacuously.
 func fetchBaselineVerdict(fetched []string, verified map[string]BaselineEntry, textPath, binPath string, reread map[string]string) error {
 	if !containsPath(fetched, textPath) {
 		return fmt.Errorf("Fetched = %v, want the text path %s present", fetched, textPath)
 	}
-	if containsPath(fetched, binPath) {
-		return fmt.Errorf("Fetched = %v, must not record the binary path %s", fetched, binPath)
+	if !containsPath(fetched, binPath) {
+		return fmt.Errorf("Fetched = %v, want the binary path %s present — fetch runs the preview lane unasked", fetched, binPath)
 	}
-	if _, ok := verified[binPath]; ok {
-		return fmt.Errorf("baseline holds an entry for the binary path %s: %+v", binPath, verified[binPath])
-	}
+	// Asked before the per-path checks below, so an empty baseline is reported
+	// as the one thing it is rather than as whichever path is looked for first.
 	if len(verified) == 0 {
 		return fmt.Errorf("baseline holds no entries at all")
+	}
+	if _, ok := verified[binPath]; !ok {
+		return fmt.Errorf("baseline holds no entry for the binary path %s, so the preview lane proved nothing", binPath)
 	}
 	for _, path := range sortedKeys(verified) {
 		body, ok := reread[path]
@@ -67,10 +76,13 @@ func TestFetchBaselineVerdict(t *testing.T) {
 	)
 	sha := SHA256Hex([]byte(body))
 
+	const binBody = "\xff\xfe\x00\x01"
+	binSHA := SHA256Hex([]byte(binBody))
+
 	good := func() ([]string, map[string]BaselineEntry, map[string]string) {
-		return []string{text},
-			map[string]BaselineEntry{text: {Etag: "e1", SHA: sha}},
-			map[string]string{text: body}
+		return []string{text, bin},
+			map[string]BaselineEntry{text: {Etag: "e1", SHA: sha}, bin: {Etag: "e2", SHA: binSHA}},
+			map[string]string{text: body, bin: binBody}
 	}
 
 	t.Run("the shape fetch is supposed to produce", func(t *testing.T) {
@@ -88,14 +100,15 @@ func TestFetchBaselineVerdict(t *testing.T) {
 		{"the text path was not fetched", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
 			*f = nil
 		}, "want the text path"},
-		{"the binary path was fetched", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
-			*f = append(*f, bin)
-		}, "must not record the binary path"},
-		{"the binary path got a baseline entry", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
-			v[bin] = BaselineEntry{Etag: "e2", SHA: "whatever"}
-		}, "holds an entry for the binary path"},
+		{"the binary path was not fetched", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
+			*f = []string{text}
+		}, "want the binary path"},
+		{"the binary path got no baseline entry", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
+			delete(v, bin)
+		}, "holds no entry for the binary path"},
 		{"the baseline is empty", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
 			delete(v, text)
+			delete(v, bin)
 		}, "no entries at all"},
 		{"a recorded path was never re-read", func(f *[]string, v map[string]BaselineEntry, r map[string]string) {
 			delete(r, text)

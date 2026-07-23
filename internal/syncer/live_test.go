@@ -788,11 +788,27 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	afterFetch := liveTree(t, c, ctx)
+
 	reread := map[string]string{}
 	for path := range bl.Verified {
 		body, _, err := c.ReadFull(ctx, liveProjectID(), path)
 		if err != nil {
-			t.Fatalf("ReadFull(%s) for independent verification: %v", path, err)
+			if !isBinaryRefusal(err) {
+				t.Fatalf("ReadFull(%s) for independent verification: %v", path, err)
+			}
+			// Fetch runs the preview lane unasked (invariant 23), so a binary
+			// path now reaches the baseline — and read_file, by definition,
+			// cannot re-read it. This half re-reads through the same lane
+			// fetch used, so what it proves is that the lane answers the same
+			// bytes twice, not that those bytes are the stored ones; the
+			// stored-bytes claim is TestLiveThePreviewLaneServesTheStoredBytes'
+			// and is measured there against a known SHA.
+			raw, berr := c.ReadBinary(ctx, liveProjectID(), path, afterFetch[path].Size)
+			if berr != nil {
+				t.Fatalf("ReadBinary(%s) for independent verification: %v", path, berr)
+			}
+			body = string(raw)
 		}
 		reread[path] = body
 	}
@@ -801,7 +817,7 @@ func TestLiveFetchBaselineMatchesReadFull(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if after := len(liveTree(t, c, ctx)); after != beforeFetch {
+	if after := len(afterFetch); after != beforeFetch {
 		t.Errorf("file count %d -> %d; fetch must not write any server path", beforeFetch, after)
 	}
 
