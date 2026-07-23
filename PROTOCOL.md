@@ -248,10 +248,29 @@ probed rather than read: **29 candidate parameters** — `offset`, `limit`, `rev
 `since`, `max_bytes`, `truncate`, `full`, `metadata_only`, `titles_only`, `include`, `fields`,
 `format`, and `put_conversation`'s own index vocabulary (`synced_through_idx`, `from_idx`,
 `start_idx`, `message_offset`, `max_messages`) — every one silently ignored, byte-identical
-reply. The control matters: a nonsense key is ignored too rather than refused, so "no error"
-proves nothing and only a changed reply would have; and the baseline was confirmed stable
-across repeat calls, so an unchanged hash is signal rather than noise. Do not re-derive this by
-reading the schema — the schema was never the question.
+reply.
+
+That comparison alone would not settle it, and the hole is worth keeping written down: an
+identical reply is also what a **clamping** line-based implementation would produce, because
+the transcript body is a single line of compact JSON — `limit:5` on a one-line document is the
+whole document, and an `offset` clamped to the start is too. What settles it is `read_file`,
+which does implement the pair, used as a control. Two signatures appear there and neither ever
+appears on `get_conversation`:
+
+| tell | `read_file` | `get_conversation` |
+|---|---|---|
+| `offset` past the end | errors — `offset 100 is past the end of "README.md" (3 lines)` | no error, full body |
+| windowed wrapper | gains `lines="1-1" total_lines="3"` | only ever `project_id` |
+
+The body being one line is what makes the first row decisive rather than suggestive: a read
+`offset` of 2 is already past the end, so an implementation that read the key at all would have
+to say so. It does not, at 2 or at 100, and the reply stays 262528 bytes in every case.
+
+Two further controls: a nonsense key is ignored rather than refused, so "no error" proves
+nothing on its own; and a **declared** optional parameter given the wrong type (`chat_id: 123`)
+is *also* dropped silently, so type-checking cannot be used to tell a real-but-undocumented key
+from an unknown one — only `project_id`, being required, refuses. Do not re-derive any of this
+by reading the schema; the schema was never the question.
 
 Only the `open:` list is measured, always with one id. Whether a project with several chats,
 or with closed ones, spells the list differently is **unmeasured** — `internal/reply` refuses
