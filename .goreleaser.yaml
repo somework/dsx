@@ -1,10 +1,10 @@
 version: 2
 
 # Release machinery, wired but never fired: `goreleaser release` is the owner's
-# call, not the build's. See ROADMAP.md — dsx speaks an undocumented private API
-# and reads Claude Code's OAuth token, and publishing that under someone's name
-# is their decision. `goreleaser build --snapshot --clean` exercises all of this
-# without producing anything public.
+# call, not the build's. See CLAUDE.md's Roadmap — dsx speaks an undocumented
+# private API and reads Claude Code's OAuth token, and publishing that under
+# someone's name is their decision. `goreleaser build --snapshot --clean`
+# exercises all of this without producing anything public.
 
 project_name: dsx
 

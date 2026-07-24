@@ -347,9 +347,20 @@ certain exists.
 
 ```bash
 go test -race ./...
-go test -tags=live -run TestLive ./...   # against the real endpoint
 go vet ./... && gofmt -l .
 ```
+
+The offline suite needs no login and reaches no network — it is the one to run.
+
+```bash
+DSX_LIVE_PROJECT=<your project id> go test -tags=live -run TestLive ./...
+```
+
+The live suite talks to the real endpoint with your own credential. It **writes** to the project
+you name — `.dsx-selftest*` paths, created and removed by each test — so name a project you own
+and do not mind being written to; `dsx project ls` lists them. There is no default and no
+`delete_project` tool, so with the variable unset every test that needs a project skips rather
+than aiming at someone else's.
 
 - [CLAUDE.md](CLAUDE.md) — orientation, invariants, testing discipline. Read before changing
   sync logic.

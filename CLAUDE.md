@@ -100,15 +100,18 @@ Live tests touch real projects and there is **no `delete_project` tool** — the
 - pull into `t.TempDir()`, never `design/`
 - every mutating test asserts the file count is back where it started
 
-Default project `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` — a sandbox created by hand for this, seeded
-with four files. Override with `DSX_LIVE_PROJECT`.
+**`DSX_LIVE_PROJECT` names the project and there is no default.** Unset, every test that calls
+`liveClient` skips; a hardcoded id would aim the whole suite at one account's project, and for
+anyone but its owner a 403 arrives as a failure rather than as the skip it is. Point it at a
+project you own and do not mind being written to — the suite creates and removes
+`.dsx-selftest*` paths in it. A handful of files is enough; no test asserts a particular seed.
 
-It carries a standing write grant, because whoever creates a project gets one. So two paths are
-**not covered by default**: `finalize_plan` self-authorisation, and the 403 that
-`TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError` probes — that test skips here and says so. To
-cover them, point `DSX_LIVE_PROJECT` at `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`, which has no
-standing grant. That project is a real org-shared design system, which is why it is no longer the
-default.
+Which project you choose decides what gets covered. A project you created carries a standing
+write grant, because whoever creates a project gets one, and that leaves two paths untested:
+`finalize_plan` self-authorisation, and the 403 that
+`TestLiveNeedsProjectGrantIsAnHTTP403NotAToolError` probes — that test skips against such a
+project and says so. Covering them needs a project shared with you but not created by you, which
+is a real org's design system rather than a sandbox; run it there deliberately, not by default.
 
 ## Known unknowns
 

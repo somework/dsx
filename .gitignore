@@ -11,3 +11,4 @@ dsx
 # local, gitnexus-managed (see hook)
 CLAUDE.local.md
 AGENTS.md
+.gitnexus/

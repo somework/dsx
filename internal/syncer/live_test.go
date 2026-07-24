@@ -26,19 +26,20 @@ type unchangedReply struct {
 	Path      string `json:"path"`
 }
 
-const liveProject = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-
 const scratchPrefix = ".dsx-selftest"
 
-func liveProjectID() string {
-	if v := os.Getenv("DSX_LIVE_PROJECT"); v != "" {
-		return v
-	}
-	return liveProject
-}
+// There is no default project and there must not be one. The suite writes
+// .dsx-selftest* paths and there is no delete_project, so a hardcoded id aims
+// every stranger's `go test -tags=live` at one account's project — which for
+// anyone but its owner is a 403 reported as a failure rather than the skip it
+// is. The id is configuration, not a constant.
+func liveProjectID() string { return os.Getenv("DSX_LIVE_PROJECT") }
 
 func liveClient(t *testing.T) (*mcp.Client, context.Context) {
 	t.Helper()
+	if liveProjectID() == "" {
+		t.Skip("set DSX_LIVE_PROJECT to a project you own; see README's Development section")
+	}
 	token, err := auth.LoadToken()
 	if err != nil {
 		t.Skipf("no usable Claude Code credential, skipping live suite: %v", err)
@@ -202,9 +203,6 @@ func TestLiveRefusesToCreateProjects(t *testing.T) {
 	needle := `callTool(ctx, "` + "create" + `_project"`
 	if strings.Contains(string(b), needle) {
 		t.Fatal("the live suite creates a project; there is no delete_project, so that project is permanent litter")
-	}
-	if liveProjectID() == "" {
-		t.Fatal("no live project configured")
 	}
 }
 
