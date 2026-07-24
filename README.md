@@ -18,13 +18,56 @@ pulled 103, unchanged 0, binary 6 (660.1 KB)
 
 ## Install
 
+One binary, no runtime, nothing to configure. Pick the version from
+[Releases](https://github.com/somework/dsx/releases) and adjust `VERSION`:
+
+```bash
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+ARCHIVE="dsx_${VERSION}_${OS}_${ARCH}.tar.gz"
+
+curl -fsSLO "https://github.com/somework/dsx/releases/download/v${VERSION}/${ARCHIVE}"
+tar xzf "$ARCHIVE" dsx
+sudo mv dsx /usr/local/bin/
+```
+
+Built for macOS and Linux, on both `amd64` and `arm64`.
+
+The download is deliberately not piped into a shell. dsx reads an OAuth credential, so it is
+the last program that should ask you to execute an unexamined script — and a separate download
+step is what leaves room to check where the bytes came from:
+
+```bash
+gh attestation verify "$ARCHIVE" --repo somework/dsx
+```
+
+That binds the archive to this repository, this workflow and the commit it was built from,
+which a checksum cannot do. [SECURITY.md](SECURITY.md) explains what it proves.
+`shasum -a 256 -c` against the release's `checksums.txt` is the answer without `gh` installed.
+
+The binaries are not signed with an Apple certificate and not notarised. Fetched with `curl`
+as above there is nothing to clear; downloaded through a **browser**, macOS attaches a
+quarantine flag and refuses to run it until you remove it:
+
+```bash
+xattr -dr com.apple.quarantine /usr/local/bin/dsx
+```
+
+### From source
+
+If you have Go 1.26 or newer, this needs no trust in a published artifact at all — it compiles
+what you can read:
+
 ```bash
 go install github.com/somework/dsx@latest
 ```
 
-Requires Go 1.26+ and a signed-in Claude Code. dsx reads the credential Claude Code already
-stored, the same way Claude Code reads it: the macOS Keychain first, then
-`~/.claude/.credentials.json`. See [Auth](#auth).
+### Either way
+
+dsx needs a signed-in Claude Code. It reads the credential Claude Code already stored, the same
+way Claude Code reads it: the macOS Keychain first, then `~/.claude/.credentials.json`. Run
+`dsx doctor` if it cannot find one — it names the store it looked in. See [Auth](#auth).
 
 ## Use
 
