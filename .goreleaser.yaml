@@ -48,6 +48,60 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# `brew install somework/tap/dsx`. A cask and not a formula: Homebrew expects a
+# pre-compiled binary to arrive as a cask, and goreleaser deprecated the formula
+# lane in v2.10 for saying so. Casks are macOS-only, which is why README keeps
+# the archive route rather than replacing it.
+homebrew_casks:
+  - name: dsx
+    repository:
+      owner: somework
+      name: homebrew-tap
+      # GITHUB_TOKEN is scoped to THIS repository and cannot write to the tap.
+      # A fine-grained PAT holding contents:write and pull-requests:write on
+      # somework/homebrew-tap, and nothing else, is what this reads.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+      # A pull request rather than a push, and the ordering is what makes it
+      # load-bearing rather than a matter of taste: the cask names a download
+      # URL that 404s until a person presses Publish on the draft release, so
+      # pushing it straight to the tap would leave `brew install` broken for
+      # everyone in between. Same shape as the draft itself — a tag builds, a
+      # person publishes. The branch defaults to dsx-<version>, which is what
+      # keeps it off the tap's own main.
+      pull_request:
+        enabled: true
+    # `release: prerelease: auto` keeps an -rc tag out of the release page;
+    # this keeps the same tag out of the tap.
+    skip_upload: auto
+    homepage: "https://github.com/somework/dsx"
+    description: "Sync files between a Claude Design project and a local directory"
+    # dsx carries no Apple signature, so macOS refuses to run what Homebrew
+    # staged until the quarantine flag is gone. This is Homebrew's own answer
+    # for an unsigned cask in a third-party tap; the official homebrew/cask tap
+    # stops accepting unsigned casks on 2026-09-01 and third-party taps are
+    # explicitly outside that.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dsx"]
+          end
+    # `dsx completion <shell>` takes the shell as a bare positional, which is
+    # exactly what Homebrew passes when no shell_parameter_format is set — so
+    # naming one (`cobra`, whose rendering is identical) would only add a symbol
+    # to disbelieve. The shells ARE named: every format's default list is
+    # [bash, zsh, fish] except cobra's and typer's, and dsx emits no pwsh.
+    # goreleaser's template renders this stanza after the postflight above, so
+    # the binary is out of quarantine before Homebrew executes it.
+    generate_completions_from_executable:
+      executable: dsx
+      args:
+        - completion
+      shells:
+        - bash
+        - zsh
+        - fish
+
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 

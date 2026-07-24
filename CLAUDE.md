@@ -206,6 +206,26 @@ a tag builds artifacts and stops at a draft release (`.goreleaser.yaml`,
 a consequence of `git push --tags`. dsx speaks an undocumented private API and reads Claude
 Code's OAuth token; both halves of that are reasons the split exists.
 
+**The Homebrew tap inherits that split rather than routing around it.** `homebrew_casks` in
+`.goreleaser.yaml` publishes to `somework/homebrew-tap` as a **pull request**, not a push, and
+the reason is ordering rather than ceremony: the cask names a release download URL that answers
+404 until a person presses Publish on the draft, so a pushed cask would leave
+`brew install somework/tap/dsx` broken for everyone between the tag and that button. A cask and
+not a formula because Homebrew expects a pre-compiled binary to arrive as one and goreleaser
+deprecated the formula lane in v2.10 for saying so; the consequence is that casks are macOS-only,
+so Linux keeps the archive route and README says which is which. Two facts about that lane were
+read out of the two projects' own source rather than inferred, and both are load-bearing:
+goreleaser's `cask.rb` template renders `generate_completions_from_executable` *after* the
+postflight hook precisely so the quarantine flag is gone before Homebrew executes the binary, and
+Homebrew passes a bare shell name when no `shell_parameter_format` is set — which is exactly
+`dsx completion bash`, so naming `cobra` would add a symbol to disbelieve and buy nothing. The
+unsigned-cask deprecation announced for 2026-09-01 applies to the official `homebrew/cask` tap
+only; third-party taps are not signature-checked, which is what makes an unsigned cask a
+supported shape here rather than a countdown. The token is the last piece: `GITHUB_TOKEN` cannot
+write to another repository, so `HOMEBREW_TAP_TOKEN` is a fine-grained PAT scoped to the tap, and
+its absence fails the release loudly rather than skipping the cask — a release that quietly
+stopped updating the tap is indistinguishable from one that did.
+
 The outward-facing documents carry claims that go stale, so the README guard was widened to
 cover every document that *instructs* — README, CONTRIBUTING, SECURITY, the pull-request
 template and the issue templates, YAML included, since the walker reads a backticked span

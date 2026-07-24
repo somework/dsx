@@ -18,15 +18,36 @@ pulled 103, unchanged 0, binary 6 (660.1 KB)
 
 ## Install
 
-One binary, no runtime, nothing to configure. Pick the version from
-[Releases](https://github.com/somework/dsx/releases) and adjust `VERSION`:
+One binary, no runtime, nothing to configure. Built for macOS and Linux, on both `amd64` and
+`arm64`.
+
+### Homebrew — macOS
 
 ```bash
-VERSION=0.1.0
+brew install somework/tap/dsx
+```
+
+`brew upgrade dsx` from then on, and shell completions come with it.
+
+What the convenience costs is worth saying plainly. Homebrew checks the archive against a
+SHA-256 written into the cask by the release workflow, which proves the bytes were not swapped
+in transit and nothing at all about who built them — the archive route below is where
+`gh attestation verify` fits, and it answers the second question. And because dsx carries no
+Apple signature, the cask clears macOS' quarantine flag itself on install; that is Homebrew's
+own remedy for an unsigned cask, and it is a protection being switched off rather than
+satisfied.
+
+Casks are macOS-only. On Linux, take the archive.
+
+### Archive — macOS and Linux
+
+```bash
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+RELEASES="https://github.com/somework/dsx/releases"
+VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$RELEASES/latest" | sed 's|.*/v||')
 ARCHIVE="dsx_${VERSION}_${OS}_${ARCH}.tar.gz"
-BASE="https://github.com/somework/dsx/releases/download/v${VERSION}"
+BASE="$RELEASES/download/v${VERSION}"
 
 curl -fsSLO "$BASE/$ARCHIVE" &&
   gh attestation verify "$ARCHIVE" --repo somework/dsx &&
@@ -34,7 +55,10 @@ curl -fsSLO "$BASE/$ARCHIVE" &&
   sudo mv dsx /usr/local/bin/
 ```
 
-Built for macOS and Linux, on both `amd64` and `arm64`.
+The version is read off a redirect rather than pasted in: `releases/latest` answers with the
+tag's own page, so the fourth line is what a browser would have done. To pin a version instead,
+set `VERSION` by hand from [Releases](https://github.com/somework/dsx/releases) and drop that
+line.
 
 The steps are chained with `&&` on purpose: nothing is unpacked, and nothing reaches
 `/usr/local/bin`, unless the archive verified first. (`&&` rather than `set -e`, because this
