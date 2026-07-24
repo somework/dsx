@@ -183,3 +183,151 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: go build -o /dev/null .
+
+  crossbuild:
+    # Produces the artifacts a release would, so the smoke job below can run the
+    # thing users actually download rather than something merely similar.
+    #
+    # goreleaser does the building instead of a hand-written go build, and that
+    # is the point: -trimpath, -s -w, CGO_ENABLED=0 and -X main.version live in
+    # .goreleaser.yaml, and a second copy here would agree until the day it
+    # quietly did not. Same action and same version constraint as
+    # release.yml for the same reason.
+    #
+    # --skip=before because .goreleaser.yaml's own hooks run `go test -race`,
+    # which the test job above already did.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: '~> v2'
+          args: release --snapshot --clean --skip=publish,announce,before
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: snapshot-archives
+          path: dist/*.tar.gz
+          retention-days: 1
+          if-no-files-found: error
+
+  smoke:
+    # `go build -o /dev/null` in the build job proves the code COMPILES for a
+    # target. It says nothing about whether the resulting file starts, and the
+    # gap is not theoretical: dsx ships four binaries cross-compiled on Linux,
+    # and macOS refuses to exec a darwin/arm64 binary that carries no signature
+    # at all -- a whole class of "built fine, will not launch" that a discarded
+    # output file cannot see.
+    #
+    # So each archive is unpacked on a runner of its own platform, by the same
+    # two commands README tells a user to run, and the binary is asked questions
+    # it can answer with no credential and no network:
+    #
+    #   version      the -X stamp reached main.version, and the binary knows
+    #                which platform it is -- the release's own claim about itself
+    #   help         the registry builds and usage renders
+    #   help --json  the machine surface is a parseable document
+    #   status       an unbound directory is refused with exit 2, which walks the
+    #                ledger lookup without asking the network anything
+    #   auth         no credential is exit 5, and on darwin that answer comes
+    #                back through security(1) -- the one lane a Linux-hosted
+    #                build can break invisibly
+    #
+    # `doctor` is deliberately absent: it contacts the endpoint, and CI has no
+    # credential and must not acquire one.
+    needs: crossbuild
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-24.04-arm
+          - goos: darwin
+            goarch: amd64
+            runner: macos-15-intel
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: snapshot-archives
+
+      - name: unpack the way README says to
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          archive=$(ls dsx_*_"${GOOS}"_"${GOARCH}".tar.gz)
+          echo "archive: $archive"
+          tar xzf "$archive" dsx
+          chmod +x dsx
+
+      - name: it starts, and knows what it is
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          got=$(./dsx version)
+          echo "$got"
+          case "$got" in
+            *"${GOOS}/${GOARCH}"*) ;;
+            *) echo "::error::version does not name ${GOOS}/${GOARCH}: $got"; exit 1 ;;
+          esac
+          case "$got" in
+            *'(unknown)'*) echo "::error::the release build lost its version stamp: $got"; exit 1 ;;
+          esac
+
+      - name: usage renders and the machine surface parses
+        run: |
+          set -eu
+          ./dsx help > /dev/null
+          ./dsx help --json | jq -e 'has("commands") and has("flags")' > /dev/null
+          ./dsx completion bash > /dev/null
+
+      - name: an unbound directory is refused, with no network
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          cd "$work"
+          set +e
+          out=$("$GITHUB_WORKSPACE/dsx" status --json 2>&1); code=$?
+          set -e
+          echo "exit=$code out=$out"
+          [ "$code" = "2" ] || { echo "::error::unbound status exited $code, want 2"; exit 1; }
+          printf '%s' "$out" | jq -e '.error == "usage"' > /dev/null
+
+      - name: no credential is exit 5, through this platform's store
+        # HOME points at an empty directory, and that is what makes this a
+        # statement about the BINARY rather than about the host it runs on.
+        # Written without the override it passes on a runner only because no
+        # runner happens to hold a Claude Code login -- and it inverts on the
+        # machine of anyone reproducing CI, which is where a dry run of these
+        # steps caught it: with a real login present, auth answered 0.
+        # DSX_TOKEN is cleared for the same reason.
+        env:
+          HOME: ${{ runner.temp }}/nologin
+          DSX_TOKEN: ''
+        run: |
+          set -eu
+          mkdir -p "$HOME"
+          set +e
+          out=$("$GITHUB_WORKSPACE/dsx" auth 2>&1); code=$?
+          set -e
+          echo "exit=$code out=$out"
+          [ "$code" = "5" ] || { echo "::error::auth without a credential exited $code, want 5"; exit 1; }
