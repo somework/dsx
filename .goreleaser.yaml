@@ -67,7 +67,12 @@ homebrew_casks:
       # pushing it straight to the tap would leave `brew install` broken for
       # everyone in between. Same shape as the draft itself — a tag builds, a
       # person publishes. The branch defaults to dsx-<version>, which is what
-      # keeps it off the tap's own main.
+      # keeps it off the tap's own main. Spelled out rather than left to that
+      # default, which is version-gated: goreleaser only started deriving it
+      # from the version in v2.17, and before that it fell back to the tap's
+      # default branch — equal to the base, which is the one thing a pull
+      # request may not be.
+      branch: "{{ .ProjectName }}-{{ .Version }}"
       pull_request:
         enabled: true
     # `release: prerelease: auto` keeps an -rc tag out of the release page;

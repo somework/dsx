@@ -222,9 +222,15 @@ Homebrew passes a bare shell name when no `shell_parameter_format` is set — wh
 unsigned-cask deprecation announced for 2026-09-01 applies to the official `homebrew/cask` tap
 only; third-party taps are not signature-checked, which is what makes an unsigned cask a
 supported shape here rather than a countdown. The token is the last piece: `GITHUB_TOKEN` cannot
-write to another repository, so `HOMEBREW_TAP_TOKEN` is a fine-grained PAT scoped to the tap, and
-its absence fails the release loudly rather than skipping the cask — a release that quietly
-stopped updating the tap is indistinguishable from one that did.
+write to another repository, so `HOMEBREW_TAP_TOKEN` is a fine-grained PAT scoped to the tap. Its
+absence is refused by a step of its own **above** goreleaser, and that placement is invariant 16
+arriving in the workflow rather than in the binary: goreleaser's own error on the unresolved
+`{{ .Env.HOMEBREW_TAP_TOKEN }}` lands in the cask pipe, which runs *after* the release pipe, so by
+then the draft and every archive exist — and the job dying there skips the attestation step,
+publishing artifacts with no provenance. Asked first, the same missing secret costs a tag and
+leaves no trace. The tap branch is likewise spelled out rather than defaulted: goreleaser only
+began deriving `dsx-<version>` from the version in v2.17, and the older fallback was the tap's
+default branch, equal to the base and therefore the one thing a pull request may not be.
 
 The outward-facing documents carry claims that go stale, so the README guard was widened to
 cover every document that *instructs* — README, CONTRIBUTING, SECURITY, the pull-request
