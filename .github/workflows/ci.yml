@@ -254,6 +254,14 @@ jobs:
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
+          # macos-15-intel, not macos-13: the last free Intel image was retired
+          # in December 2025, and this label is the migration target GitHub
+          # named for OSS. It carries an announced end -- available until
+          # AUGUST 2027, after which x86_64 is not supported on Actions at all
+          # (actions/runner-images#13045). When it goes, this row loses its
+          # runner and the job will sit unschedulable rather than fail with
+          # anything self-explanatory, so the question to answer then is whether
+          # dsx still ships a darwin/amd64 binary it cannot run anywhere.
           - goos: darwin
             goarch: amd64
             runner: macos-15-intel
