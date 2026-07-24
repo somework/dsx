@@ -18,13 +18,67 @@ pulled 103, unchanged 0, binary 6 (660.1 KB)
 
 ## Install
 
+One binary, no runtime, nothing to configure. Pick the version from
+[Releases](https://github.com/somework/dsx/releases) and adjust `VERSION`:
+
+```bash
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+ARCHIVE="dsx_${VERSION}_${OS}_${ARCH}.tar.gz"
+BASE="https://github.com/somework/dsx/releases/download/v${VERSION}"
+
+curl -fsSLO "$BASE/$ARCHIVE" &&
+  gh attestation verify "$ARCHIVE" --repo somework/dsx &&
+  tar xzf "$ARCHIVE" dsx &&
+  sudo mv dsx /usr/local/bin/
+```
+
+Built for macOS and Linux, on both `amd64` and `arm64`.
+
+The steps are chained with `&&` on purpose: nothing is unpacked, and nothing reaches
+`/usr/local/bin`, unless the archive verified first. (`&&` rather than `set -e`, because this
+is meant to be pasted into a shell you are still using, and `set -e` there can close it.)
+
+The download is deliberately not piped into a shell either. dsx reads an OAuth credential, so
+it is the last program that should ask you to execute an unexamined script — and a separate
+download step is what leaves room to check where the bytes came from. `gh attestation verify`
+binds the archive to this repository, this workflow and the commit it was built from, which a
+checksum cannot do; [SECURITY.md](SECURITY.md) explains what it proves.
+
+Without `gh`, swap that middle line for the release's `checksums.txt`:
+
+```bash
+curl -fsSLO "$BASE/checksums.txt" &&
+  shasum -a 256 --ignore-missing -c checksums.txt
+```
+
+`shasum --ignore-missing` is not optional here: `checksums.txt` lists every archive in the
+release and you downloaded one, so without it the command reports `FAILED open or read` for the
+siblings you do not have and exits non-zero on a perfectly good file.
+
+The binaries are not signed with an Apple certificate and not notarised. Fetched with `curl`
+as above there is nothing to clear; downloaded through a **browser**, macOS attaches a
+quarantine flag and refuses to run it until you remove it:
+
+```bash
+xattr -dr com.apple.quarantine /usr/local/bin/dsx
+```
+
+### From source
+
+If you have Go 1.26 or newer, this needs no trust in a published artifact at all — it compiles
+what you can read:
+
 ```bash
 go install github.com/somework/dsx@latest
 ```
 
-Requires Go 1.26+ and a signed-in Claude Code. dsx reads the credential Claude Code already
-stored, the same way Claude Code reads it: the macOS Keychain first, then
-`~/.claude/.credentials.json`. See [Auth](#auth).
+### Either way
+
+dsx needs a signed-in Claude Code. It reads the credential Claude Code already stored, the same
+way Claude Code reads it: the macOS Keychain first, then `~/.claude/.credentials.json`. Run
+`dsx doctor` if it cannot find one — it names the store it looked in. See [Auth](#auth).
 
 ## Use
 
