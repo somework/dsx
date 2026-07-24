@@ -1,0 +1,17 @@
+version: 2
+
+updates:
+  # There is no gomod entry here on purpose. dsx has no dependencies — that is a
+  # hard constraint, not an accident (CLAUDE.md, Conventions), so there is
+  # nothing for dependabot to bump and an ecosystem block would only ever open
+  # noise. staticcheck and goreleaser are CI tools invoked by version; they
+  # never enter go.mod.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - ci

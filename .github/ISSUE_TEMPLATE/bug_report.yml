@@ -1,0 +1,66 @@
+name: Bug report
+description: dsx did something it should not have, or refused something it should have done.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a **security** issue — a leaked credential, a path escaping the
+        synced directory, an unforced delete — do not file it here. See
+        [SECURITY.md](https://github.com/somework/dsx/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran and what dsx did.
+      placeholder: |
+        $ dsx push --prune
+        …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: dsx version
+      description: Output of `dsx version`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: dsx doctor
+      description: >
+        Output of `dsx doctor`. It reports the credential source, expiry, scopes,
+        endpoint and clock skew, and it never prints the token itself — a test
+        enforces that. Redact the endpoint if you point dsx somewhere private.
+      render: shell
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        If files moved or failed to move, `dsx status` and `dsx diff` say what
+        dsx believes about the tree. Neither prints file contents.

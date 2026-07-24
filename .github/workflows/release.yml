@@ -1,0 +1,40 @@
+name: release
+
+# A tag builds the artifacts; it does not publish them. .goreleaser.yaml sets
+# `release: draft`, so what lands is a draft release nobody can install until a
+# human presses Publish. That split is deliberate: dsx speaks an undocumented
+# private API and reads Claude Code's OAuth token, and the decision to put a
+# binary that does both in front of strangers is a person's, not a tag's.
+#
+# To cut one: `git tag -a v0.1.0 -m v0.1.0 && git push origin v0.1.0`.
+# To rehearse without a tag, run `goreleaser build --snapshot --clean` locally —
+# it exercises every build target and produces nothing public.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # goreleaser derives the changelog from git history; a shallow clone
+          # would silently produce an empty one.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

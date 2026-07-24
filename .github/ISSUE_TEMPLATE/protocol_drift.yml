@@ -1,0 +1,42 @@
+name: Protocol drift
+description: The server changed under dsx — a tool grew, lost or reshaped something.
+labels: [protocol]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        dsx talks to an undocumented endpoint that makes no promises, so this is
+        an expected failure mode rather than an unusual one. `reference/mcp-tools.json`
+        is the server's own `tools/list` reply as it stood when last recorded, and
+        [PROTOCOL.md](https://github.com/somework/dsx/blob/main/PROTOCOL.md) holds everything the schema does
+        not say.
+
+  - type: textarea
+    id: measured
+    attributes:
+      label: What you measured
+      description: >
+        The request and the reply, as observed — not as inferred.
+        `dsx raw <tool> '<json-args>'` calls any tool verbatim, and
+        `dsx tools --schema` prints the schemas the server declares right now.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: Which claim this contradicts
+      description: >
+        The line in PROTOCOL.md, or the entry in reference/mcp-tools.json, that
+        the measurement disagrees with.
+    validations:
+      required: true
+
+  - type: input
+    id: when
+    attributes:
+      label: When you measured it
+      placeholder: '2026-07-24'
+    validations:
+      required: true

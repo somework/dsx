@@ -1,5 +1,13 @@
-# built binary
-dsx
+# Built binary. Anchored: an unanchored `dsx` would also hide any file or
+# directory of that name at any depth.
+/dsx
+# `go build -ldflags -X main.version=…` probe, built and removed by CI
+/dsx-stamp-probe
+# goreleaser output
+/dist/
+# coverage profile written by the CI test step
+/cover.out
+
 # JetBrains
 .idea/
 

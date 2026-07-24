@@ -1,10 +1,11 @@
 version: 2
 
-# Release machinery, wired but never fired: `goreleaser release` is the owner's
-# call, not the build's. See CLAUDE.md's Roadmap — dsx speaks an undocumented
-# private API and reads Claude Code's OAuth token, and publishing that under
-# someone's name is their decision. `goreleaser build --snapshot --clean`
-# exercises all of this without producing anything public.
+# A tag runs this (.github/workflows/release.yml) and what lands is a DRAFT — see
+# `release: draft` at the foot of this file. Building and publishing are
+# deliberately separate acts: dsx speaks an undocumented private API and reads
+# Claude Code's OAuth token, so putting a binary that does both in front of
+# strangers stays a person pressing a button. `goreleaser build --snapshot
+# --clean` rehearses every target locally and produces nothing public.
 
 project_name: dsx
 
@@ -42,6 +43,7 @@ archives:
       - LICENSE
       - README.md
       - PROTOCOL.md
+      - CHANGELOG.md
 
 checksum:
   name_template: checksums.txt
@@ -59,7 +61,14 @@ changelog:
       - '^chore:'
 
 release:
-  # Belt and braces: even an accidental `goreleaser release` stops at a draft
-  # rather than publishing.
+  # The whole point of the tag/publish split: a tag builds artifacts and stops
+  # at a draft, so nothing reaches a stranger without someone pressing Publish.
   draft: true
   prerelease: auto
+  # The generated list above is raw git history and therefore in Russian. This
+  # points a reader at the curated English record instead of leaving them to
+  # infer one from commit subjects.
+  footer: |
+    ---
+    Curated, caller-facing notes: [CHANGELOG.md](https://github.com/somework/dsx/blob/main/CHANGELOG.md).
+    The list above is the raw commit history.

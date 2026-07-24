@@ -1,0 +1,16 @@
+blank_issues_enabled: true
+
+contact_links:
+  - name: Security issue
+    url: https://github.com/somework/dsx/security/advisories/new
+    about: >
+      Credential exposure, a path escaping the synced directory, or an unforced
+      delete. Report privately, not as an issue.
+
+  - name: How the endpoint actually behaves
+    url: https://github.com/somework/dsx/blob/main/PROTOCOL.md
+    about: The undocumented MCP contract, as measured. Read before reasoning about it.
+
+  - name: Why the code is shaped this way
+    url: https://github.com/somework/dsx/blob/main/CLAUDE.md
+    about: Orientation and the invariants. Read before changing sync logic.
