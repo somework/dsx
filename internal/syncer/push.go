@@ -216,13 +216,61 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	st.ProjectID = o.ProjectID
 	st.Endpoint = c.Endpoint()
 
+	// commit persists both halves after an act: the ledger, whenever bytes
+	// moved and on error paths too (invariant 5), and the snapshot's receipts.
+	//
+	// A receipt is the etag the server ACKED for bytes this push sent, and a
+	// delete it confirmed. That is not the observation invariant 20 forbids a
+	// push to record: refreshing the snapshot from the listing this run
+	// happened to walk would claim we had looked at paths a third party moved,
+	// and every later lease would hold — a blind --force under the safe flag's
+	// name. A receipt claims only that the server's current revision of THIS
+	// path is the one we put there, which is the same thing `git push` records
+	// by moving refs/remotes/origin/<branch>, and it leaves every path we did
+	// not write exactly as stale as it was (TestAPushLeavesTheRestOfTheSnapshotAlone).
+	//
+	// Without it, `dsx status` right after `dsx push` reported "server moved
+	// ahead" for every path just written — found by running it, not by
+	// reasoning: the ledger moves to the acked etag and the snapshot did not,
+	// so classifyStatus compared one updated map against one stale one. The
+	// blanket "push never touches the baseline" rule that shipped first is what
+	// made that certain; only its observation half was ever load-bearing.
+	//
+	// A snapshot is never CREATED here. With none on disk, receipts alone would
+	// forge a listing naming only what this push sent, and `status` would call
+	// every other server path gone while a lease read every missing name as
+	// free to take (TestPushRecordsNoSnapshotWhereNoneExisted).
+	//
+	// The error is dropped for the reason pull's is: the baseline is a cache,
+	// and loadBaseline already refuses to let a damaged one block a sync.
+	commit := func() error {
+		saveErr := st.save(o.Dir)
+		if snapshot == nil || (len(rep.Written) == 0 && len(rep.Deleted) == 0) {
+			return saveErr
+		}
+		for _, p := range rep.Written {
+			// Read back from the ledger, which writeBatch fills from the
+			// server's ack — never from the plan, which knows no etag yet
+			// (invariant 12: a field naming an act is filled by the act).
+			if fs, ok := st.Files[p]; ok && fs.Etag != "" {
+				snapshot[p] = SnapshotEntry{Size: fs.Size, Etag: fs.Etag}
+			}
+		}
+		for _, p := range rep.Deleted {
+			delete(snapshot, p)
+		}
+		bl.Listing = snapshot
+		_ = bl.save(o.Dir)
+		return saveErr
+	}
+
 	prog := newProgress(o.Progress, "pushing", len(specs))
 
 	// Save the ledger whenever bytes moved, error paths included (invariant 5).
 	for _, batch := range batches(specs) {
 		if err := writeBatch(ctx, c, o.ProjectID, batch, &st, &rep); err != nil {
 			prog.clear()
-			_ = st.save(o.Dir)
+			_ = commit()
 			rep.addConflicts(err)
 			return rep, err
 		}
@@ -237,14 +285,14 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 	// context, so ctx is already the parent. Checked before the deletes so
 	// --prune cannot run against a tree the user already cancelled.
 	if err := ctx.Err(); err != nil {
-		_ = st.save(o.Dir)
+		_ = commit()
 		return rep, fmt.Errorf("push interrupted after %d of %d files; the rest were not sent: %w",
 			len(rep.Written), len(specs), err)
 	}
 
 	if len(toDelete) > 0 {
 		if err := deletePaths(ctx, c, o.ProjectID, toDelete, st); err != nil {
-			_ = st.save(o.Dir)
+			_ = commit()
 			rep.addPruneConflicts(err)
 			return rep, err
 		}
@@ -256,12 +304,12 @@ func Push(ctx context.Context, c *mcp.Client, o PushOpts) (PushReport, error) {
 
 	// Again after the deletes.
 	if err := ctx.Err(); err != nil {
-		_ = st.save(o.Dir)
+		_ = commit()
 		return rep, fmt.Errorf("push interrupted after %d of %d files: %w",
 			len(rep.Written), len(specs), err)
 	}
 
-	if err := st.save(o.Dir); err != nil {
+	if err := commit(); err != nil {
 		return rep, err
 	}
 	return rep, nil

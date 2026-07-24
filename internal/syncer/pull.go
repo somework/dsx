@@ -228,10 +228,13 @@ func Pull(ctx context.Context, c *mcp.Client, o PullOpts) (PullReport, error) {
 	// added would be dead by construction; one it invented would be a proof
 	// about bytes nothing compared.
 	//
-	// Push must never do this. A lease means "I went and looked, and the
-	// server has not moved since"; refreshed by the pushing side it would hold
-	// always, which is a blind --force under the safe flag's name (invariant
-	// 20). Pull earns it by being the side that reconciles.
+	// Push must never record THIS — the listing a run observed. A lease means
+	// "I went and looked, and the server has not moved since"; refreshed by the
+	// pushing side it would hold always, a blind --force under the safe flag's
+	// name (invariant 20). Pull earns it by being the side that reconciles.
+	// What push does record is narrower and arrived later: the etag the server
+	// acked for bytes it sent, which is a receipt rather than a look — see the
+	// commit closure in push.go.
 	//
 	// Placed here, below every refusal and above the first act: a dry run
 	// returned above and leaves no trace, and so do the collision, remote-path

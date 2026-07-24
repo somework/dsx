@@ -37,8 +37,10 @@ dsx help
 `status` makes no network call: it answers from the server listing `.dsx/baseline.json`
 remembers. Every verb that walks the tree records that listing — `clone`, `pull` and `fetch`
 — because the walk is already paid for, so `status` answers straight after a clone. `push`
-deliberately does not: `--force-with-lease` means *the server has not moved since I last
-looked*, and a push refreshing its own idea of that would hold every lease. Recording the
+records only its receipts: the etag the server returns for bytes it just sent, and the paths
+it deleted. It never records the listing it happened to see on the way, because
+`--force-with-lease` means *the server has not moved since I last looked*, and a push
+refreshing its own idea of that would hold every lease. Recording the
 listing is not the same as proving a file: `fetch` remains the only verb that turns a local
 file which merely *matches* the server into `verified`.
 

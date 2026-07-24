@@ -188,36 +188,6 @@ func TestAPullRefreshesABoundSnapshotSoStatusDoesNotCryServerAhead(t *testing.T)
 	}
 }
 
-// TestPushRecordsNoSnapshot is the control that makes the lease mean
-// anything. --force-with-lease reads bl.Listing as "the last time I went and
-// LOOKED"; a push refreshing it would make every subsequent lease hold, which
-// is a blind --force wearing the safe flag's name (invariant 20).
-func TestPushRecordsNoSnapshot(t *testing.T) {
-	dir := t.TempDir()
-	mkfile(t, dir, "a.css", "a{}\n")
-
-	f := newFakeMCP(t, func(name string, args map[string]any) fakeReply {
-		switch name {
-		case "list_files":
-			return fakeReply{Text: listingFor()}
-		case "write_files":
-			return fakeReply{Text: `{"etags":{"a.css":"eServer"},"written":1}`}
-		}
-		return fakeReply{Text: `{"plan_token":"tok"}`}
-	})
-
-	if _, err := Push(context.Background(), fakeClient(f), PushOpts{
-		ProjectID: "proj-A", Dir: dir, Concurrency: 2,
-	}); err != nil {
-		t.Fatalf("Push: %v", err)
-	}
-
-	if _, err := os.Stat(BaselinePath(dir)); !os.IsNotExist(err) {
-		t.Fatalf("push wrote %s (stat err %v); a lease refreshed by the pushing side leases nothing",
-			BaselinePath(dir), err)
-	}
-}
-
 // TestADryRunRecordsNoSnapshot: -n changes nothing on disk, and .dsx is disk.
 // A snapshot left by a preview would silently arm a lease and answer a later
 // `status` from a run the caller asked not to happen.
