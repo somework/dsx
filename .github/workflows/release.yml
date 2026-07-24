@@ -37,6 +37,22 @@ jobs:
           go-version: '1.26'
           check-latest: true
 
+      # goreleaser's own failure on a missing HOMEBREW_TAP_TOKEN arrives too
+      # late to be a refusal: the cask pipe runs after the release pipe, so by
+      # the time the unresolved `{{ .Env.HOMEBREW_TAP_TOKEN }}` errors, the
+      # draft release and every archive already exist — and the job dying there
+      # takes the attestation step below with it, leaving artifacts published
+      # with no provenance. Asked here, the same missing secret costs a tag and
+      # nothing else.
+      - name: refuse a release the tap token cannot finish
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is not set; homebrew_casks in .goreleaser.yaml cannot publish to somework/homebrew-tap. Nothing was built." >&2
+            exit 1
+          fi
+
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: '~> v2'
@@ -46,11 +62,8 @@ jobs:
           # The Homebrew cask lands in somework/homebrew-tap, which the token
           # above cannot reach: GITHUB_TOKEN is scoped to this repository. This
           # is a fine-grained PAT holding contents:write and
-          # pull-requests:write on the tap and nothing else. Absent, goreleaser
-          # fails the whole release on the unresolved template rather than
-          # silently skipping the cask — which is the direction worth failing
-          # in, since a release that quietly stopped updating the tap looks
-          # exactly like one that did.
+          # pull-requests:write on the tap and nothing else. The step above is
+          # what makes its absence a refusal rather than a half-done release.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       # checksums.txt says the archives are internally consistent; it says
