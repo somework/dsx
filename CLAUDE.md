@@ -232,6 +232,38 @@ leaves no trace. The tap branch is likewise spelled out rather than defaulted: g
 began deriving `dsx-<version>` from the version in v2.17, and the older fallback was the tap's
 default branch, equal to the base and therefore the one thing a pull request may not be.
 
+**Not every pull-request failure is fatal, and the exception is the silent one**, which is why
+the workflow verifies afterwards that the tap pull request exists. Measured in goreleaser's
+`internal/client/github.go` rather than inferred from the docs' summary, which says only that
+failures "log errors without halting pipelines" and is wrong in the reassuring direction: a 403,
+a 404 or a network error IS returned and kills the release, and an HTTP **422** alone is logged
+as `pull request validation failed` and swallowed with `return nil`. By then `CreateFile` has
+already committed the cask onto `dsx-<version>`, so a 422 leaves the tap holding a branch nobody
+will merge while the run reports success — the release that quietly stopped updating the tap,
+arriving through the one door the token refusal does not cover. The check queries `state=all`,
+not `state=open`, or re-running a release whose pull request was already merged would be called a
+failure. It sits **below** the attestation deliberately: the archives are real and deserve their
+provenance whatever the tap did, so this step decides only whether the run may report success —
+which is the opposite placement to the token refusal, and for the opposite reason.
+
+**`govulncheck` runs again at the tag, and it is the only CI gate that does.** The others are
+deterministic: pinned `staticcheck`, `gofmt` and `go vet` answer at a tag exactly what they
+answered when the commit merged, and `before: hooks` already re-runs `go test -race`. Re-running
+them would buy a copy of an answer already on file. `govulncheck` is unpinned precisely because
+its answer moves, so a vulnerability disclosed between the merge and the tag is invisible to the
+run that guarded the pull request — and `main` being protected with all ten checks does not close
+that, because the gap is time, not branch policy. It runs above goreleaser, so a finding costs a
+tag and leaves no artifact behind.
+
+**The cask carries `caveats`, and that is where the quarantine disclosure belongs.** A review
+argued the `xattr` hook should go, and the recommendation does not survive contact with the
+alternatives: without it `brew install` produces a binary macOS refuses to run, and an opt-in is
+not a shape a binary cask has — the user would perform the identical bypass by hand, having been
+told to. Signing and notarising is the real answer and costs an Apple Developer Program
+membership, which is a decision rather than a patch. What the review was right about is that the
+disclosure was in README, and the person who needs it is the one running `brew install`.
+`caveats` is the only place the disclosure and the act meet.
+
 The outward-facing documents carry claims that go stale, so the README guard was widened to
 cover every document that *instructs* — README, CONTRIBUTING, SECURITY, the pull-request
 template and the issue templates, YAML included, since the walker reads a backticked span

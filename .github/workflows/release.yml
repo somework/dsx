@@ -53,6 +53,17 @@ jobs:
             exit 1
           fi
 
+      # The other CI gates are deterministic — pinned staticcheck, gofmt and vet
+      # answer at a tag exactly what they answered when the commit merged, and
+      # `before: hooks` in .goreleaser.yaml already re-runs `go test -race`. This
+      # one is not, and that is the entire reason CLAUDE.md leaves it unpinned: a
+      # vulnerability disclosed between the merge and the tag is invisible to the
+      # run that guarded the pull request. Shipping a binary the current database
+      # rejects is the case worth spending a minute on. Above goreleaser, so a
+      # finding costs a tag and leaves no artifact behind.
+      - name: govulncheck against the commit being released
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: '~> v2'
@@ -82,3 +93,31 @@ jobs:
           subject-path: |
             dist/*.tar.gz
             dist/checksums.txt
+
+      # goreleaser does not treat every pull-request failure as fatal, and the
+      # exception is exactly the silent one. Measured in
+      # internal/client/github.go rather than inferred: a 403 or a network error
+      # is returned and kills the release, but an HTTP 422 is logged as
+      # "pull request validation failed" and swallowed with `return nil`. The
+      # cask commit has already landed on dsx-<version> by then, so a 422 leaves
+      # the tap holding a branch nobody will merge while the release reports
+      # success — a release that quietly stopped updating the tap, which is the
+      # one outcome the token refusal above exists to prevent.
+      #
+      # Below the attestation on purpose: the archives are real and deserve
+      # their provenance whatever the tap did. This step decides only whether
+      # the run is allowed to report success.
+      - name: verify the tap pull request exists
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          branch="dsx-${TAG#v}"
+          # state=all, not state=open: re-running a release whose pull request
+          # was already merged must not be called a failure.
+          found=$(gh api "repos/somework/homebrew-tap/pulls?state=all&head=somework:${branch}" --jq 'length')
+          if [ "$found" -eq 0 ]; then
+            echo "::error::No pull request for ${branch} in somework/homebrew-tap. The release and its archives are published; the Homebrew cask is not. Check the goreleaser step's log for 'pull request validation failed' and open the pull request by hand." >&2
+            exit 1
+          fi
+          echo "tap pull request present for ${branch}"

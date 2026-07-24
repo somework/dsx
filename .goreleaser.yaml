@@ -91,6 +91,19 @@ homebrew_casks:
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/dsx"]
           end
+    # The hook above is a protection switched off, not satisfied, and a reader
+    # of README is not the person who needs to hear that — the person running
+    # `brew install` is. Homebrew prints this after the install, which is the
+    # only place the disclosure and the act meet.
+    caveats: |
+      dsx is not signed with an Apple certificate, so this cask removed the
+      macOS quarantine flag on install. Gatekeeper did not check it.
+
+      What was checked: Homebrew matched the archive against a SHA-256 in the
+      cask, which proves the bytes were not altered in transit and nothing
+      about who built them. To verify that too, take the release archive
+      instead and run `gh attestation verify <archive> --repo somework/dsx`.
+      See https://github.com/somework/dsx#install
     # `dsx completion <shell>` takes the shell as a bare positional, which is
     # exactly what Homebrew passes when no shell_parameter_format is set — so
     # naming one (`cobra`, whose rendering is identical) would only add a symbol
