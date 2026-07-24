@@ -12,3 +12,6 @@ dsx
 CLAUDE.local.md
 AGENTS.md
 .gitnexus/
+
+# live-suite configuration; see .env.example
+.env

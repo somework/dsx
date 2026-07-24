@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,12 +29,55 @@ type unchangedReply struct {
 
 const scratchPrefix = ".dsx-selftest"
 
-// There is no default project and there must not be one. The suite writes
-// .dsx-selftest* paths and there is no delete_project, so a hardcoded id aims
-// every stranger's `go test -tags=live` at one account's project — which for
-// anyone but its owner is a 403 reported as a failure rather than the skip it
-// is. The id is configuration, not a constant.
-func liveProjectID() string { return os.Getenv("DSX_LIVE_PROJECT") }
+// liveProjectID reads DSX_LIVE_PROJECT, then the repo root's .env. There is no
+// default and there must not be one: the suite writes .dsx-selftest* paths and
+// there is no delete_project, so a hardcoded id aims every stranger's
+// `go test -tags=live` at one account's project, where a 403 arrives as a
+// failure rather than as the skip it is.
+func liveProjectID() string {
+	if v := os.Getenv("DSX_LIVE_PROJECT"); v != "" {
+		return v
+	}
+	return dotenv()["DSX_LIVE_PROJECT"]
+}
+
+// dotenv reads KEY=value lines from the repo root's .env, which is gitignored.
+// A missing file or an unreadable one yields nothing, and the caller then skips
+// — the same answer an unset variable gives. The walk looks for go.mod because
+// `go test` runs each package in its own directory, not at the root.
+func dotenv() map[string]string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return nil
+		}
+		dir = parent
+	}
+	b, err := os.ReadFile(filepath.Join(dir, ".env"))
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return out
+}
 
 func liveClient(t *testing.T) (*mcp.Client, context.Context) {
 	t.Helper()
