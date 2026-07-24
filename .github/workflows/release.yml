@@ -16,25 +16,47 @@ on:
 
 permissions:
   contents: write
+  # Provenance is signed with a short-lived OIDC identity minted for this run;
+  # there is no key to store and none to leak. Both are required by
+  # attest-build-provenance and neither is needed by anything else here.
+  id-token: write
+  attestations: write
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # goreleaser derives the changelog from git history; a shallow clone
           # would silently produce an empty one.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           check-latest: true
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # checksums.txt says the archives are internally consistent; it says
+      # nothing about who built them. Provenance does: it binds each artifact to
+      # this repository, this workflow and this commit, so
+      # `gh attestation verify <file> --repo somework/dsx` answers a question a
+      # checksum cannot. That matters more here than for most tools — dsx reads
+      # an OAuth credential, so a substituted binary is a credential thief with
+      # a plausible name.
+      #
+      # The archives AND checksums.txt are both subjects. Attesting only the
+      # archives would leave the file people actually verify against unsigned.
+      - name: attest release artifacts
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt

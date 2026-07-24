@@ -59,6 +59,24 @@ is checked against the size the listing reported, and a mismatch refuses the wri
 lands temp-then-rename, so an interrupted run never leaves a half-written file. `--prune`
 deletes only what the ledger proves was dsx's and unmodified.
 
+## Verifying a release
+
+Release archives carry build provenance signed by GitHub with a short-lived identity minted
+for the run — there is no long-lived key anywhere in this project. Once a release exists:
+
+```bash
+gh attestation verify dsx_<version>_<os>_<arch>.tar.gz --repo somework/dsx
+```
+
+That binds the archive to this repository, this workflow and the commit it was built from.
+`checksums.txt` is attested too, since it is the file people verify against and an unsigned
+one answers nothing about who produced it. A checksum says an archive is internally
+consistent; it does not say who built it, and for a binary that reads an OAuth credential
+those are different questions.
+
+Building it yourself is the other answer, and it needs no trust at all: `go install` compiles
+from source you can read.
+
 ## In scope
 
 - The token, or any part of it, reaching stdout, stderr, a file, an error, or the network
