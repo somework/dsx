@@ -27,18 +27,55 @@ var readmeDsxWord = regexp.MustCompile(`\bdsx ([a-zA-Z][a-zA-Z0-9-]*)(?: ([a-zA-
 // never mistaken for dsx's own.
 var readmeFlagOnlySpan = regexp.MustCompile(`^-{1,2}[a-zA-Z][a-zA-Z0-9-]*( [A-Z][a-zA-Z0-9]*)?$`)
 
-// TestReadmeNamesOnlyRealCommandsAndFlags is the naming half of the doc
+// publishedDocs are the documents that tell a reader how to DRIVE dsx. README
+// was the only one guarded while it was the only one that existed; a dead
+// command name is exactly as wrong in CONTRIBUTING or an issue template, and
+// the walker below reads a backticked span the same way wherever it finds one,
+// YAML included.
+//
+// CLAUDE.md and PROTOCOL.md are deliberately NOT here, and that was measured
+// rather than assumed: adding them fails on seven spans, every one of them
+// correct. They quote flags dsx REMOVED (`--render`, kept as the record of why
+// it went), flags belonging to other programs (`-X` is the Go linker's,
+// `--exit-code` is git's), the `-C` global that footerFlagScopes skips by
+// design, and a refusal string quoted precisely as an example of what dsx must
+// NOT print (`dsx cat: flag provided but not defined`). A guard that fires on
+// an accurate historical record is one people switch off, so the line is drawn
+// at documents that instruct rather than document — the same narrowing
+// TestEveryDsxInvocationInSourceNamesARealCommand made for source comments.
+var publishedDocs = []string{
+	"README.md",
+	"CONTRIBUTING.md",
+	"SECURITY.md",
+	filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
+	filepath.Join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
+	filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
+	filepath.Join(".github", "ISSUE_TEMPLATE", "protocol_drift.yml"),
+}
+
+// TestPublishedDocsNameOnlyRealCommandsAndFlags is the naming half of the doc
 // discipline CLAUDE.md's C11 commit asks for. It does not read English: it
 // walks every `dsx <word>` and every standalone `--flag`/`-x` a backtick or
 // fenced code block puts in front of a reader, and checks each against the
 // real registry — commandIndex for commands, and the union of every Form's
-// flags plus every usageFooter scope for flags. Reverting a README line to a
-// dead command or flag name goes red here; nothing here proves the
+// flags plus every usageFooter scope for flags. Reverting a documented line to
+// a dead command or flag name goes red here; nothing here proves the
 // surrounding sentence is true.
-func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
+func TestPublishedDocsNameOnlyRealCommandsAndFlags(t *testing.T) {
 	t.Parallel()
 
-	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	for _, doc := range publishedDocs {
+		t.Run(doc, func(t *testing.T) {
+			t.Parallel()
+			checkDocNames(t, doc)
+		})
+	}
+}
+
+func checkDocNames(t *testing.T, doc string) {
+	t.Helper()
+
+	readme, err := os.ReadFile(filepath.Join("..", "..", doc))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,12 +111,12 @@ func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
 			}
 			if _, ok := commandIndex[name]; !ok {
 				if _, isNoun := nounIndex[name]; !isNoun {
-					t.Errorf("README names `dsx %s`, which is not a registered command (in %q)", name, snippet)
+					t.Errorf("%s names `dsx %s`, which is not a registered command (in %q)", doc, name, snippet)
 				}
 			}
 			for _, f := range flagTokens(snippet) {
 				if !documentedFlags[f] {
-					t.Errorf("README's %q uses --%s, which no Form or usageFooter scope documents", snippet, f)
+					t.Errorf("%s's %q uses --%s, which no Form or usageFooter scope documents", doc, snippet, f)
 				}
 			}
 			return
@@ -87,7 +124,7 @@ func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
 		if readmeFlagOnlySpan.MatchString(snippet) {
 			for _, f := range flagTokens(snippet) {
 				if !documentedFlags[f] {
-					t.Errorf("README names flag %q, which no Form or usageFooter scope documents", snippet)
+					t.Errorf("%s names flag %q, which no Form or usageFooter scope documents", doc, snippet)
 				}
 			}
 		}
@@ -115,6 +152,6 @@ func TestReadmeNamesOnlyRealCommandsAndFlags(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatal("no code spans found in README.md; the reader is broken, not the doc")
+		t.Fatalf("no code spans found in %s; the reader is broken, not the doc", doc)
 	}
 }

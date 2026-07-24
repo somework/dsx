@@ -189,4 +189,35 @@ works. If the store is ever revisited, the question to answer first is which con
 ## Roadmap
 
 `go install` works, auth is no longer macOS-only *in code*, CI and release machinery exist.
-The open question is whether this should be published at all — the owner's call.
+The open question — whether to publish at all — has been answered yes, and the repository is
+public. What that decision did **not** settle is when a binary gets put in front of strangers:
+a tag builds artifacts and stops at a draft release (`.goreleaser.yaml`,
+`.github/workflows/release.yml`), so publishing stays a person pressing a button rather than
+a consequence of `git push --tags`. dsx speaks an undocumented private API and reads Claude
+Code's OAuth token; both halves of that are reasons the split exists.
+
+The outward-facing documents carry claims that go stale, so the README guard was widened to
+cover every document that *instructs* — README, CONTRIBUTING, SECURITY, the pull-request
+template and the issue templates, YAML included, since the walker reads a backticked span
+wherever it finds one. It is `TestPublishedDocsNameOnlyRealCommandsAndFlags` now, not
+`TestReadme…`, and each new document was mutated to watch it go red. Three of the four did;
+`CONTRIBUTING.md` did not, and the reason is worth writing down rather than fixing — it names
+no dsx invocation at all, so it is enrolled and vacuous, and the guard will start covering it
+the day someone adds one. A subtest passing on an empty set is the shape that quietly reads as
+coverage.
+**This file and PROTOCOL.md are deliberately outside it, and that was measured rather than
+assumed**: adding them fails on seven spans, every one correct — flags dsx removed
+(`--render`), other programs' flags (the Go linker's, git's), the `-C` global that
+`footerFlagScopes` skips by design, and a refusal string quoted precisely as an example of
+what dsx must NOT print. A guard that fires on an accurate historical record is one people
+switch off; that is the same narrowing `TestEveryDsxInvocationInSourceNamesARealCommand` made
+for source comments, arriving from the other side.
+
+What the guard still cannot see is the sentence around the name. `CONTRIBUTING.md` names the
+exact test commands and three test names — `TestPublishedDocsNameOnlyRealCommandsAndFlags`,
+`TestEveryDsxInvocationInSourceNamesARealCommand`, `TestLiveRefusesToCreateProjects` — and
+renaming any of them makes it a lie no test catches. `SECURITY.md` states the properties a
+report can falsify (the token is never printed, the sync lane leaks no `serve_url`, two hosts
+may be fetched, remote paths cannot escape, `--prune` deletes only what the ledger proves) and
+lists the two deliberate credential-printing commands as non-vulnerabilities — that last list
+is what stops the `files preview` false finding being filed a third time (invariant 8).
