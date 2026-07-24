@@ -156,37 +156,15 @@ jobs:
           check-latest: true
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
-  build:
-    # Proof that every release target compiles, without releasing anything.
-    runs-on: ubuntu-latest
-    strategy:
-      # Same reason the test matrix carries it: the point of four targets is to
-      # learn the state of all four. Under the default fail-fast the first one
-      # to break cancels the rest, so a commit that broke darwin/arm64 and
-      # linux/amd64 reports one failure and three cancellations, and the second
-      # break is found by whoever fixes the first. It also makes a genuine
-      # compile failure indistinguishable at a glance from a runner that was
-      # never assigned -- which is exactly the shape an Actions outage produced
-      # here on 2026-07-24, and it cost fifteen API calls to tell apart.
-      fail-fast: false
-      matrix:
-        goos: [darwin, linux]
-        goarch: [amd64, arm64]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26'
-          check-latest: true
-      - env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
-        run: go build -o /dev/null .
-
   crossbuild:
     # Produces the artifacts a release would, so the smoke job below can run the
-    # thing users actually download rather than something merely similar.
+    # thing users actually download rather than something merely similar. It is
+    # also where "every release target still compiles" is now proven: a matrix
+    # of `go build -o /dev/null` used to say that separately, and it said a
+    # strict subset -- goreleaser compiles the same four targets here and smoke
+    # then runs them, so the only thing the separate job bought was telling
+    # "the code broke" apart from "goreleaser broke" a minute sooner. The action
+    # is the same either way, and neither produces a release.
     #
     # goreleaser does the building instead of a hand-written go build, and that
     # is the point: -trimpath, -s -w, CGO_ENABLED=0 and -X main.version live in
@@ -245,6 +223,13 @@ jobs:
     # credential and must not acquire one.
     needs: crossbuild
     strategy:
+      # The point of four platforms is to learn the state of all four. Under the
+      # default fail-fast the first one to break cancels the rest, so a change
+      # that broke darwin/arm64 and linux/amd64 reports one failure and three
+      # cancellations and the second break is found by whoever fixed the first.
+      # It also makes a real failure indistinguishable at a glance from a runner
+      # that was never assigned -- exactly the shape an Actions outage produced
+      # here on 2026-07-24, which cost fifteen API calls to tell apart.
       fail-fast: false
       matrix:
         include:
