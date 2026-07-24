@@ -239,17 +239,35 @@ jobs:
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
-          # macos-15-intel, not macos-13: the last free Intel image was retired
-          # in December 2025, and this label is the migration target GitHub
-          # named for OSS. It carries an announced end -- available until
-          # AUGUST 2027, after which x86_64 is not supported on Actions at all
-          # (actions/runner-images#13045). When it goes, this row loses its
-          # runner and the job will sit unschedulable rather than fail with
-          # anything self-explanatory, so the question to answer then is whether
-          # dsx still ships a darwin/amd64 binary it cannot run anywhere.
+          # One darwin/amd64 binary, two macOS versions, and the second row is
+          # not redundancy. The archive is byte-identical in both; what differs
+          # is the OS deciding whether to run it, and that decision has been
+          # tightening for years -- a binary macOS 15 executes and macOS 26
+          # refuses is precisely the failure a user meets before anyone else
+          # does. Neither label is optional the way it looks:
+          #
+          #   macos-15-intel  the label GitHub named for OSS when the last free
+          #                   Intel image (macos-13) was retired in December
+          #                   2025. Announced end: AUGUST 2027, after which
+          #                   x86_64 is not supported on Actions at all
+          #                   (actions/runner-images#13045).
+          #   macos-26-intel  the newest Intel image, GA since February 2026
+          #                   (actions/runner-images#13739) and the standard
+          #                   label rather than the paid macos-26-large. macOS
+          #                   26 is the last macOS Apple ships for Intel, so
+          #                   this is where real Intel users actually are.
+          #
+          # When macos-15-intel goes, that row loses its runner and the job sits
+          # unschedulable rather than failing with anything self-explanatory --
+          # an unknown hosted label reads as a self-hosted one and simply
+          # queues. The question to answer then is whether dsx still ships a
+          # darwin/amd64 binary it can no longer run anywhere.
           - goos: darwin
             goarch: amd64
             runner: macos-15-intel
+          - goos: darwin
+            goarch: amd64
+            runner: macos-26-intel
           - goos: darwin
             goarch: arm64
             runner: macos-latest
