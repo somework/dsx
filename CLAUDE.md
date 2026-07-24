@@ -84,8 +84,17 @@ named test is the guard.
 ```bash
 go test -race ./...
 go vet ./... && go vet -tags=live ./... && gofmt -l .
-go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
+
+The two version pins are opposite on purpose and neither is an oversight. `staticcheck` is
+pinned — it adds checks between releases, so `@latest` puts a real but untimely finding on a
+pull request that did not cause it, and the copy in README, CONTRIBUTING and the PR template
+must equal `ci.yml`'s or a contributor's local gate disagrees with CI. `govulncheck` is not
+pinned, because a newly disclosed vulnerability failing CI is the whole reason that job runs.
+Stdlib-only is not vulnerability-free: `go.mod` names no dependency, and govulncheck reads
+the standard library and toolchain that parse untrusted server bytes and hold the credential.
 
 - Unit tests cover the pure logic — `plan.go`, `envelope.go`, `state.go`, `ignore.go`, `dsxerr.go`, `mcp.go` parsing. CI enforces 80% overall, 95% on `plan.go` and `envelope.go`. The floor matches by filename substring and is gameable by moving a function out of a held file; don't relocate past the ratchet.
 - **`fake_test.go` tests dsx's own handling, never protocol facts** — a mock only repeats what we already believe. Three protocol facts were guessed wrong first (`write_files` returns a map; `needs_project_grant` is HTTP 403; binary detection is by content), and a green mock would have hidden all three.

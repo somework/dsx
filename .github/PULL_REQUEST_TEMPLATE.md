@@ -16,7 +16,8 @@ is below; delete any section that does not apply.
 
 - [ ] `go test -race ./...` passes
 - [ ] `go vet ./... && go vet -tags=live ./... && gofmt -l .` is clean
-- [ ] `go run honnef.co/go/tools/cmd/staticcheck@latest ./...` is clean
+- [ ] `go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...` is clean
+- [ ] `go run golang.org/x/vuln/cmd/govulncheck@latest ./...` reports nothing
 - [ ] The new test was watched **fail** before the fix, and pass after it
 - [ ] Live suite run (`DSX_LIVE_PROJECT=… go test -tags=live -run TestLive ./...`), or not applicable
 

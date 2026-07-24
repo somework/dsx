@@ -125,7 +125,31 @@ jobs:
           check-latest: true
       # staticcheck is a CI tool, not a dependency: it never enters go.mod, so
       # the shipped binary stays stdlib-only. That is the whole constraint.
-      - run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+      #
+      # Pinned, and @latest is the mistake it replaces: staticcheck adds checks
+      # between releases, so an unrelated pull request goes red on a day nobody
+      # touched it and the finding is real but untimely. Bumping the version is
+      # then a commit of its own, which is where a new check belongs. Same
+      # version in README and CONTRIBUTING, or a contributor's local run and CI
+      # disagree — the one thing a lint gate must never do.
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+
+  govulncheck:
+    # Deliberately NOT pinned, and the asymmetry with staticcheck above is the
+    # point: a new lint check failing CI is noise arriving on someone else's
+    # pull request, whereas a newly disclosed vulnerability failing CI is the
+    # signal this job exists to deliver. Stdlib-only is not vulnerability-free —
+    # go.mod names no dependency, but the standard library and the toolchain are
+    # exactly what govulncheck reads, and dsx handles an OAuth credential and
+    # parses untrusted server bytes with them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   build:
     # Proof that every release target compiles, without releasing anything.

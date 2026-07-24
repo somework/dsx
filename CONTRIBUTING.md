@@ -33,11 +33,23 @@ runs:
 ```bash
 go test -race ./...
 go vet ./... && go vet -tags=live ./... && gofmt -l .
-go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
-`staticcheck` is a separate CI job. Build, vet and the tests stay green while it fails on dead
-code, so run it before you push rather than after CI tells you.
+`staticcheck` and `govulncheck` are separate CI jobs, so build, vet and the tests all stay
+green while either one fails. Run them before you push rather than after CI tells you.
+
+The version pins differ on purpose. `staticcheck` is pinned because it adds checks between
+releases, and an unrelated pull request going red on a day nobody touched it is noise;
+bumping it is a commit of its own. `govulncheck` is not pinned, because a newly disclosed
+vulnerability failing CI is the signal the job exists for. Keep the staticcheck version here
+identical to `.github/workflows/ci.yml` — a lint gate that disagrees with CI is worse than no
+gate.
+
+`go.mod` naming no dependency does not make dsx vulnerability-free: govulncheck reads the
+standard library and the toolchain, which is what parses untrusted server bytes and holds the
+credential.
 
 CI also enforces coverage floors: 80% overall, and 95% on `plan.go` and `envelope.go`, because
 that is where a bug costs data rather than convenience. The floor matches by filename
