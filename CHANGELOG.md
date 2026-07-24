@@ -15,7 +15,17 @@ when it was cut, and that will not be visible here in advance.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Homebrew tap: `brew install somework/tap/dsx` on macOS, with `brew upgrade dsx` and shell
+  completions after it. Casks are macOS-only, so Linux keeps the archive. Homebrew checks the
+  archive against a SHA-256 in the cask, which says nothing about who built it — `gh attestation
+  verify` still does, on the archive route.
+
+### Changed
+
+- The archive install in README reads the version off `releases/latest` instead of asking you to
+  paste one in.
 
 ## [0.1.0] — 2026-07-25
 

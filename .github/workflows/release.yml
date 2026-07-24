@@ -43,6 +43,15 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The Homebrew cask lands in somework/homebrew-tap, which the token
+          # above cannot reach: GITHUB_TOKEN is scoped to this repository. This
+          # is a fine-grained PAT holding contents:write and
+          # pull-requests:write on the tap and nothing else. Absent, goreleaser
+          # fails the whole release on the unresolved template rather than
+          # silently skipping the cask — which is the direction worth failing
+          # in, since a release that quietly stopped updating the tap looks
+          # exactly like one that did.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
       # checksums.txt says the archives are internally consistent; it says
       # nothing about who built them. Provenance does: it binds each artifact to
