@@ -15,17 +15,27 @@ when it was cut, and that will not be visible here in advance.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.1] — 2026-07-25
+
+Nothing about dsx itself changed — no command, flag, exit code or on-disk format moved. This
+release exists to make it easier to get.
+
 ### Added
 
-- Homebrew tap: `brew install somework/tap/dsx` on macOS, with `brew upgrade dsx` and shell
-  completions after it. Casks are macOS-only, so Linux keeps the archive. Homebrew checks the
-  archive against a SHA-256 in the cask, which says nothing about who built it — `gh attestation
-  verify` still does, on the archive route.
+- Homebrew tap: `brew install somework/tap/dsx` on macOS, with `brew upgrade dsx` afterwards and
+  shell completions installed alongside. Casks are macOS-only, so Linux keeps the archive.
+- The cask prints what it did on install: dsx carries no Apple signature, so the cask clears the
+  macOS quarantine flag itself, and Gatekeeper does not check the binary. Homebrew matches the
+  archive against a SHA-256 in the cask, which proves the bytes were not altered in transit and
+  nothing about who built them. `gh attestation verify` proves the second, and is on the archive
+  route.
 
 ### Changed
 
 - The archive install in README reads the version off `releases/latest` instead of asking you to
-  paste one in.
+  paste one in. To pin a version, set `VERSION` by hand and drop that line.
 
 ## [0.1.0] — 2026-07-25
 
@@ -64,5 +74,6 @@ either shape is a breaking change and will be called one here.
 
 `.dsxignore` filters both directions, in gitignore's syntax minus character classes.
 
-[Unreleased]: https://github.com/somework/dsx/compare/v0.1.0...main
+[Unreleased]: https://github.com/somework/dsx/compare/v0.1.1...main
+[0.1.1]: https://github.com/somework/dsx/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/somework/dsx/releases/tag/v0.1.0
