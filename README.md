@@ -1,5 +1,9 @@
 # dsx — Claude Design sync
 
+[![ci](https://github.com/somework/dsx/actions/workflows/ci.yml/badge.svg)](https://github.com/somework/dsx/actions/workflows/ci.yml)
+[![go](https://img.shields.io/github/go-mod/go-version/somework/dsx)](go.mod)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 Single Go binary, stdlib only. Moves files between a [Claude Design](https://claude.ai/design)
 project and a local directory **without the contents passing through any model's context**.
 
@@ -347,10 +351,12 @@ certain exists.
 
 ```bash
 go test -race ./...
-go vet ./... && gofmt -l .
+go vet ./... && go vet -tags=live ./... && gofmt -l .
+go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 ```
 
-The offline suite needs no login and reaches no network — it is the one to run.
+The offline suite needs no login and reaches no network — it is the one to run. `staticcheck`
+is its own CI job, so the first two lines can be green while it is not.
 
 ```bash
 DSX_LIVE_PROJECT=<your project id> go test -tags=live -run TestLive ./...
@@ -367,6 +373,23 @@ than aiming at someone else's.
 - [PROTOCOL.md](PROTOCOL.md) — the undocumented MCP contract, as measured.
 - `reference/mcp-tools.json` — the server's own `tools/list` output, content unchanged, indented
   and key-sorted so a schema change reads as a small diff.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the test discipline and what gets sent
+back. Two things are worth knowing before you open a pull request: dsx has no dependencies and
+that is a hard constraint, and the numbered invariants in CLAUDE.md were each bought with a
+real defect — relaxing one needs a measurement, not an argument.
+
+The commit history is in Russian; contributions are in English. CONTRIBUTING.md explains why
+both are true.
+
+Found a security issue — a credential reaching output, a path escaping the synced directory,
+an unforced delete? [SECURITY.md](SECURITY.md) says where to send it, and which behaviours are
+intended rather than bugs. Not through an issue.
+
+[CHANGELOG.md](CHANGELOG.md) is the caller-facing record; releases also carry the raw commit
+list. [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies here.
 
 ## Licence
 
