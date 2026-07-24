@@ -172,6 +172,18 @@ Code, comments and documentation are English throughout, with no exception.
 - **Widening the surface to make a test pass.** If a guard fires on your change, the guard is
   the finding until proven otherwise.
 
+## Opening a pull request
+
+`main` is protected and takes no direct push: every change arrives as a pull request, and all
+eight CI checks — both `test` platforms, `staticcheck`, `govulncheck` and the four `build`
+targets — must pass before it can merge. The branch also has to be current with `main` at
+merge time, so CI has run against what will actually land rather than against a snapshot that
+has since moved.
+
+No approval is required, because the review that matters here is the one in
+[Things that will be sent back](#things-that-will-be-sent-back). History is linear: merge
+commits are off, so a pull request lands squashed or rebased.
+
 ## Reporting security issues
 
 Not through an issue — see [SECURITY.md](SECURITY.md).
