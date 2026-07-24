@@ -47,6 +47,7 @@ var publishedDocs = []string{
 	"README.md",
 	"CONTRIBUTING.md",
 	"SECURITY.md",
+	"CHANGELOG.md",
 	filepath.Join(".github", "PULL_REQUEST_TEMPLATE.md"),
 	filepath.Join(".github", "ISSUE_TEMPLATE", "bug_report.yml"),
 	filepath.Join(".github", "ISSUE_TEMPLATE", "feature_request.yml"),
