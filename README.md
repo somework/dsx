@@ -26,25 +26,36 @@ VERSION=0.1.0
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 ARCHIVE="dsx_${VERSION}_${OS}_${ARCH}.tar.gz"
+BASE="https://github.com/somework/dsx/releases/download/v${VERSION}"
 
-curl -fsSLO "https://github.com/somework/dsx/releases/download/v${VERSION}/${ARCHIVE}"
-tar xzf "$ARCHIVE" dsx
-sudo mv dsx /usr/local/bin/
+curl -fsSLO "$BASE/$ARCHIVE" &&
+  gh attestation verify "$ARCHIVE" --repo somework/dsx &&
+  tar xzf "$ARCHIVE" dsx &&
+  sudo mv dsx /usr/local/bin/
 ```
 
 Built for macOS and Linux, on both `amd64` and `arm64`.
 
-The download is deliberately not piped into a shell. dsx reads an OAuth credential, so it is
-the last program that should ask you to execute an unexamined script — and a separate download
-step is what leaves room to check where the bytes came from:
+The steps are chained with `&&` on purpose: nothing is unpacked, and nothing reaches
+`/usr/local/bin`, unless the archive verified first. (`&&` rather than `set -e`, because this
+is meant to be pasted into a shell you are still using, and `set -e` there can close it.)
+
+The download is deliberately not piped into a shell either. dsx reads an OAuth credential, so
+it is the last program that should ask you to execute an unexamined script — and a separate
+download step is what leaves room to check where the bytes came from. `gh attestation verify`
+binds the archive to this repository, this workflow and the commit it was built from, which a
+checksum cannot do; [SECURITY.md](SECURITY.md) explains what it proves.
+
+Without `gh`, swap that middle line for the release's `checksums.txt`:
 
 ```bash
-gh attestation verify "$ARCHIVE" --repo somework/dsx
+curl -fsSLO "$BASE/checksums.txt" &&
+  shasum -a 256 --ignore-missing -c checksums.txt
 ```
 
-That binds the archive to this repository, this workflow and the commit it was built from,
-which a checksum cannot do. [SECURITY.md](SECURITY.md) explains what it proves.
-`shasum -a 256 -c` against the release's `checksums.txt` is the answer without `gh` installed.
+`shasum --ignore-missing` is not optional here: `checksums.txt` lists every archive in the
+release and you downloaded one, so without it the command reports `FAILED open or read` for the
+siblings you do not have and exits non-zero on a perfectly good file.
 
 The binaries are not signed with an Apple certificate and not notarised. Fetched with `curl`
 as above there is nothing to clear; downloaded through a **browser**, macOS attaches a

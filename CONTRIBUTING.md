@@ -176,7 +176,8 @@ Code, comments and documentation are English throughout, with no exception.
 
 `main` is protected and takes no direct push: every change arrives as a pull request, and the
 CI checks must pass before it can merge — both `test` platforms, `staticcheck`, `govulncheck`,
-`crossbuild`, and one `smoke` per shipped platform. The branch also has to be current with
+`crossbuild`, and one `smoke` per matrix row, which is more rows than there are shipped
+binaries because darwin/amd64 is run on two macOS versions. The branch also has to be current with
 `main` at merge time, so CI has run against what will actually land rather than against a
 snapshot that has since moved.
 
