@@ -264,6 +264,16 @@ membership, which is a decision rather than a patch. What the review was right a
 disclosure was in README, and the person who needs it is the one running `brew install`.
 `caveats` is the only place the disclosure and the act meet.
 
+**README spells the tap out because the two-step form does not work.** Homebrew 6.0 made trust
+mandatory for anything outside its own taps, and a command needing an untrusted one *fails*
+rather than prompting — so `brew tap somework/tap` then `brew install dsx` stops until
+`brew trust --cask somework/tap/dsx` is run, while the fully qualified
+`brew install somework/tap/dsx` grants that trust for the one cask as it installs. Measured
+rather than read: the first real install wrote `somework/tap/dsx` into `~/.homebrew/trust.json`
+by itself. The distinction is invisible from the working command, which is exactly why it is
+written down — a reader who reaches for the more familiar `brew tap` form meets a failure the
+README would otherwise have said nothing about.
+
 The outward-facing documents carry claims that go stale, so the README guard was widened to
 cover every document that *instructs* — README, CONTRIBUTING, SECURITY, the pull-request
 template and the issue templates, YAML included, since the walker reads a backticked span

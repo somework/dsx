@@ -29,6 +29,12 @@ brew install somework/tap/dsx
 
 `brew upgrade dsx` from then on, and shell completions come with it.
 
+Spell the tap out as above rather than tapping first. Homebrew 6.0 requires explicit trust for
+anything outside its own taps, and a command that needs an untrusted one **fails** instead of
+asking — so `brew tap somework/tap` followed by `brew install dsx` stops until you run
+`brew trust --cask somework/tap/dsx`. The fully qualified form grants that trust for this one
+cask as it installs, which is the whole reason it is the form printed here.
+
 What the convenience costs is worth saying plainly. Homebrew checks the archive against a
 SHA-256 written into the cask by the release workflow, which proves the bytes were not swapped
 in transit and nothing at all about who built them — the archive route below is where
