@@ -244,7 +244,7 @@
     </div>
 
     <figure>
-      <img src="roundtrip.gif" width="1440" height="560" alt="Terminal: edit a file and add a new one, dsx status shows modified and untracked, dsx diff shows the byte-level divergence, dsx push sends two files, dsx status is clean.">
+      <img src="roundtrip.gif" width="1440" height="560" loading="lazy" alt="Terminal: edit a file and add a new one, dsx status shows modified and untracked, dsx diff shows the byte-level divergence, dsx push sends two files, dsx status is clean.">
       <figcaption>The full round-trip — edit &amp; add, <b>status</b>, byte-level <b>diff</b>, <b>push</b>, clean.</figcaption>
     </figure>
   </div>
@@ -273,6 +273,11 @@
         <p>dsx reads Claude Code's OAuth token, never writes, refreshes, or prints it — it won't even wrap it into an error string.</p>
       </div>
     </div>
+
+    <figure>
+      <img src="conflict.gif" width="1440" height="560" loading="lazy" alt="Terminal: a teammate changed a file on the server; dsx push refuses with conflicts 1 and exit 3 instead of overwriting, and dsx status shows the local edit still present.">
+      <figcaption>Both sides changed. <b>push</b> refuses (exit 3) rather than clobber — your edit is still there.</figcaption>
+    </figure>
   </div>
 </section>
 

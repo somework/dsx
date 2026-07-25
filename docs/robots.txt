@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://somework.github.io/dsx/sitemap.xml
