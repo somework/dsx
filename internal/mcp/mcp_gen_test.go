@@ -231,8 +231,12 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 // off in the case above, so what reaches here is every OTHER 403.
 func TestForbiddenWithoutGrantIsAuthAndNamesConsent(t *testing.T) {
 	t.Parallel()
+	// The body carries control bytes on purpose: a hostile 403 must not splice
+	// a CR or an ANSI escape into the message dsx prints to a terminal
+	// (invariant 7). fmtutil.Printable is the guard, and its absence is what
+	// the sanitisation assertions below catch.
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
-		return mcptest.Reply{HTTPStatus: http.StatusForbidden, HTTPBody: `{"error":"forbidden"}`}
+		return mcptest.Reply{HTTPStatus: http.StatusForbidden, HTTPBody: "{\"error\":\"forbidden\"}\r\n\x1b[31mgotcha"}
 	})
 
 	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
@@ -257,6 +261,12 @@ func TestForbiddenWithoutGrantIsAuthAndNamesConsent(t *testing.T) {
 	}
 	if !strings.Contains(de.Msg, "/design consent") {
 		t.Errorf("403 message = %q, want it to name `/design consent` as the account-level fix", de.Msg)
+	}
+	if !strings.Contains(de.Msg, "forbidden") {
+		t.Errorf("403 message = %q, want it to echo the server body so the real refusal is visible", de.Msg)
+	}
+	if strings.ContainsAny(de.Msg, "\r\n\x1b") {
+		t.Errorf("403 message = %q, want the server body sanitised — a CR or ANSI escape must not reach the terminal", de.Msg)
 	}
 }
 
