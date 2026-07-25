@@ -17,6 +17,22 @@ when it was cut, and that will not be visible here in advance.
 
 Nothing yet.
 
+## [0.1.2] — 2026-07-25
+
+### Changed
+
+- A `403` that is **not** a per-project write grant now exits `5` (auth), not `1`. It means the
+  account has not been let into Claude Design — a one-time `/design consent` inside Claude Code,
+  which the error now names. dsx talks to the endpoint directly; you do not add Claude Design as
+  an MCP server. The exit code moved because a forbidden request is an authorisation problem, the
+  same class as a rejected token, and a script branching on the code should see it that way.
+
+### Fixed
+
+- Server response bodies echoed into an error message are now stripped of control bytes before
+  they reach the terminal, so a hostile `403`/`5xx`/`429` reply cannot inject a carriage return
+  or an ANSI escape into what dsx prints.
+
 ## [0.1.1] — 2026-07-25
 
 Nothing about dsx itself changed — no command, flag, exit code or on-disk format moved. This
@@ -74,6 +90,7 @@ either shape is a breaking change and will be called one here.
 
 `.dsxignore` filters both directions, in gitignore's syntax minus character classes.
 
-[Unreleased]: https://github.com/somework/dsx/compare/v0.1.1...main
+[Unreleased]: https://github.com/somework/dsx/compare/v0.1.2...main
+[0.1.2]: https://github.com/somework/dsx/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/somework/dsx/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/somework/dsx/releases/tag/v0.1.0
