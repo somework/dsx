@@ -13,6 +13,8 @@ The same pull, done by agents reading each file, costs ~665k tokens. dsx costs o
 pulled 103, unchanged 0, binary 6 (660.1 KB)
 ```
 
+![dsx: clone a Design project, then a clean status](docs/demo.gif)
+
 > **Unofficial.** The Claude Design MCP endpoint is undocumented and makes no promises. dsx
 > was built by probing it and can break with any server deploy. See [PROTOCOL.md](PROTOCOL.md).
 
