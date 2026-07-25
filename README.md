@@ -7,7 +7,8 @@
 Single Go binary, stdlib only. Moves files between a [Claude Design](https://claude.ai/design)
 project and a local directory **without the contents passing through any model's context**.
 
-The same pull, done by agents reading each file, costs ~665k tokens. dsx costs one line:
+On a large project, the same pull done by agents reading each file cost ~665k tokens. dsx
+costs one line, whatever the size:
 
 ```
 pulled 103, unchanged 0, binary 6 (660.1 KB)
