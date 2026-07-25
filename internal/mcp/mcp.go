@@ -243,6 +243,20 @@ func (c *Client) attempt(ctx context.Context, body []byte, idempotent bool) (raw
 		}
 		_ = json.Unmarshal(payload, &g)
 		return nil, false, &GrantError{ProjectID: g.ProjectID}
+	case resp.StatusCode == http.StatusForbidden:
+		// Not needs_project_grant — that is peeled off above and is the one
+		// 403 dsx recovers on its own. What is left is an authorisation
+		// refusal of the whole request: the token is valid (a bad one is 401),
+		// but this account may never have authorised Claude Design. That gate
+		// is granted once, out of band, by `/design consent` in Claude Code —
+		// the one step dsx cannot take for the user — so this is KindAuth like
+		// the 401, not the KindProtocol a bare non-200 would get. Matched on
+		// the status alone: the body of a consent refusal is unmeasured, so
+		// nothing here reads it beyond echoing the server's own words.
+		return nil, false, &dsxerr.Error{Kind: dsxerr.KindAuth,
+			Msg: fmt.Sprintf("403 forbidden — token accepted but the request was refused; "+
+				"if this account has not used Claude Design, run `/design consent` in Claude Code to grant it access. Server said: %s",
+				fmtutil.Truncate(string(payload), 200))}
 	case resp.StatusCode == http.StatusTooManyRequests:
 		return nil, true, &dsxerr.Error{Kind: dsxerr.KindTransport,
 			Msg: fmt.Sprintf("http %d: %s", resp.StatusCode, fmtutil.Truncate(string(payload), 200))}

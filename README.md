@@ -110,6 +110,14 @@ dsx needs a signed-in Claude Code. It reads the credential Claude Code already s
 way Claude Code reads it: the macOS Keychain first, then `~/.claude/.credentials.json`. Run
 `dsx doctor` if it cannot find one — it names the store it looked in. See [Auth](#auth).
 
+The account behind that login also has to be allowed into Claude Design, which is a one-time
+grant you make inside Claude Code with `/design consent` (`/design revoke` takes it back). It is
+a property of the account, not of dsx: until it is granted, the server refuses every request,
+and dsx says so — a `403` naming `/design consent` rather than a generic failure. You do **not**
+add Claude Design as an MCP server anywhere; dsx talks to the endpoint itself and never goes
+through Claude Code's MCP client. The per-project write grant is separate and needs no such
+step — dsx obtains it automatically the first time it writes, no browser involved.
+
 ## Use
 
 ```bash

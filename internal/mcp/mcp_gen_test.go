@@ -221,6 +221,45 @@ func TestUnauthorizedIsAuthAndSaysToRunClaude(t *testing.T) {
 	}
 }
 
+// TestForbiddenWithoutGrantIsAuthAndNamesConsent covers the 403 that is NOT
+// needs_project_grant: an account whose token is valid but which has never
+// authorised Claude Design. It is an authorisation refusal, so it is KindAuth
+// (exit 5) like the 401, not the KindProtocol/exit-1 a bare non-200 would
+// otherwise get — and the message names `/design consent`, the one out-of-band
+// step dsx cannot take for the user. Matched on the 403 status alone, because
+// the body of a consent refusal is unmeasured; needs_project_grant is peeled
+// off in the case above, so what reaches here is every OTHER 403.
+func TestForbiddenWithoutGrantIsAuthAndNamesConsent(t *testing.T) {
+	t.Parallel()
+	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {
+		return mcptest.Reply{HTTPStatus: http.StatusForbidden, HTTPBody: `{"error":"forbidden"}`}
+	})
+
+	_, err := New("test-token", WithEndpoint(f.URL())).CallTool(context.Background(), "list_files", map[string]any{"project_id": "p"})
+	if err == nil {
+		t.Fatal("a bare 403 produced no error")
+	}
+	if n := f.CountTool("list_files"); n != 1 {
+		t.Errorf("list_files reached the server %d times, want 1; a forbidden account stays forbidden", n)
+	}
+
+	var ge *GrantError
+	if errors.As(err, &ge) {
+		t.Fatalf("a non-grant 403 matched *GrantError (%v); it must not route through finalize_plan", ge)
+	}
+
+	de := dsxerr.Classify(err)
+	if de.Kind != dsxerr.KindAuth {
+		t.Fatalf("dsxerr.Classify(err).Kind = %q, want %q; a 403 is an authorisation refusal, not a protocol error", de.Kind, dsxerr.KindAuth)
+	}
+	if code := dsxerr.ExitCodeFor(err); code != dsxerr.ExitAuth {
+		t.Errorf("dsxerr.ExitCodeFor(err) = %d, want %d", code, dsxerr.ExitAuth)
+	}
+	if !strings.Contains(de.Msg, "/design consent") {
+		t.Errorf("403 message = %q, want it to name `/design consent` as the account-level fix", de.Msg)
+	}
+}
+
 func TestNeedsProjectGrantSurfacesAsGrantErrorAndIsNotRetried(t *testing.T) {
 	t.Parallel()
 	f := mcptest.New(t, func(name string, args map[string]any) mcptest.Reply {

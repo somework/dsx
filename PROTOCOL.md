@@ -50,6 +50,21 @@ token carries `user:file_upload user:inference user:mcp_servers user:profile
 user:sessions:claude_code` — neither `user:design:read` nor `user:design:write` — and the
 server accepts it. `user:mcp_servers` is what is actually checked.
 
+**The scope is necessary, not sufficient: the account must also have consented to Design.**
+Claude Code (v2.1.219) carries a hidden `/design` command whose verbs include `consent` —
+described in the binary as *"Grant Claude agent access to your Design projects"* — and its pair
+`revoke` (*"Revoke Claude agent access…"*). That grant is a property of the ACCOUNT, not of the
+token and not of dsx: with it, a plain Claude Code credential reaches every tool here (measured);
+without it the server refuses. This is why dsx reads no separate "design credential" — there is
+none to read; `/design consent` flips account state server-side, and the same
+`claudeAiOauth` token then works. Claude Code has a *second*, unrelated path — `/design-login`,
+which runs a browser OAuth and stores a distinct design credential in the keychain — but dsx
+does not read it and does not need it; it is Claude Code's own `/design-sync` lane, not dsx's.
+The refusal shape for a non-consented account is **unmeasured** (no un-consented account was
+available), so dsx classifies a 403 that is *not* `needs_project_grant` by status alone: KindAuth,
+naming `/design consent`, echoing the server's body without parsing it. That the gate is
+account state and not something dsx can probe is recorded in CLAUDE.md's Known unknowns.
+
 ### Where the credential lives
 
 Read from the shipped `claude` binary (v2.1.211). Its storage layer is
