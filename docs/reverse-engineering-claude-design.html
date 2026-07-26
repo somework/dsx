@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reverse-engineering Claude's undocumented Design API — dsx build log</title>
+<meta name="description" content="How I recovered Claude Design's unofficial MCP protocol by probing it and pinning every claim with a live test — and why a file sync that skips the model's context turns a ~665k-token pull into one line.">
+<link rel="canonical" href="https://somework.github.io/dsx/reverse-engineering-claude-design.html">
+<meta name="author" content="somework">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Reverse-engineering Claude's undocumented Design API">
+<meta property="og:description" content="Protocol archaeology, three wrong guesses, and refusing to trust my own mocks. The build log behind dsx.">
+<meta property="og:url" content="https://somework.github.io/dsx/reverse-engineering-claude-design.html">
+<meta property="og:image" content="https://somework.github.io/dsx/demo.gif">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Reverse-engineering Claude's undocumented Design API">
+<meta name="twitter:description" content="Protocol archaeology, three wrong guesses, and refusing to trust my own mocks — the build log behind dsx.">
+<meta name="twitter:image" content="https://somework.github.io/dsx/demo.gif">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌘</text></svg>">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "Reverse-engineering Claude's undocumented Design API so a file sync wouldn't cost 665k tokens",
+  "description": "How I recovered Claude Design's unofficial MCP protocol by probing it and pinning every claim with a live test.",
+  "author": { "@type": "Person", "name": "somework" },
+  "datePublished": "2026-07-27",
+  "url": "https://somework.github.io/dsx/reverse-engineering-claude-design.html",
+  "image": "https://somework.github.io/dsx/demo.gif",
+  "keywords": "Claude Design, reverse engineering, MCP, protocol, Go, CLI, token cost, Anthropic",
+  "about": { "@type": "SoftwareApplication", "name": "dsx", "applicationCategory": "DeveloperApplication", "operatingSystem": "macOS, Linux" }
+}
+</script>
+<style>
+  :root {
+    --bg:      oklch(15% 0.012 260);
+    --bg-2:    oklch(18% 0.014 260);
+    --surface: oklch(21% 0.016 260);
+    --line:    oklch(30% 0.02 260);
+    --text:    oklch(94% 0.008 250);
+    --muted:   oklch(70% 0.02 255);
+    --faint:   oklch(56% 0.02 255);
+    --ok:      oklch(80% 0.16 150);
+    --ok-dim:  oklch(68% 0.12 150);
+    --link:    oklch(82% 0.10 220);
+    --warn:    oklch(84% 0.12 80);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+    --maxw: 1040px;
+    --measure: 40rem;
+    --r: 14px;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background-image:
+      radial-gradient(1200px 700px at 12% -8%, oklch(24% 0.03 250 / 0.55), transparent 60%),
+      radial-gradient(900px 600px at 110% 0%, oklch(22% 0.04 160 / 0.28), transparent 55%);
+    background-attachment: fixed;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  a { color: var(--link); text-decoration: none; transition: color .15s var(--ease); }
+  a:hover { color: var(--text); }
+  code { font-family: var(--mono); font-size: 0.9em; }
+
+  /* ---- top bar ---- */
+  header.bar {
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(10px);
+    background: oklch(15% 0.012 260 / 0.72);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+  .brand { font-family: var(--mono); font-weight: 600; letter-spacing: .02em; font-size: 1.05rem; color: var(--text); }
+  .brand b { color: var(--ok); }
+  .bar nav { margin-left: auto; display: flex; gap: 22px; font-size: .92rem; }
+  .bar nav a { color: var(--muted); }
+  .bar nav a:hover { color: var(--text); }
+  @media (max-width: 620px) { .bar nav .hide-sm { display: none; } }
+
+  /* ---- article ---- */
+  article { padding: clamp(2.6rem, 1.5rem + 5vw, 5rem) 0 2rem; }
+  .eyebrow { font-family: var(--mono); font-size: .82rem; letter-spacing: .04em; color: var(--ok-dim); text-transform: uppercase; margin: 0 0 1rem; }
+  article h1 {
+    font-size: clamp(2rem, 1rem + 4.4vw, 3.3rem);
+    line-height: 1.05; letter-spacing: -0.025em;
+    margin: 0 0 1rem; font-weight: 680; max-width: 20ch;
+  }
+  .standfirst { font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem); color: var(--muted); max-width: var(--measure); margin: 0 0 1.4rem; font-style: italic; }
+  .byline { font-family: var(--mono); font-size: .82rem; color: var(--faint); margin: 0 0 2.6rem; border-bottom: 1px solid var(--line); padding-bottom: 1.6rem; }
+  .byline b { color: var(--muted); font-weight: 600; }
+
+  .prose { max-width: var(--measure); }
+  .prose h2 {
+    font-size: clamp(1.4rem, 1.1rem + 1vw, 1.9rem); letter-spacing: -0.02em;
+    margin: 2.8rem 0 0.9rem; font-weight: 660; line-height: 1.15;
+  }
+  .prose p { color: var(--text); margin: 0 0 1.15rem; }
+  .prose p.muted { color: var(--muted); }
+  .prose strong { color: var(--text); font-weight: 650; }
+  .prose em { color: var(--muted); }
+  .prose a { border-bottom: 1px solid oklch(82% 0.10 220 / .35); }
+  .prose a:hover { border-color: var(--text); }
+  .prose code { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+
+  .prose ol, .prose ul { margin: 0 0 1.15rem; padding-left: 0; list-style: none; }
+  .prose ol { counter-reset: item; }
+  .prose ol li { counter-increment: item; position: relative; padding-left: 2.4rem; margin-bottom: 1rem; }
+  .prose ol li::before {
+    content: counter(item); position: absolute; left: 0; top: 0;
+    font-family: var(--mono); font-size: .8rem; font-weight: 600; color: var(--ok);
+    width: 1.6rem; height: 1.6rem; display: grid; place-items: center;
+    border: 1px solid var(--ok-dim); border-radius: 7px; background: oklch(24% 0.05 155 / .4);
+  }
+  .prose ul li { position: relative; padding-left: 1.5rem; margin-bottom: 0.9rem; color: var(--muted); }
+  .prose ul li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 7px; height: 7px; border-radius: 2px; background: var(--ok-dim); }
+  .prose ul li strong, .prose ol li strong { color: var(--text); }
+
+  /* terminal card (matches landing) */
+  .term {
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r);
+    overflow: hidden; margin: 1.4rem 0 1.8rem;
+    box-shadow: 0 24px 60px -30px oklch(0% 0 0 / 0.8), 0 2px 0 oklch(100% 0 0 / 0.03) inset;
+  }
+  .term .chrome { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .term .chrome i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term .chrome i:nth-child(1){ background:oklch(65% 0.16 25);} .term .chrome i:nth-child(2){ background:oklch(80% 0.13 85);} .term .chrome i:nth-child(3){ background:oklch(78% 0.15 150);}
+  .term .chrome span { margin-left: 8px; color: var(--faint); font-family: var(--mono); font-size: .8rem; }
+  .term pre { margin: 0; padding: 16px 20px; font-family: var(--mono); font-size: clamp(.78rem, .72rem + .4vw, .9rem); line-height: 1.7; overflow-x: auto; color: var(--muted); }
+  .term pre .ok { color: var(--ok); }
+
+  blockquote {
+    margin: 1.6rem 0; padding: 2px 0 2px 22px; border-left: 2px solid var(--ok-dim);
+    color: var(--muted); font-size: 1.05rem;
+  }
+
+  .caveat { border: 1px solid oklch(50% 0.10 80 / .5); background: oklch(22% 0.03 80 / .35); border-radius: var(--r); padding: 22px 24px; margin: 2rem 0; max-width: var(--measure); }
+  .caveat h2 { color: var(--warn); margin-top: 0; }
+  .caveat p { color: var(--muted); margin: 0; }
+
+  .endcta { max-width: var(--measure); margin: 2.6rem 0 0; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--mono); font-size: .95rem; padding: 12px 18px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease);
+  }
+  .btn:hover { transform: translateY(-2px); border-color: var(--ok-dim); }
+  .btn.primary { background: linear-gradient(180deg, oklch(30% 0.06 155), oklch(24% 0.05 155)); border-color: var(--ok-dim); }
+  .btn.primary:hover { background: linear-gradient(180deg, oklch(34% 0.07 155), oklch(27% 0.06 155)); }
+
+  footer { border-top: 1px solid var(--line); padding: 42px 0 64px; margin-top: 3.5rem; color: var(--faint); }
+  footer .cols { display: flex; flex-wrap: wrap; gap: 30px 40px; align-items: baseline; }
+  footer a { color: var(--muted); }
+  footer .meta { margin-left: auto; font-family: var(--mono); font-size: .82rem; text-align: right; }
+  ::selection { background: oklch(80% 0.16 150 / .28); }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="./"><b>dsx</b></a>
+    <nav>
+      <a href="./#how">How it works</a>
+      <a href="./#install">Install</a>
+      <a href="https://github.com/somework/dsx">GitHub&nbsp;↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+<article>
+  <p class="eyebrow">Build log</p>
+  <h1>Reverse-engineering Claude's undocumented Design API</h1>
+  <p class="standfirst">Protocol archaeology, three wrong guesses, and refusing to trust my own mocks.</p>
+  <p class="byline"><b>somework</b> · 2026-07-27 · the story behind <a href="https://github.com/somework/dsx">dsx</a></p>
+
+  <div class="prose">
+    <h2>The token bill that started it</h2>
+    <p>Claude Design (<a href="https://claude.ai/design">claude.ai/design</a>) is a nice place to keep a design system, but the files live <em>there</em>, on the server. The obvious way to get them onto disk is to ask an agent: "read every file in this project and write it locally." That works. On one large project I measured, it also cost about <strong>665,000 tokens</strong> — because every byte of every file has to pass through the model's context on the way out.</p>
+    <p>That number is silly. Moving bytes from A to B is not a reasoning task. The model is being used as a very expensive <code>cp</code>.</p>
+    <p>So I wanted a plain CLI that syncs a Claude Design project to a local directory the way git syncs a repo — <code>clone</code>, <code>pull</code>, <code>push</code>, <code>status</code>, <code>diff</code> — where the file bytes never touch a model's context. The same pull that cost 665k tokens should cost one summary line:</p>
+    <div class="term">
+      <div class="chrome"><i></i><i></i><i></i><span>dsx pull</span></div>
+      <pre><span class="ok">pulled 103, unchanged 0, binary 6 (660.1 KB)</span></pre>
+    </div>
+    <p>There was one problem: the endpoint that Claude Design speaks to is undocumented.</p>
+
+    <h2>Protocol archaeology</h2>
+    <p>There's no public spec. The endpoint is an MCP server, so the <em>shape</em> of the transport is known (JSON-RPC, tool calls), but which tools exist, what arguments they take, and what they return — that's all unwritten. The only way to learn it is to call it and write down what comes back.</p>
+    <p>That's fine; archaeology is a legitimate way to learn an API. The trap is what you do with what you learn. It is very easy to call an endpoint a few times, form a belief about how it behaves, encode that belief into a mock, and then test your code against the mock. Everything goes green. You ship. And you've tested nothing except that your code agrees with your own assumptions.</p>
+    <p>I know this because I got three protocol facts wrong before I measured them, and a green mock would have hidden every one:</p>
+    <ol>
+      <li><strong><code>write_files</code> returns a map, not a list.</strong> I assumed a list of results, one per file. It's keyed by path. A mock returning a list would have passed my tests and mis-parsed the real server.</li>
+      <li><strong>The "you don't have access to this project" case is an HTTP 403, not a tool-level error.</strong> I'd modelled it as an error object inside a normal <code>200</code> response. It's a status code — a different code path entirely.</li>
+      <li><strong>Binary detection is by content, not by file extension.</strong> I assumed the server keyed off the filename. It reads the bytes. A <code>.txt</code> full of NULs is binary to the server; an extensionless script is text.</li>
+    </ol>
+    <p>None of these are exotic. They're the kind of thing you're 80% sure about and wrong. So the rule became: <strong>mocks test my own handling; the protocol facts get verified against the real server.</strong></p>
+    <p class="muted">Concretely, the repo keeps a <a href="https://github.com/somework/dsx/blob/main/PROTOCOL.md">PROTOCOL.md</a> where every documented claim has a corresponding live test (<code>go test -tags=live</code>) that hits the actual endpoint. If Anthropic changes the server and a claim stops being true, that test goes red — instead of the tool silently doing the wrong thing to your files. The mocks still exist, but they only ever test dsx's own logic, never a fact about the world.</p>
+
+    <h2>The part I was more scared of than tokens</h2>
+    <p>Once bytes stop flowing through a model, the tool is just a sync engine talking to a server — and sync engines lose data. That became the second obsession after the token cost. A few of the decisions:</p>
+    <ul>
+      <li><strong>Every file is written temp-then-rename.</strong> A killed process never leaves a half-written file. This matters more than it sounds: a truncated file that also never made it into the tool's ledger looks, on the next run, like <em>you</em> edited it — so the tool would "helpfully" offer to overwrite your work. Atomic writes kill that whole class of bug.</li>
+      <li><strong>Conflicts are decided on bytes, never on timestamps or etags.</strong> If both sides changed, that's a conflict, full stop. An etag comparison literally cannot see the both-sides-changed case.</li>
+      <li><strong><code>--prune</code> deletes only what it can prove was ours and unmodified.</strong> Untracked file → not ours, leave it. Locally edited → a conflict, don't touch it. The proof is an on-disk ledger, and twice during this project an attempt to make that proof "smarter" taught the prune loop to delete something it shouldn't have. Both were caught by tests, and both are written up in the repo — a deleted-someone's-file bug is worth a paragraph so the next person doesn't reinvent it.</li>
+      <li><strong>The credential is read, never written, never printed.</strong> dsx reads Claude Code's existing OAuth token so there's no separate login. It will not even wrap that token into an error string. (Refreshing it would rotate the refresh token out from under Claude Code, so it doesn't; an expired token is reported, and the fix is to run any <code>claude</code> command.)</li>
+    </ul>
+
+    <h2>stdlib only</h2>
+    <p>The whole thing is a single Go binary with zero third-party dependencies — <code>go.mod</code> names none. The reason is auditability: everything that parses untrusted bytes from an undocumented server and touches your credential is the Go standard library plus this one program. staticcheck, govulncheck and the release tooling run in CI without ever entering the dependency graph. If you're going to point a tool at an unofficial endpoint with your OAuth token, "you can read all of it" is worth a lot.</p>
+
+    <div class="caveat">
+      <h2>The honest caveat</h2>
+      <p>The endpoint is undocumented and unofficial. A server deploy can break it. I can't make that risk zero — but I tried to make it <em>visible</em> rather than hidden: the live tests are the tripwire, and the tool refuses and reports rather than guessing when the server answers in a shape it doesn't recognise.</p>
+    </div>
+
+    <p>It's a single binary, macOS and Linux, MIT. If you use Claude Design and have felt that token bill — or you just like protocol-archaeology writeups — the code and the <code>PROTOCOL.md</code> are on GitHub. Happy to answer questions about the protocol or the data-loss reasoning.</p>
+
+    <div class="endcta">
+      <a class="btn primary" href="https://github.com/somework/dsx">Source on GitHub&nbsp;↗</a>
+      <a class="btn" href="./">See the demo&nbsp;→</a>
+    </div>
+  </div>
+</article>
+</div>
+
+<footer>
+  <div class="wrap cols">
+    <a href="https://github.com/somework/dsx">GitHub</a>
+    <a href="https://github.com/somework/dsx/releases">Releases</a>
+    <a href="https://github.com/somework/dsx/blob/main/PROTOCOL.md">Protocol</a>
+    <a href="./">Home</a>
+    <span class="meta">dsx · MIT · unofficial, undocumented endpoint</span>
+  </div>
+</footer>
+
+</body>
+</html>

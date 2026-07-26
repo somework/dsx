@@ -19,6 +19,8 @@ pulled 103, unchanged 0, binary 6 (660.1 KB)
 > **Unofficial.** The Claude Design MCP endpoint is undocumented and makes no promises. dsx
 > was built by probing it and can break with any server deploy. See [PROTOCOL.md](PROTOCOL.md).
 
+Build log: [how the protocol was reverse-engineered](https://somework.github.io/dsx/reverse-engineering-claude-design.html), and the three facts I guessed wrong first.
+
 ## Install
 
 One binary, no runtime, nothing to configure. Built for macOS and Linux, on both `amd64` and
