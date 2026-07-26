@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to export and back up a Claude Design project to your computer</title>
+<meta name="description" content="Download the files inside a Claude Design project to a local folder — and keep them in sync — with one command, without the bytes passing through a model's context. A step-by-step guide using dsx.">
+<link rel="canonical" href="https://somework.github.io/dsx/export-claude-design-project.html">
+<meta name="author" content="somework">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How to export and back up a Claude Design project to your computer">
+<meta property="og:description" content="Download and sync the files inside a Claude Design project to a local folder with one command — no bytes through a model's context.">
+<meta property="og:url" content="https://somework.github.io/dsx/export-claude-design-project.html">
+<meta property="og:image" content="https://somework.github.io/dsx/demo.gif">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="How to export and back up a Claude Design project">
+<meta name="twitter:description" content="Download and sync the files inside a Claude Design project to a local folder with one command.">
+<meta name="twitter:image" content="https://somework.github.io/dsx/demo.gif">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌘</text></svg>">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "TechArticle",
+  "headline": "How to export and back up a Claude Design project to your computer",
+  "description": "Download the files inside a Claude Design project to a local folder and keep them in sync, without the bytes passing through a model's context.",
+  "author": { "@type": "Person", "name": "somework" },
+  "datePublished": "2026-07-27",
+  "url": "https://somework.github.io/dsx/export-claude-design-project.html",
+  "image": "https://somework.github.io/dsx/demo.gif",
+  "keywords": "export Claude Design, download Claude Design files, back up Claude Design project, Claude Design CLI, Claude Design to local",
+  "about": { "@type": "SoftwareApplication", "name": "dsx", "applicationCategory": "DeveloperApplication", "operatingSystem": "macOS, Linux" }
+}
+</script>
+<style>
+  :root {
+    --bg:      oklch(15% 0.012 260);
+    --bg-2:    oklch(18% 0.014 260);
+    --surface: oklch(21% 0.016 260);
+    --line:    oklch(30% 0.02 260);
+    --text:    oklch(94% 0.008 250);
+    --muted:   oklch(70% 0.02 255);
+    --faint:   oklch(56% 0.02 255);
+    --ok:      oklch(80% 0.16 150);
+    --ok-dim:  oklch(68% 0.12 150);
+    --link:    oklch(82% 0.10 220);
+    --warn:    oklch(84% 0.12 80);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+    --maxw: 1040px;
+    --measure: 40rem;
+    --r: 14px;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); line-height: 1.65;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+    background-image:
+      radial-gradient(1200px 700px at 12% -8%, oklch(24% 0.03 250 / 0.55), transparent 60%),
+      radial-gradient(900px 600px at 110% 0%, oklch(22% 0.04 160 / 0.28), transparent 55%);
+    background-attachment: fixed;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  a { color: var(--link); text-decoration: none; transition: color .15s var(--ease); }
+  a:hover { color: var(--text); }
+  code { font-family: var(--mono); font-size: 0.9em; }
+
+  header.bar {
+    position: sticky; top: 0; z-index: 10; backdrop-filter: blur(10px);
+    background: oklch(15% 0.012 260 / 0.72); border-bottom: 1px solid var(--line);
+  }
+  .bar .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+  .brand { font-family: var(--mono); font-weight: 600; letter-spacing: .02em; font-size: 1.05rem; color: var(--text); }
+  .brand b { color: var(--ok); }
+  .bar nav { margin-left: auto; display: flex; gap: 22px; font-size: .92rem; }
+  .bar nav a { color: var(--muted); }
+  .bar nav a:hover { color: var(--text); }
+  @media (max-width: 620px) { .bar nav .hide-sm { display: none; } }
+
+  article { padding: clamp(2.6rem, 1.5rem + 5vw, 5rem) 0 2rem; }
+  .eyebrow { font-family: var(--mono); font-size: .82rem; letter-spacing: .04em; color: var(--ok-dim); text-transform: uppercase; margin: 0 0 1rem; }
+  article h1 {
+    font-size: clamp(2rem, 1rem + 4.2vw, 3.1rem); line-height: 1.06; letter-spacing: -0.025em;
+    margin: 0 0 1rem; font-weight: 680; max-width: 22ch;
+  }
+  .standfirst { font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem); color: var(--muted); max-width: var(--measure); margin: 0 0 1.4rem; }
+  .byline { font-family: var(--mono); font-size: .82rem; color: var(--faint); margin: 0 0 2.6rem; border-bottom: 1px solid var(--line); padding-bottom: 1.6rem; }
+  .byline b { color: var(--muted); font-weight: 600; }
+
+  .prose { max-width: var(--measure); }
+  .prose h2 { font-size: clamp(1.4rem, 1.1rem + 1vw, 1.9rem); letter-spacing: -0.02em; margin: 2.8rem 0 0.9rem; font-weight: 660; line-height: 1.15; }
+  .prose h3 { font-size: 1.12rem; margin: 1.8rem 0 0.5rem; font-weight: 640; color: var(--text); }
+  .prose p { color: var(--text); margin: 0 0 1.15rem; }
+  .prose p.muted { color: var(--muted); }
+  .prose strong { color: var(--text); font-weight: 650; }
+  .prose em { color: var(--muted); }
+  .prose a { border-bottom: 1px solid oklch(82% 0.10 220 / .35); }
+  .prose a:hover { border-color: var(--text); }
+  .prose code { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+
+  .steps { counter-reset: step; margin: 1.4rem 0 1rem; padding: 0; list-style: none; max-width: var(--measure); }
+  .steps > li { counter-increment: step; position: relative; padding-left: 3rem; margin-bottom: 1.8rem; }
+  .steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: -2px;
+    font-family: var(--mono); font-size: .95rem; font-weight: 600; color: var(--ok);
+    width: 2rem; height: 2rem; display: grid; place-items: center;
+    border: 1px solid var(--ok-dim); border-radius: 9px; background: oklch(24% 0.05 155 / .4);
+  }
+  .steps h3 { margin: 0.1rem 0 0.5rem; }
+
+  .term { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; margin: 0.9rem 0 0.4rem; box-shadow: 0 24px 60px -30px oklch(0% 0 0 / 0.8), 0 2px 0 oklch(100% 0 0 / 0.03) inset; }
+  .term .chrome { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
+  .term .chrome i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term .chrome i:nth-child(1){ background:oklch(65% 0.16 25);} .term .chrome i:nth-child(2){ background:oklch(80% 0.13 85);} .term .chrome i:nth-child(3){ background:oklch(78% 0.15 150);}
+  .term .chrome span { margin-left: 8px; color: var(--faint); font-family: var(--mono); font-size: .8rem; }
+  .term pre { margin: 0; padding: 15px 18px; font-family: var(--mono); font-size: clamp(.78rem, .72rem + .4vw, .88rem); line-height: 1.7; overflow-x: auto; color: var(--text); }
+  .term pre .p { color: var(--ok-dim); user-select: none; }
+  .term pre .ok { color: var(--ok); }
+  .term pre .c { color: var(--faint); }
+
+  .caveat { border: 1px solid oklch(50% 0.10 80 / .5); background: oklch(22% 0.03 80 / .35); border-radius: var(--r); padding: 20px 22px; margin: 2rem 0; max-width: var(--measure); }
+  .caveat h2 { color: var(--warn); margin-top: 0; font-size: 1.2rem; }
+  .caveat p { color: var(--muted); margin: 0; }
+
+  /* FAQ */
+  .faq { max-width: var(--measure); margin-top: 1rem; }
+  .faq details { border-bottom: 1px solid var(--line); padding: 2px 0; }
+  .faq summary { cursor: pointer; padding: 16px 2px; font-weight: 620; font-size: 1.05rem; list-style: none; display: flex; justify-content: space-between; gap: 12px; color: var(--text); transition: color .15s var(--ease); }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; font-family: var(--mono); color: var(--ok-dim); transition: transform .2s var(--ease); }
+  .faq details[open] summary::after { content: "–"; }
+  .faq summary:hover { color: var(--ok); }
+  .faq details p { color: var(--muted); margin: 0 2px 16px; }
+  .faq details p code { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--text); }
+
+  .endcta { max-width: var(--measure); margin: 2.6rem 0 0; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .btn { display: inline-flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: .95rem; padding: 12px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--text); transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease); }
+  .btn:hover { transform: translateY(-2px); border-color: var(--ok-dim); }
+  .btn.primary { background: linear-gradient(180deg, oklch(30% 0.06 155), oklch(24% 0.05 155)); border-color: var(--ok-dim); }
+  .btn.primary:hover { background: linear-gradient(180deg, oklch(34% 0.07 155), oklch(27% 0.06 155)); }
+
+  footer { border-top: 1px solid var(--line); padding: 42px 0 64px; margin-top: 3.5rem; color: var(--faint); }
+  footer .cols { display: flex; flex-wrap: wrap; gap: 30px 40px; align-items: baseline; }
+  footer a { color: var(--muted); }
+  footer .meta { margin-left: auto; font-family: var(--mono); font-size: .82rem; text-align: right; }
+  ::selection { background: oklch(80% 0.16 150 / .28); }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="wrap">
+    <a class="brand" href="./"><b>dsx</b></a>
+    <nav>
+      <a href="./#how">How it works</a>
+      <a href="./#install">Install</a>
+      <a href="reverse-engineering-claude-design.html" class="hide-sm">Build&nbsp;log</a>
+      <a href="https://github.com/somework/dsx">GitHub&nbsp;↗</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+<article>
+  <p class="eyebrow">Guide</p>
+  <h1>How to export and back up a Claude Design project to your computer</h1>
+  <p class="standfirst">The files inside a Claude Design project live on the server. Here's how to pull them onto a local folder — and keep them in sync — with one command, without the bytes ever passing through a model's context.</p>
+  <p class="byline"><b>somework</b> · 2026-07-27 · using <a href="https://github.com/somework/dsx">dsx</a></p>
+
+  <div class="prose">
+    <p>If you keep a design system in <a href="https://claude.ai/design">Claude Design</a> (claude.ai/design), the files are on Anthropic's server, not on your disk. The tempting way to get a local copy is to ask an agent to "read every file and write it locally" — but that pushes every byte of every file through the model's context. On one large project that came to roughly <strong>665,000 tokens</strong> for a single export. Moving files is not a reasoning task; you shouldn't pay a reasoning bill for it.</p>
+    <p><strong>dsx</strong> is a small command-line tool that does the export as a plain file transfer. It works like git — <code>clone</code>, <code>pull</code>, <code>push</code>, <code>status</code>, <code>diff</code> — and the file bytes never touch a model's context, so the same export costs one summary line instead of 665k tokens.</p>
+
+    <h2>Before you start</h2>
+    <ul style="max-width:var(--measure);color:var(--muted)">
+      <li>You need <a href="https://claude.com/claude-code">Claude Code</a> installed and logged in — dsx reuses its OAuth token, so there is no separate login.</li>
+      <li>macOS or Linux (amd64 or arm64). Windows isn't supported yet.</li>
+      <li>You need the project ID of the Claude Design project you want to export (it's in the project's URL).</li>
+    </ul>
+
+    <h2>Steps</h2>
+    <ol class="steps">
+      <li>
+        <h3>Install dsx</h3>
+        <p class="muted">One binary, no dependencies. With Go:</p>
+        <div class="term"><div class="chrome"><i></i><i></i><i></i><span>install</span></div><pre><span class="p">$ </span>go install github.com/somework/dsx@latest</pre></div>
+        <p class="muted">Or grab a release archive for your platform from <a href="https://github.com/somework/dsx/releases">GitHub Releases</a>, or on macOS <code>brew install somework/tap/dsx</code>.</p>
+      </li>
+      <li>
+        <h3>Grant access once</h3>
+        <p class="muted">Inside Claude Code, run the consent command so your account allows agent access to your Design projects:</p>
+        <div class="term"><div class="chrome"><i></i><i></i><i></i><span>claude</span></div><pre><span class="p">&gt; </span>/design consent</pre></div>
+      </li>
+      <li>
+        <h3>Clone the project</h3>
+        <p class="muted">Point dsx at the project ID and a target folder. This downloads every file into <code>./design</code>:</p>
+        <div class="term"><div class="chrome"><i></i><i></i><i></i><span>dsx clone</span></div><pre><span class="p">$ </span>dsx clone 65fdff85-…-ba9358a234b0 design
+<span class="ok">pulled 103, unchanged 0, binary 6 (660.1 KB)</span></pre></div>
+        <p class="muted">That one line — not 665k tokens — is the whole cost of the export.</p>
+      </li>
+      <li>
+        <h3>Keep it in sync</h3>
+        <p class="muted">Later, pull down changes made in Claude Design, or push local edits back:</p>
+        <div class="term"><div class="chrome"><i></i><i></i><i></i><span>dsx</span></div><pre><span class="p">$ </span><span class="c"># see what changed, offline, no download</span>
+<span class="p">$ </span>dsx status
+<span class="p">$ </span><span class="c"># fetch server changes</span>
+<span class="p">$ </span>dsx pull
+<span class="p">$ </span><span class="c"># send your local edits back</span>
+<span class="p">$ </span>dsx push</pre></div>
+      </li>
+    </ol>
+
+    <h2>Backing up (and the one flag to be careful with)</h2>
+    <p>For a plain backup, a <code>clone</code> followed by periodic <code>pull</code> is all you need — dsx writes every file temp-then-rename, so an interrupted run never leaves a half-written file, and conflicts are decided on the actual bytes, never on timestamps.</p>
+    <div class="caveat">
+      <h2>About <code>--prune</code></h2>
+      <p>Adding <code>--prune</code> mirrors deletions — but dsx will only delete a local file it can <em>prove</em> it put there and that you didn't modify. An untracked file is never yours to delete; a locally edited file is a conflict, not a deletion. Still, treat <code>--prune</code> like <code>rm</code>: know what it will remove before you run it.</p>
+    </div>
+
+    <h2>FAQ</h2>
+    <div class="faq">
+      <details open>
+        <summary>Can I download my Claude Design files without an agent reading each one?</summary>
+        <p>Yes — that's the whole point. dsx transfers the files directly; the bytes never enter a model's context, so a large project exports for one summary line instead of hundreds of thousands of tokens.</p>
+      </details>
+      <details>
+        <summary>Is this official? Is it safe to use with my account?</summary>
+        <p>It is <strong>unofficial</strong> and not affiliated with Anthropic — the Claude Design endpoint is undocumented, and a server change can break dsx. It's built to fail loudly rather than silently: every protocol assumption is pinned by a live test. It reads your existing Claude Code OAuth token and never writes or prints it. The whole thing is a single Go binary with zero third-party dependencies, so it's auditable end to end.</p>
+      </details>
+      <details>
+        <summary>Does it edit my files, or just download them?</summary>
+        <p>Both directions. <code>pull</code> brings the server's files down; <code>push</code> sends your local edits back; <code>status</code> and <code>diff</code> show what changed. If both sides changed the same file, dsx reports a conflict instead of silently overwriting either copy.</p>
+      </details>
+      <details>
+        <summary>What about images and other binary assets?</summary>
+        <p>They come down too. dsx detects binary files by content and handles them on a separate lane; the summary line reports how many binary files were transferred.</p>
+      </details>
+      <details>
+        <summary>Does it cost any tokens?</summary>
+        <p>No. dsx is not a model call — it's a file-sync client. It uses your Claude Code login to authenticate to the endpoint, but moving the files spends no tokens.</p>
+      </details>
+      <details>
+        <summary>Which platforms are supported?</summary>
+        <p>macOS and Linux, both amd64 and arm64. Windows is not supported yet.</p>
+      </details>
+    </div>
+
+    <p style="margin-top:2rem">Want the story of how the undocumented endpoint was recovered — and the three protocol facts I guessed wrong first? Read the <a href="reverse-engineering-claude-design.html">build log</a>.</p>
+
+    <div class="endcta">
+      <a class="btn primary" href="https://github.com/somework/dsx">Get dsx on GitHub&nbsp;↗</a>
+      <a class="btn" href="./">See the demo&nbsp;→</a>
+    </div>
+  </div>
+</article>
+</div>
+
+<footer>
+  <div class="wrap cols">
+    <a href="https://github.com/somework/dsx">GitHub</a>
+    <a href="https://github.com/somework/dsx/releases">Releases</a>
+    <a href="reverse-engineering-claude-design.html">Build log</a>
+    <a href="./">Home</a>
+    <span class="meta">dsx · MIT · unofficial, undocumented endpoint</span>
+  </div>
+</footer>
+
+</body>
+</html>
